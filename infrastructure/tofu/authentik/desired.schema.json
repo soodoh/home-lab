@@ -43,7 +43,7 @@
       "const": "./desired.schema.json"
     },
     "schemaVersion": {
-      "const": 5
+      "const": 6
     },
     "brands": {
       "additionalProperties": {
@@ -57,8 +57,8 @@
       "additionalProperties": {
         "$ref": "#/$defs/groupsEntry"
       },
-      "maxProperties": 6,
-      "minProperties": 6,
+      "maxProperties": 7,
+      "minProperties": 7,
       "type": "object"
     },
     "membershipSets": {
@@ -67,7 +67,8 @@
       "required": [
         "caro",
         "family",
-        "personal"
+        "personal",
+        "operators"
       ],
       "properties": {
         "family": {
@@ -89,6 +90,15 @@
           }
         },
         "personal": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "operators": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -491,7 +501,8 @@
           "enum": [
             "caro",
             "family",
-            "personal"
+            "personal",
+            "operators"
           ]
         }
       },

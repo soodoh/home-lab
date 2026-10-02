@@ -16,7 +16,7 @@ OAUTH_PROVIDER_IDS = {"15", "21", "37", "47"}
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
-        self.assertEqual(DESIRED["schemaVersion"], 5)
+        self.assertEqual(DESIRED["schemaVersion"], 6)
         self.assertNotIn("sourceInventory", DESIRED)
         self.assertEqual(len(DESIRED["applications"]), 22)
         self.assertEqual(len(DESIRED["proxyProviders"]), 18)
@@ -153,7 +153,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
                 self.assertTrue(binding["enabled"])
                 self.assertFalse(binding["negate"])
                 self.assertIsNone(binding["user"], "Direct-user grants bypass membership revocation")
-                if binding["group"] in groups:
+                if binding["group"] in groups and binding["group"] != DESIRED["groups"]["app-operators"]["pk"]:
                     group = groups[binding["group"]]
                     granted.update(DESIRED["membershipSets"][group["membership_set"]])
             self.assertEqual(granted, members, slug)
@@ -165,6 +165,19 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
                 self.assertEqual(group["roles"], [])
         self.assertEqual(DESIRED["groups"]["jellyfin"]["name"], "Jellyfin")
         self.assertEqual(DESIRED["groups"]["jellyfin"]["pk"], "7cc8f9fe-b4e6-4762-be05-263403a828e9")
+
+    def test_operator_access_is_separate_from_authentik_administration(self) -> None:
+        group = DESIRED["groups"]["app-operators"]
+        self.assertEqual(group["name"], "App Operators")
+        self.assertEqual(DESIRED["membershipSets"][group["membership_set"]], ["paul"])
+        self.assertFalse(group["is_superuser"])
+        self.assertEqual(group["parents"], [])
+        self.assertEqual(group["roles"], [])
+        self.assertEqual({binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()
+                          if binding["group"] == group["pk"]}, {"calibre","calibre-web-automated","caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","radarr-4k","readarr","sabnzbd","sonarr","tachidesk","vaultwarden","zwave"})
+        owned_groups = {value["pk"] for value in DESIRED["groups"].values()}
+        self.assertTrue(all(binding["group"] in owned_groups and binding["user"] is None
+                            for binding in DESIRED["applicationPolicyBindings"].values()))
 
     def test_mindwtr_remains_a_web_only_forward_auth_gate(self) -> None:
         app = DESIRED["applications"]["mindwtr"]
@@ -217,7 +230,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(
             [binding["group"] for binding in DESIRED["applicationPolicyBindings"].values()
              if binding["application_slug"] == "zwave"],
-            ["2b247c3f-fe19-4565-8f59-82f2c2429eb2"],
+            [DESIRED["groups"]["app-operators"]["pk"]],
         )
 
     def test_omada_bridge_advertises_reachable_host(self) -> None:
@@ -437,7 +450,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 118)
+        self.assertEqual(len(allow), 119)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

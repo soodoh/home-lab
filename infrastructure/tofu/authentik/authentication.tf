@@ -43,7 +43,7 @@ locals {
 check "authentication_ownership" {
   assert {
     condition = (
-      length(local.desired.groups) == 6 &&
+      length(local.desired.groups) == 7 &&
       length(local.desired.identificationStages) == 1 &&
       length(local.desired.webauthnStages) == 1 &&
       length(local.desired.invitationStages) == 1 &&

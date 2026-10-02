@@ -2,7 +2,7 @@
 
 The `infrastructure/tofu/authentik` root defines application/provider configuration,
 access bindings, custom authentication and invitation-enrollment flows, their
-supporting stages, the Jellyfin group, password-change policy, default brand
+supporting stages, application-access groups, password-change policy, default brand
 selectors and provider-exposed system settings. Remote S3 state defines ownership;
 import IDs and desired values are not proof that adoption has completed. Follow
 [operations](operations.md) for fresh observation, complete saved-plan review,
@@ -17,7 +17,7 @@ replace the live, remote-backed import plan.
 ## Directory and onboarding
 
 Application-access membership is Git-owned. `membershipSets` defines the shared
-`family`, `caro` and `personal` username lists once; each `groups.*.membership_set`
+`family`, `caro`, `personal` and `operators` username lists once; each `groups.*.membership_set`
 selects one list. Native provider data sources resolve independently owned users;
 the root never creates or changes those accounts, their passwords or their
 personal authenticators. These are flat groups with no parents or superuser status.
@@ -30,10 +30,14 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | CWA Users | personal | Calibre-Web-Automated |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
+| App Operators | operators (Paul only) | Calibre, CWA, Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, Radarr 4K, Readarr, SABnzbd, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
 
-The existing `authentik Admins` application bindings remain independent access
-paths for the administrator; these groups never confer Authentik administration.
-Applications combine bindings using `any` (OR). Direct-user exceptions are not
+`App Operators` grants application access, not in-application administrator roles.
+`authentik Admins` and its independently administered membership grant Authentik
+administration only; application bindings do not reference that group. Shared
+applications combine their specific access group and `App Operators` using `any`
+(OR). Jellyfin and Seerr retain the media group rather than an operator binding;
+Paul accesses them through his media membership. Direct-user exceptions are not
 retained alongside the entitlement groups: they would bypass membership removal.
 GOST keeps its separate exact service-account binding.
 
