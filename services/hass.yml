@@ -15,9 +15,12 @@ services:
         condition: service_started
       authentik-server:
         condition: service_healthy
-    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     devices:
-      - /dev/zigbee:/dev/zigbee
+      # Preserve the serial path configured in ZHA using the stable host alias.
+      - /dev/zigbee:/dev/ttyUSB0
     environment:
       TZ: $TZ
     volumes:
@@ -83,7 +86,6 @@ services:
     logging: *default-logging
     shm_size: "100mb"
     mem_limit: 4096m
-    privileged: true
     devices:
       # Radeon RX 7900 XTX
       - /dev/dri/renderD128:/dev/dri/renderD128
