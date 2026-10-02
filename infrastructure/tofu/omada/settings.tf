@@ -1,6 +1,6 @@
 # Selective ownership: unset provider attributes retain controller values.
-# SMTP/recipients belong to Ansible; individual notification selectors remain
-# unchanged. Provider v0.11.10 cannot import sparse selector maps without updates.
+# SMTP belongs to Ansible; recipients come from independently owned accounts.
+# Individual notification selectors remain unchanged. Provider v0.11.10 cannot import sparse selector maps without updates.
 
 import {
   for_each = local.wireless_networks

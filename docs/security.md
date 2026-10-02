@@ -17,8 +17,12 @@ private temporary output when the current run ends.
 `secrets/production.sops.yaml` is the structured encrypted application source.
 [`Omada mail`](omada-mail.md) has a separate desired authority in
 `secrets/omada-mail.sops.json`: dedicated SMTP token, server, sender and
-recipients. Capture and observation do not activate it. The approval-gated native
-Ansible mail interface decrypts on the controller and protects requests with
+required recipients. Native recipients are derived from independently owned
+administrator account email/alert subscriptions; SMTP approval is not an account
+mutation grant. The mail role requires those recipients before SMTP writes and
+never PATCHes notifications or accounts. Capture and observation do not activate
+SMTP. The approval-gated native Ansible mail interface decrypts on the controller
+and protects requests with
 `no_log` and verified HTTPS; SMTP tokens are masked by the API and cannot be
 compared during a normal observation. Omada has no documented SMTP password-file
 reader; do not inject these values into Compose or claim that a secret mount

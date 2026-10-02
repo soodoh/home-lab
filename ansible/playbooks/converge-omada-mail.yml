@@ -5,13 +5,13 @@
 - name: Observe current backup admission before changing Omada mail
   ansible.builtin.import_playbook: observe-backups.yml
 
-- name: Converge Omada SMTP and recipients under production ownership
+- name: Converge Omada SMTP with account-recipient admission under production ownership
   hosts: docker-host
   gather_facts: true
   gather_subset: ["!all", min]
   any_errors_fatal: true
   pre_tasks:
-    - name: Require explicit approval for SMTP and recipient changes
+    - name: Require explicit approval for SMTP changes
       ansible.builtin.assert:
         that: omada_mail_apply_confirmed | default(false) | bool
         fail_msg: Live mail convergence requires omada_mail_apply_confirmed=true.
@@ -21,6 +21,11 @@
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
+
+    - name: Admit SMTP inputs and account recipients before acquiring ownership
+      ansible.builtin.import_role:
+        name: omada_mail
+      check_mode: true
 
     - name: Acquire production ownership
       ansible.builtin.import_role:
@@ -36,7 +41,7 @@
         name: compose_native
         tasks_from: observe
 
-    - name: Converge only SMTP and the selected site's recipients
+    - name: Converge only SMTP after verifying the selected site's account recipients
       ansible.builtin.import_role:
         name: omada_mail
 

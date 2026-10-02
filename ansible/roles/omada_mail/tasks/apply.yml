@@ -32,18 +32,6 @@
   changed_when: true
   when: omada_mail_smtp_changed
 
-- name: Update only recipients in the preserved notification document
-  ansible.builtin.uri:
-    url: "{{ omada_mail_notification_url }}"
-    method: PATCH
-    headers: "{{ omada_mail_headers }}"
-    body_format: json
-    body: "{{ omada_mail_notifications_current | combine({'recipients': omada_mail_recipients_desired}) }}"
-  register: omada_mail_recipient_write
-  failed_when: omada_mail_recipient_write.status != 200 or omada_mail_recipient_write.json.errorCode != 0
-  changed_when: true
-  when: omada_mail_recipients_changed
-
 - name: Reread persisted settings even after a public-settings no-op
   ansible.builtin.uri:
     url: "{{ item }}"
@@ -53,7 +41,7 @@
   register: omada_mail_verified
   changed_when: false
 
-- name: Verify SMTP settings and recipients without claiming a readable token
+- name: Verify SMTP settings and account-derived recipients without claiming a readable token
   ansible.builtin.assert:
     that:
       - omada_mail_verified.results[0].json.errorCode == 0

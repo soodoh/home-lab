@@ -148,7 +148,6 @@
           username: "{{ omada_mail_desired.smtp.username }}"
           password: "{{ omada_mail_desired.smtp.password }}"
           senderAddress: "{{ omada_mail_desired.smtp.sender }}"
-        omada_mail_recipients_desired: "{{ omada_mail_desired.recipients | map('community.general.dict_kv', 'email') | list }}"
 
     - name: Refuse unknown SMTP fields rather than silently dropping them
       ansible.builtin.assert:
@@ -169,6 +168,16 @@
           {{ omada_mail_rotate_credentials | bool or
             omada_mail_smtp_current | combine(omada_mail_smtp_public) != omada_mail_smtp_current }}
 
+    - name: Require independently configured recipient accounts before SMTP convergence
+      ansible.builtin.assert:
+        that: not omada_mail_recipients_changed
+        fail_msg: >-
+          Recipients are a read-only projection of administrator account email and alert
+          subscriptions. Configure the reviewed accounts separately; this role does not
+          change accounts or write notification recipients.
+      no_log: false
+      when: not omada_mail_observe_only | bool
+
     - name: Apply and verify only explicitly approved configuration
       ansible.builtin.import_tasks: apply.yml
       when:
@@ -179,7 +188,8 @@
   ansible.builtin.debug:
     msg:
       smtp_update_required: "{{ omada_mail_smtp_changed }}"
-      recipients_update_required: "{{ omada_mail_recipients_changed }}"
+      recipient_prerequisite_met: "{{ not omada_mail_recipients_changed }}"
+      recipients_source: administrator_accounts
       credential_comparison: unavailable_masked_by_controller
       test_submission: "{{ 'accepted' if not ansible_check_mode and not omada_mail_observe_only | bool and omada_mail_send_test | bool else 'not_sent' }}"
       mailbox_delivery: not_verified

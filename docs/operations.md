@@ -175,14 +175,18 @@ as complete until its admin setting and fresh login have been checked.
 ### Omada SMTP and recipients
 
 [Omada mail](omada-mail.md) uses a separate SOPS authority and native Ansible
-API convergence, not Compose interpolation or an invented password-file reader.
-Use `observe-omada-mail.yml` with a fresh private plan credential session;
+API SMTP convergence, not Compose interpolation or an invented password-file
+reader. Recipients are derived from independently owned administrator account email
+addresses and alert subscriptions; notification PATCH does not configure them.
+Review account changes separately and require the observed destination set to match
+SOPS before SMTP convergence. Use `observe-omada-mail.yml` with a fresh private plan credential session;
 `converge-omada-mail.yml --check` also validates host, Compose and backup admission.
 A separately approved apply uses the apply identity under the production host
-lock. SMTP is controller-wide; recipients belong only to the reviewed site.
-Notification toggles remain provider-owned and must be preserved. Serialize
-these writes against manual controller edits and OpenTofu notification applies:
-the native whole-document PATCH has no compare-and-swap guarantee.
+lock. SMTP is controller-wide; the recipient prerequisite is observed in the
+reviewed site. Notification toggles remain provider-owned and must be preserved.
+The mail role never writes notification or account documents. Serialize SMTP
+convergence against account changes, manual edits and OpenTofu notification applies;
+rereading cannot eliminate a concurrent-edit race.
 
 The API masks the SMTP token. Public-settings convergence cannot prove secret
 synchronization; an approved token-only rotation needs its explicit flag. Opt-in

@@ -45,7 +45,8 @@ NOTIFICATIONS = {
     "alertNotifications": [{"key": "DHCP_EXHAUSTED", "email": False, "webhook": True,
                             "enable": True, "level": "warning", "unmodelled": [1, 2]}],
     "eventNotifications": [{"key": "DEVICE_ADOPTED", "email": True, "webhook": False, "enable": False}],
-    "recipients": [],
+    # Native recipients are derived from independently configured accounts.
+    "recipients": [{"email": "recipient@example.com"}],
     "futureSetting": {"preserve": "nested-value"},
 }
 BASE = "/fixture-controller/api/v2"
@@ -63,7 +64,7 @@ class Controller:
         self.drift_on_reread = False
         self.notification_reads = 0
         self.fail_smtp_write = False
-        self.corrupt_notification_write = False
+        self.corrupt_during_smtp_write = False
         self.redirect_info = False
 
     def in_sync(self):
@@ -86,12 +87,16 @@ class Controller:
             if self.fail_smtp_write:
                 return None
             self.smtp = deepcopy(body)
+            if self.corrupt_during_smtp_write:
+                self.notifications["eventEmailSetting"]["eventEmailEnable"] = True
             return {}
         if method == "PATCH" and path == NOTIFICATION_PATH:
+            # The real controller accepts the PATCH but ignores this read-only
+            # projection; only account email/alert settings change recipients.
+            recipients = deepcopy(self.notifications["recipients"])
             self.notifications = deepcopy(body)
             self.notifications["resource"] = {"controllerOwned": True}
-            if self.corrupt_notification_write:
-                self.notifications["eventEmailSetting"]["eventEmailEnable"] = True
+            self.notifications["recipients"] = recipients
             return {}
         if method == "POST" and path == BASE + "/settings/test-mail":
             # Native UI tests reread form settings with the stored-password mask,
@@ -252,27 +257,52 @@ class MailConvergenceTests(unittest.TestCase):
         self.run_role(state, success=False)
         self.assertEqual(self.mutations(state), [])
 
+    def test_missing_account_recipients_block_before_any_mutation(self):
+        for synchronized_smtp in [False, True]:
+            state = Controller()
+            if synchronized_smtp:
+                state.smtp = deepcopy(SMTP)
+            state.notifications["recipients"] = []
+            smtp_before = deepcopy(state.smtp)
+            notifications_before = deepcopy(state.notifications)
+            self.run_role(state, send_test=True, success=False)
+            self.assertEqual(self.mutations(state), [])
+            self.assertEqual(state.smtp, smtp_before)
+            self.assertEqual(state.notifications, notifications_before)
+
     def test_initial_apply_serializes_token_preserves_notifications_and_is_idempotent(self):
         state = Controller()
         self.run_role(state, send_test=True)
         self.assertEqual(state.smtp, SMTP)
-        self.assertEqual(state.notifications, {**NOTIFICATIONS, "recipients": [{"email": "recipient@example.com"}]})
+        self.assertEqual(state.notifications, NOTIFICATIONS)
         mutations = self.mutations(state)
         self.assertEqual([(m, p) for m, p, _ in mutations], [
-            ("PATCH", SMTP_PATH), ("PATCH", NOTIFICATION_PATH), ("POST", BASE + "/settings/test-mail"),
+            ("PATCH", SMTP_PATH), ("POST", BASE + "/settings/test-mail"),
         ])
-        self.assertNotIn("resource", mutations[1][2])
-        self.assertEqual(mutations[2][2]["password"], "********")
+        self.assertEqual(mutations[1][2]["password"], "********")
         state.requests.clear()
         output = self.run_role(state)
         self.assertEqual(self.mutations(state), [])
         self.assertIn("unavailable_masked_by_controller", output)
 
-    def test_recipient_only_change_does_not_rewrite_the_masked_credential(self):
+    def test_unexpected_account_destinations_are_not_changed(self):
+        state = Controller()
+        state.notifications["recipients"].append({"email": "independent-owner@example.com"})
+        before = deepcopy(state.notifications)
+        self.run_role(state, send_test=True, success=False)
+        self.assertEqual(self.mutations(state), [])
+        self.assertEqual(state.notifications, before)
+
+    def test_missing_recipients_are_reported_by_observer_and_refuse_preview(self):
         state = Controller()
         state.smtp = deepcopy(SMTP)
-        self.run_role(state)
-        self.assertEqual([(m, p) for m, p, _ in self.mutations(state)], [("PATCH", NOTIFICATION_PATH)])
+        state.notifications["recipients"] = []
+        output = self.run_role(state, observe=True)
+        self.assertIn('"recipient_prerequisite_met": false', output)
+        self.assertIn("administrator_accounts", output)
+        self.assertEqual(self.mutations(state), [])
+        self.run_role(state, check=True, send_test=True, rotate=True, success=False)
+        self.assertEqual(self.mutations(state), [])
         self.assertEqual(state.smtp, SMTP)
 
     def test_token_only_rotation_requires_its_flag_and_tests_saved_credentials(self):
@@ -314,10 +344,10 @@ class MailConvergenceTests(unittest.TestCase):
 
     def test_persistence_corruption_is_detected_before_test_submission(self):
         state = Controller()
-        state.corrupt_notification_write = True
+        state.corrupt_during_smtp_write = True
         self.run_role(state, send_test=True, success=False)
         self.assertEqual([(m, p) for m, p, _ in self.mutations(state)], [
-            ("PATCH", SMTP_PATH), ("PATCH", NOTIFICATION_PATH),
+            ("PATCH", SMTP_PATH),
         ])
 
     def test_implicit_tls_and_invalid_input_contract(self):

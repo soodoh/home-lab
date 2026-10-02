@@ -1,7 +1,7 @@
 # Omada mail configuration
 
 `secrets/omada-mail.sops.json` is the desired authority for SMTP credentials,
-server, sender and the selected site's alert recipients. SOPS encrypts every
+server, sender and the selected site's required alert recipients. SOPS encrypts every
 value to both repository age recipients. Recover the age identity from independent
 protected storage; ciphertext alone is not sufficient for recovery.
 
@@ -43,6 +43,27 @@ a pipe without printing values or writing plaintext under Git. Convergence tests
 exercise native Ansible tasks against a synthetic loopback HTTPS controller; they
 never use production credentials or deliver real email.
 
+## Recipient ownership prerequisite
+
+On controller `6.3.0.45`, notification `recipients` is a **read-only projection**
+of administrator account email addresses and their alert subscriptions. The native
+log UI disables direct recipient editing and sends “Manage Recipients” to accounts.
+A notification PATCH can return success while ignoring a supplied recipient list.
+Do not use that PATCH to configure recipients.
+
+Account identity, email, alert subscriptions, privileges and site access remain
+independently owned. Configure a reviewed existing account through its native
+account interface only after separate owner approval; do not create an account,
+change credentials/roles/site grants, or subscribe provider service accounts merely
+to satisfy mail admission. Requalify the account interface before adding automation.
+
+SOPS `recipients` is the required destination set, not an account-writing grant.
+The SMTP role observes the selected site and requires its account-derived recipient
+set to match exactly before convergence. Missing or unexpected destinations refuse
+both the preview and apply **before any SMTP write**. The playbook runs this
+read-only prerequisite before acquiring production ownership, then rereads under
+ownership. The observer still reports differences without changing anything.
+
 ## Observe without applying
 
 Start from a clean reviewed checkout and a **fresh private provider session** using
@@ -61,7 +82,8 @@ ansible-playbook ansible/playbooks/converge-omada-mail.yml --check
 
 The observer is read-only even without `--check`: authentication creates a session,
 but no configuration PATCH or test-email submission is permitted. Check mode uses
-only the plan identity and reports bounded SMTP/recipient change decisions.
+only the plan identity and reports bounded SMTP change decisions and recipient
+prerequisite status. A missing recipient is not an SMTP-side update to apply.
 The convergence playbook additionally observes host, Compose and backup admission;
 check mode does not acquire a production mutation lock.
 
@@ -74,9 +96,9 @@ unreadable credential. A token-only rotation requires the explicit rotation flag
 This source interface is not an apply approval. Review fresh observation and the
 entire intended change, then explicitly approve application. The playbook acquires
 the existing Docker-host production lock and reobserves Compose before API writes.
-Do not run OpenTofu notification changes or manual controller edits concurrently:
-the native whole-document PATCH has no compare-and-swap guarantee. A reread refuses
-already-visible concurrent edits, but cannot eliminate the final read/write race.
+Do not run OpenTofu notification changes, account subscription changes or manual
+controller edits concurrently. A reread refuses already-visible edits, but cannot
+eliminate the final read/write race.
 
 After separate approval, the invocation shape is:
 
@@ -89,12 +111,12 @@ For an approved **token-only** rotation, also pass
 `-e omada_mail_rotate_credentials=true`. Keep the previous token valid and its SOPS
 revision recoverable until delivery with the new token has been verified.
 
-The role configures controller-wide SMTP and **only recipients** in the selected
-site's notification document. It preserves every notification toggle, delivery
-flag, delay, webhook selection and unmodelled field; only controller-owned
-`resource` metadata is omitted from the write. It does not write global recipients,
-IGMP settings, Compose configuration or OpenTofu state. The provider remains the
-owner of adopted notification toggles; Ansible is not a second writer of them.
+The role writes **only controller-wide SMTP**. It never writes the notification
+document, account records, recipients, IGMP settings, Compose configuration or
+OpenTofu state. It verifies every observed notification toggle, delivery flag,
+delay, webhook selection and unmodelled field is unchanged, excluding only dynamic
+controller-owned `resource` metadata. The provider remains the owner of adopted
+notification toggles; native accounts own recipient projection.
 
 After writes, the role rereads and verifies public SMTP settings, recipients and
 all preserved notification fields. Tests are opt-in, one submission per desired
@@ -102,8 +124,9 @@ recipient, using reread form settings and the native stored-password sentinel,
 not a desired token supplied as a transient test credential. API success means
 **submission accepted**, not confirmed mailbox delivery. Independently check receipt
 and require a fresh observer/check before declaring mail functional. Writes and
-sentinel behavior still need qualification on the real controller during the first
-separately approved activation; synthetic tests are not that evidence.
+sentinel behavior need independent live qualification; successful SMTP persistence
+alone does not qualify test submission or delivery. Synthetic tests are not that
+evidence.
 
 Failure retains the production lock. Reobserve controller and host state, keep
 private evidence and resolve the retained owner using the existing independently
@@ -124,8 +147,8 @@ Keep adoption separate and require import-only no-op plans before behavior chang
 ## Interface and primary sources
 
 The native role is version-bound to the reviewed `6.3.0.45` interface: SMTP
-`GET/PATCH /{controller}/api/v2/global/settings/mail-server`, site notification
-`GET/PATCH /{controller}/api/v2/sites/{site}/logs/notification`, and opt-in test mail
+`GET/PATCH /{controller}/api/v2/global/settings/mail-server`, read-only site
+notification `GET /{controller}/api/v2/sites/{site}/logs/notification`, and opt-in test mail
 `POST /{controller}/api/v2/settings/test-mail`. The bundled native UI supplies the
 SMTP form fields and masked-password test behavior. Requalify after upgrades.
 

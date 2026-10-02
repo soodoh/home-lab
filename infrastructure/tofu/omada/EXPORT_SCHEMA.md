@@ -39,10 +39,12 @@ Individual alert/event selector maps are intentionally not declared here. Provid
 v0.11.10 refreshes only selector keys already in state; declaring even matching
 sparse maps during import causes an update. Review any future selector adoption
 separately instead of calling it a no-op import. Unlisted selectors remain intact.
-SMTP and recipient ownership belongs to [native Ansible](../../../docs/omada-mail.md),
-not this root; provider notification writes preserve those recipients. Serialize
-notification applies, mail convergence and manual edits. Neither native writer
-provides compare-and-swap protection for the shared notification document.
+SMTP belongs to [native Ansible](../../../docs/omada-mail.md), not this root.
+Recipients are a read-only projection of independently owned administrator account
+email/alert subscriptions, checked as a prerequisite by Ansible. Provider
+notification writes do not establish recipient configuration. Serialize notification
+applies, SMTP convergence, account changes and manual edits; rereading cannot
+eliminate a concurrent-edit race.
 
 Other sites/networks, WLAN-group configuration, WAN configuration, AP names/radios
 and switch configuration remain outside this ownership boundary.

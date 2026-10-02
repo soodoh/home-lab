@@ -5,7 +5,7 @@
   gather_facts: false
   any_errors_fatal: true
   tasks:
-    - name: Compare desired mail configuration using the plan identity
+    - name: Compare SMTP and required account recipients using the plan identity
       ansible.builtin.import_role:
         name: omada_mail
       vars:
