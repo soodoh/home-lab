@@ -29,6 +29,21 @@ The root also manages these explicitly configured settings:
   list. They do not activate IPTV while `enable` is false.
 - Global alert/event email, batching delays and webhook delivery controls.
 
+The controller also exposes alert-email enablement through the site-settings
+`alert.enable` field, read as `omada_site_settings.alert_enable`. Leave that
+attribute unset: `omada_notification_settings.alert_email_enable` is the sole
+configured writer. After a notification update, independently review any
+refresh-only state reconciliation of the computed mirror before declaring a
+zero-drift follow-up plan; do not introduce a second desired setting or write
+site settings to clear the observed difference.
+
+IPTV writes on controller `6.3.0.45` are not qualified for preserving WAN
+selection and MLD configuration. Provider `0.11.10` omits the observed
+`igmpSetting.wanPortId` and `mldSetting` from its IPTV PUT. Read-only adoption
+does not establish how the controller handles those omissions. Qualify
+preservation under separate write approval or fix the provider before changing
+IGMP/IPTV configuration; do not assume omission means preservation.
+
 Unset optional/computed attributes are not desired authority. Provider defaults
 still apply where documented; require an import-only plan with **zero** controller
 updates before adopting resources. Wi-Fi `psk` is deliberately omitted: updates
@@ -107,8 +122,15 @@ The required shape is shown with synthetic values:
 ```
 
 [`scripts/prepare-omada-plan-input`](../../../scripts/prepare-omada-plan-input)
-creates this observation afresh. Follow [operations](../../../docs/operations.md)
-for clean-checkout review, private credentials, remote state, plan inspection and
-separate apply confirmation. An import-only policy entry admits ownership only;
+creates this observation afresh. Keep the export unchanged at its saved-plan
+path until apply and verification finish: OpenTofu evaluates `file()` during
+saved-plan application, including refresh-only application. Destroy disposable
+provider credentials separately; do not delete required non-credential inputs
+while an approved operation remains nonterminal. An expired export requires a
+fresh observation, plan and approval, not a rewritten timestamp. Remove the
+export and saved plans at completed-run cleanup.
+
+Follow [operations](../../../docs/operations.md) for clean-checkout review,
+private credentials, remote state, plan inspection and separate apply confirmation. An import-only policy entry admits ownership only;
 it does not authorize a controller update or an apply. Remove transition-only
 import allowances after verified adoption and a fresh no-op plan.
