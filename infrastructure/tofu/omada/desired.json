@@ -88,7 +88,7 @@
     ]
   },
   "notification_settings": {
-    "alert_email_enable": false,
+    "alert_email_enable": true,
     "alert_email_delay_enable": false,
     "alert_email_delay": 60,
     "event_email_enable": false,
