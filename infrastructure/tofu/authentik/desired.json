@@ -691,6 +691,27 @@
     }
   },
   "authenticatorValidateStages": {
+    "default-authentication-mfa-validation": {
+      "configuration_stages": [],
+      "device_classes": [
+        "static",
+        "totp",
+        "webauthn",
+        "duo",
+        "sms"
+      ],
+      "email_otp_throttling_factor": 1.0,
+      "last_auth_threshold": "seconds=0",
+      "name": "default-authentication-mfa-validation",
+      "not_configured_action": "skip",
+      "pk": "fa813558-ca29-4fc1-8a65-61088012eeba",
+      "sms_otp_throttling_factor": 1.0,
+      "static_otp_throttling_factor": 1.0,
+      "totp_otp_throttling_factor": 1.0,
+      "webauthn_allowed_device_types": [],
+      "webauthn_hints": [],
+      "webauthn_user_verification": "preferred"
+    },
     "passwordless-webauthn": {
       "configuration_stages": [
         "a69d0c59-109b-4e12-b9e3-60a4e15c514f"
@@ -720,6 +741,20 @@
   },
   "customBlueprints": {},
   "customFlows": {
+    "invitation-enrollment": {
+      "authentication": "require_unauthenticated",
+      "background": "",
+      "compatibility_mode": false,
+      "denied_action": "message_continue",
+      "designation": "enrollment",
+      "import_existing": true,
+      "layout": "stacked",
+      "name": "Default enrollment Flow",
+      "pk": "cc450bd2-fe89-4837-ae2d-81712f3ec7f3",
+      "policy_engine_mode": "any",
+      "slug": "default-enrollment-flow",
+      "title": "Welcome to authentik!"
+    },
     "jellyfin-ldap-authentication": {
       "authentication": "require_unauthenticated",
       "background": "",
@@ -770,6 +805,61 @@
       "policy_engine_mode": "any",
       "re_evaluate_policies": true,
       "stage_ref": "passwordless-webauthn"
+    },
+    "enrollment-first": {
+      "evaluate_on_plan": false,
+      "flow_ref": "invitation-enrollment",
+      "import_existing": true,
+      "invalid_response_action": "retry",
+      "order": 10,
+      "pk": "ca41a680-3f3c-4c44-82ec-6096dcabfcc2",
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "enrollment-first"
+    },
+    "enrollment-invitation": {
+      "evaluate_on_plan": false,
+      "flow_ref": "invitation-enrollment",
+      "import_existing": true,
+      "invalid_response_action": "retry",
+      "order": 1,
+      "pk": "af1369ad-efc1-49b8-bb9f-6092b0d6737a",
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "enrollment-invitation"
+    },
+    "enrollment-login": {
+      "evaluate_on_plan": false,
+      "flow_ref": "invitation-enrollment",
+      "import_existing": true,
+      "invalid_response_action": "retry",
+      "order": 100,
+      "pk": "030920f8-f897-4d73-94ca-40dc4ebe3c35",
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "enrollment-login"
+    },
+    "enrollment-second": {
+      "evaluate_on_plan": false,
+      "flow_ref": "invitation-enrollment",
+      "import_existing": true,
+      "invalid_response_action": "retry",
+      "order": 11,
+      "pk": "fc9e2e9c-6b0a-48f4-986f-52242b11723a",
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "enrollment-second"
+    },
+    "enrollment-write": {
+      "evaluate_on_plan": false,
+      "flow_ref": "invitation-enrollment",
+      "import_existing": true,
+      "invalid_response_action": "retry",
+      "order": 20,
+      "pk": "38857591-25e5-4188-9eef-b119ba1a7cb9",
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "enrollment-write"
     },
     "jellyfin-ldap-identification": {
       "evaluate_on_plan": false,
@@ -1594,7 +1684,7 @@
   "retainedOAuthProviders": [
     "15"
   ],
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "scopeMappings": {
     "vaultwarden-email": {
       "description": "",
@@ -1646,13 +1736,256 @@
       "user_ref": "gost-proxy-user"
     }
   },
-  "sourceInventory": {
-    "applicationPolicyBindingsSha256": "a93b1578a98200ad73fb9c8fcea1c3e115dd4720c69631f1219d0650b6c8bd48",
-    "applicationsSha256": "ce56b24bcbdea382aae5185680a8f27ce5b4b78767785b8ada410a796802f690",
-    "capturedAt": "2026-08-27T18:16:12Z",
-    "complete": true,
-    "customConfigurationSha256": "db14ff46815791d05a17017cb22fffcb4e40d14f153181bcf6f166d5373cc1a4",
-    "oauthProvidersSha256": "8d526eac6322b6ff9f0e28cc55ecb43615cad999cf1bdace0e1399e25c5c3c90",
-    "proxyProvidersSha256": "cfce4c15ab5daff11573a313e0b9db6f74255fb34e0e50e40ad12f6a1053089c"
+  "brands": {
+    "default": {
+      "attributes": {},
+      "branding_custom_css": "",
+      "branding_default_flow_background": "/static/dist/assets/images/flow_background.jpg",
+      "branding_favicon": "/static/dist/assets/icons/icon.png",
+      "branding_logo": "/static/dist/assets/icons/icon_left_brand.svg",
+      "branding_title": "authentik",
+      "client_certificates": [],
+      "default": true,
+      "default_application": null,
+      "domain": "authentik-default",
+      "flow_authentication_slug": "default-authentication-flow",
+      "flow_device_code": null,
+      "flow_invalidation_slug": "default-invalidation-flow",
+      "flow_lockdown": null,
+      "flow_recovery": null,
+      "flow_unenrollment": null,
+      "flow_user_settings_slug": "default-user-settings-flow",
+      "pk": "90ba638a-2186-44fa-8e5b-ef593baf3046",
+      "web_certificate": null
+    }
+  },
+  "groups": {
+    "jellyfin": {
+      "attributes": {},
+      "is_superuser": false,
+      "member_usernames": [
+        "carodilo",
+        "eabbado",
+        "parents",
+        "paul",
+        "sarabeth"
+      ],
+      "name": "Jellyfin",
+      "parents": [],
+      "pk": "7cc8f9fe-b4e6-4762-be05-263403a828e9",
+      "roles": [
+        "f21af265-8e36-43b6-862d-87ee1591cb4d"
+      ]
+    }
+  },
+  "identificationStages": {
+    "default-authentication-identification": {
+      "captcha_stage": null,
+      "case_insensitive_matching": true,
+      "enable_remember_me": false,
+      "enrollment_flow": null,
+      "name": "default-authentication-identification",
+      "password_stage": null,
+      "passwordless_flow": null,
+      "pk": "04bc3a43-9487-4d9a-af4b-b86734a1dbd6",
+      "pretend_user_exists": true,
+      "recovery_flow": null,
+      "show_matched_user": true,
+      "show_source_labels": false,
+      "sources": [],
+      "user_fields": [
+        "email",
+        "username"
+      ],
+      "webauthn_stage_ref": "passwordless-webauthn"
+    }
+  },
+  "invitationStages": {
+    "enrollment-invitation": {
+      "continue_flow_without_invitation": false,
+      "name": "default-invitation",
+      "pk": "e2fb70db-cf9d-4f1d-809b-3c89b7f84341"
+    }
+  },
+  "passwordPolicies": {
+    "password-change": {
+      "amount_digits": 0,
+      "amount_lowercase": 0,
+      "amount_symbols": 0,
+      "amount_uppercase": 0,
+      "check_have_i_been_pwned": false,
+      "check_static_rules": true,
+      "check_zxcvbn": true,
+      "error_message": "Password needs to be 8 characters or longer.",
+      "execution_logging": false,
+      "hibp_allowed_count": 0,
+      "length_min": 8,
+      "name": "default-password-change-password-policy",
+      "password_field": "password",
+      "pk": "28596ae3-b84f-4763-9f1e-5036afc96cc5",
+      "symbol_charset": "!\\\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ ",
+      "zxcvbn_score_threshold": 2
+    }
+  },
+  "promptFields": {
+    "default-enrollment-field-email": {
+      "field_key": "email",
+      "initial_value": "",
+      "initial_value_expression": false,
+      "label": "Email",
+      "name": "default-enrollment-field-email",
+      "order": 1,
+      "pk": "d17f9139-bd91-478e-b9dd-a02ba2bbf27d",
+      "placeholder": "Email",
+      "placeholder_expression": false,
+      "required": true,
+      "sub_text": "",
+      "type": "email"
+    },
+    "default-enrollment-field-name": {
+      "field_key": "name",
+      "initial_value": "",
+      "initial_value_expression": false,
+      "label": "Name",
+      "name": "default-enrollment-field-name",
+      "order": 0,
+      "pk": "6c73585d-cfc4-4171-8a8d-5b2a18fb2356",
+      "placeholder": "Name",
+      "placeholder_expression": false,
+      "required": true,
+      "sub_text": "",
+      "type": "text"
+    },
+    "default-enrollment-field-password": {
+      "field_key": "password",
+      "initial_value": "",
+      "initial_value_expression": false,
+      "label": "Password",
+      "name": "default-enrollment-field-password",
+      "order": 0,
+      "pk": "6c569aa1-7d55-4592-a7b6-3900d347ede1",
+      "placeholder": "Password",
+      "placeholder_expression": false,
+      "required": true,
+      "sub_text": "",
+      "type": "password"
+    },
+    "default-enrollment-field-password-repeat": {
+      "field_key": "password_repeat",
+      "initial_value": "",
+      "initial_value_expression": false,
+      "label": "Password (repeat)",
+      "name": "default-enrollment-field-password-repeat",
+      "order": 1,
+      "pk": "b2b55dfc-5093-4912-8236-dee77d573b30",
+      "placeholder": "Password (repeat)",
+      "placeholder_expression": false,
+      "required": true,
+      "sub_text": "",
+      "type": "password"
+    },
+    "default-enrollment-field-username": {
+      "field_key": "username",
+      "initial_value": "",
+      "initial_value_expression": false,
+      "label": "Username",
+      "name": "default-enrollment-field-username",
+      "order": 0,
+      "pk": "67cce8e3-633f-42f5-bb0d-bd8ccded2ab3",
+      "placeholder": "Username",
+      "placeholder_expression": false,
+      "required": true,
+      "sub_text": "",
+      "type": "username"
+    }
+  },
+  "promptStages": {
+    "enrollment-first": {
+      "field_refs": [
+        "default-enrollment-field-username",
+        "default-enrollment-field-password",
+        "default-enrollment-field-password-repeat"
+      ],
+      "name": "default-enrollment-prompt-first",
+      "pk": "75d8a7c1-5c79-4e6d-b1fe-4276adc86acc",
+      "validation_policy_refs": []
+    },
+    "enrollment-second": {
+      "field_refs": [
+        "default-enrollment-field-name",
+        "default-enrollment-field-email"
+      ],
+      "name": "default-enrollment-prompt-second",
+      "pk": "0e557646-4702-4d98-9364-f78d3519917d",
+      "validation_policy_refs": []
+    }
+  },
+  "signingCertificates": {
+    "jellyfin-oidc": {
+      "certificate_file": "jellyfin-oidc.pem",
+      "name": "authentik Self-signed Certificate",
+      "pk": "d5259cb9-db22-467a-9d72-6911b16a459f"
+    }
+  },
+  "systemSettings": {
+    "default": {
+      "avatars": "gravatar,initials",
+      "default_token_duration": "minutes=30",
+      "default_token_length": 60,
+      "default_user_change_email": false,
+      "default_user_change_name": true,
+      "default_user_change_username": false,
+      "event_retention": "days=365",
+      "flags": {
+        "core_default_app_access": true,
+        "enterprise_audit_include_expanded_diff": false,
+        "flows_continuous_login": false,
+        "flows_refresh_others": false
+      },
+      "footer_links": [],
+      "gdpr_compliance": true,
+      "impersonation": true,
+      "pagination_default_page_size": 20,
+      "pagination_max_page_size": 100,
+      "reputation_lower_limit": -5,
+      "reputation_upper_limit": 5
+    }
+  },
+  "userLoginStages": {
+    "enrollment-login": {
+      "geoip_binding": "no_binding",
+      "name": "default-enrollment-user-login",
+      "network_binding": "no_binding",
+      "pk": "b91395c0-0b2e-4ed4-b012-52c7036adffa",
+      "remember_device": "days=30",
+      "remember_me_offset": "seconds=0",
+      "session_duration": "seconds=0",
+      "terminate_other_sessions": false
+    }
+  },
+  "userWriteStages": {
+    "enrollment-write": {
+      "create_users_as_inactive": false,
+      "create_users_group_ref": "jellyfin",
+      "name": "default-enrollment-user-write",
+      "pk": "d6edd7c0-cadd-46fd-b097-2e167769a0e5",
+      "user_creation_mode": "always_create",
+      "user_path_template": "",
+      "user_type": "external"
+    }
+  },
+  "webauthnStages": {
+    "default-authenticator-webauthn-setup": {
+      "authenticator_attachment": null,
+      "configure_flow_slug": "default-authenticator-webauthn-setup",
+      "device_type_restrictions": [],
+      "friendly_name": "WebAuthn device",
+      "hints": [],
+      "max_attempts": 3,
+      "name": "default-authenticator-webauthn-setup",
+      "pk": "a69d0c59-109b-4e12-b9e3-60a4e15c514f",
+      "resident_key_requirement": "required",
+      "user_verification": "preferred"
+    }
   }
 }

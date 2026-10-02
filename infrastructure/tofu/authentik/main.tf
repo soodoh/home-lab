@@ -3,7 +3,10 @@ locals {
   client_secrets = var.authentik_enable_management ? jsondecode(file(var.authentik_client_secrets_path)) : {
     schemaVersion  = 2
     oauthProviders = {}
-    ldap           = {}
+    ldap = {
+      bind_password           = ""
+      certificate_private_key = ""
+    }
   }
 
   applications                         = var.authentik_enable_management ? local.desired.applications : {}
@@ -41,18 +44,17 @@ provider "authentik" {
 check "desired_inventory" {
   assert {
     condition = (
-      local.desired.schemaVersion == 3 &&
+      local.desired.schemaVersion == 4 &&
       length(local.desired.applications) == 22 &&
       length(local.desired.proxyProviders) == 18 &&
       (!var.authentik_enable_management || (
-        local.desired.sourceInventory.complete &&
         length(local.desired.oauthProviders) == 4 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
         length(local.desired.applicationPolicyBindings) == 26 &&
-        length(local.desired.authenticatorValidateStages) == 1 &&
+        length(local.desired.authenticatorValidateStages) == 2 &&
         length(local.desired.certificates) == 1 &&
-        length(local.desired.customFlows) == 2 &&
-        length(local.desired.flowStageBindings) == 5 &&
+        length(local.desired.customFlows) == 3 &&
+        length(local.desired.flowStageBindings) == 10 &&
         length(local.desired.ldapProviders) == 1 &&
         length(local.desired.ldapSearchPermissions) == 1 &&
         length(local.desired.outposts) == 2 &&
@@ -139,11 +141,6 @@ check "oauth_client_secrets" {
   }
 }
 
-data "authentik_stage" "default_authentication_identification" {
-  count = var.authentik_enable_management ? 1 : 0
-  name  = "default-authentication-identification"
-}
-
 data "authentik_stage" "default_authentication_login" {
   count = var.authentik_enable_management ? 1 : 0
   name  = "default-authentication-login"
@@ -157,11 +154,6 @@ data "authentik_stage" "default_authentication_password" {
 data "authentik_flow" "default_provider_invalidation" {
   count = var.authentik_enable_management ? 1 : 0
   slug  = "default-provider-invalidation-flow"
-}
-
-data "authentik_stage" "default_authenticator_webauthn_setup" {
-  count = var.authentik_enable_management ? 1 : 0
-  name  = "default-authenticator-webauthn-setup"
 }
 
 resource "authentik_property_mapping_provider_scope" "scope_mappings" {
@@ -219,7 +211,10 @@ resource "authentik_provider_oauth2" "providers" {
     mapping == local.desired.scopeMappings["vaultwarden-email"].pk ?
     authentik_property_mapping_provider_scope.scope_mappings["vaultwarden-email"].id : mapping
   ]
-  signing_key              = each.value.signing_key
+  signing_key = (
+    each.value.signing_key == local.desired.signingCertificates["jellyfin-oidc"].pk ?
+    authentik_certificate_key_pair.signing["jellyfin-oidc"].id : each.value.signing_key
+  )
   encryption_key           = each.value.encryption_key
   grant_types              = each.value.grant_types
   logout_method            = each.value.logout_method
@@ -284,7 +279,7 @@ resource "authentik_policy_binding" "application_access" {
 
   target         = authentik_application.applications[each.value.application_slug].uuid
   policy         = each.value.policy
-  group          = each.value.group
+  group          = try(local.group_ids_by_pk[each.value.group], each.value.group)
   user           = each.value.user
   order          = each.value.order
   enabled        = each.value.enabled
@@ -367,9 +362,13 @@ resource "authentik_flow" "custom" {
 resource "authentik_stage_authenticator_validate" "custom" {
   for_each = local.authenticator_validate_stages
 
-  name                          = each.value.name
-  not_configured_action         = each.value.not_configured_action
-  configuration_stages          = [data.authentik_stage.default_authenticator_webauthn_setup[0].id]
+  name                  = each.value.name
+  not_configured_action = each.value.not_configured_action
+  configuration_stages = [
+    for stage in each.value.configuration_stages :
+    stage == local.desired.webauthnStages["default-authenticator-webauthn-setup"].pk ?
+    authentik_stage_authenticator_webauthn.managed["default-authenticator-webauthn-setup"].id : stage
+  ]
   device_classes                = each.value.device_classes
   email_otp_throttling_factor   = each.value.email_otp_throttling_factor
   last_auth_threshold           = each.value.last_auth_threshold
@@ -384,13 +383,8 @@ resource "authentik_stage_authenticator_validate" "custom" {
 resource "authentik_flow_stage_binding" "custom" {
   for_each = local.flow_stage_bindings
 
-  target = authentik_flow.custom[each.value.flow_ref].uuid
-  stage = {
-    "passwordless-webauthn"                 = authentik_stage_authenticator_validate.custom["passwordless-webauthn"].id
-    "default-authentication-identification" = data.authentik_stage.default_authentication_identification[0].id
-    "default-authentication-password"       = data.authentik_stage.default_authentication_password[0].id
-    "default-authentication-login"          = data.authentik_stage.default_authentication_login[0].id
-  }[each.value.stage_ref]
+  target                  = authentik_flow.custom[each.value.flow_ref].uuid
+  stage                   = local.managed_stage_ids[each.value.stage_ref]
   order                   = each.value.order
   evaluate_on_plan        = each.value.evaluate_on_plan
   invalid_response_action = each.value.invalid_response_action
@@ -409,73 +403,13 @@ resource "authentik_blueprint" "custom" {
   enabled = each.value.enabled
 }
 
-import {
-  for_each = local.scope_mappings
-  to       = authentik_property_mapping_provider_scope.scope_mappings[each.key]
-  id       = each.value.pk
-}
-
-import {
-  for_each = local.existing_proxy_providers
-  to       = authentik_provider_proxy.providers[each.key]
-  id       = each.value.pk
-}
-
-import {
-  for_each = local.oauth_providers
-  to       = authentik_provider_oauth2.providers[each.key]
-  id       = each.key
-}
-
-import {
-  for_each = local.existing_applications
-  to       = authentik_application.applications[each.key]
-  id       = each.key
-}
-
-import {
-  for_each = local.existing_application_policy_bindings
-  to       = authentik_policy_binding.application_access[each.key]
-  id       = each.value.pk
-}
-
-import {
-  for_each = local.existing_outposts
-  to       = authentik_outpost.outposts[each.value]
-  id       = local.desired.outposts[each.value].pk
-}
-
-import {
-  for_each = local.existing_custom_flows
-  to       = authentik_flow.custom[each.key]
-  id       = each.value.slug
-}
-
-import {
-  for_each = local.authenticator_validate_stages
-  to       = authentik_stage_authenticator_validate.custom[each.key]
-  id       = each.value.pk
-}
-
-import {
-  for_each = local.existing_flow_stage_bindings
-  to       = authentik_flow_stage_binding.custom[each.key]
-  id       = each.value.pk
-}
-
 output "jellyfin_ldap_bind_password" {
   description = "Generated Authentik app password used only by Jellyfin for LDAP directory searches."
-  value       = local.client_secrets.ldap.bind_password
+  value       = var.authentik_enable_management ? local.client_secrets.ldap.bind_password : null
   sensitive   = true
 }
 
 output "jellyfin_ldap_outpost_id" {
   description = "Authentik LDAP outpost identifier used to retrieve its deployment token without exposing it in plans."
-  value       = authentik_outpost.outposts["jellyfin-ldap"].id
-}
-
-import {
-  for_each = local.custom_blueprints
-  to       = authentik_blueprint.custom[each.key]
-  id       = each.value.id
+  value       = var.authentik_enable_management ? authentik_outpost.outposts["jellyfin-ldap"].id : null
 }

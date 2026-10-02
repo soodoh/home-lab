@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline behavior tests for the Authentik OAuth plan preflight."""
+"""Offline behavior tests for the Authentik secret-material plan preflight."""
 
 import importlib.util
 import json
@@ -36,10 +36,18 @@ def api_server(mode):
                 self.send_header("Location", "https://example.invalid/")
                 self.end_headers()
                 return
-            provider_id = self.path.rstrip("/").split("/")[-1]
-            body = {"pk": int(provider_id)}
-            if mode != "masked" or provider_id != "37":
-                body["client_secret"] = "synthetic-secret"
+            if self.path.endswith("/view_private_key/"):
+                if mode == "key-denied":
+                    self.send_error(403)
+                    return
+                body = {"data": {"key-masked": "", "key-obfuscated": "<redacted>"}.get(
+                    mode, "-----BEGIN PRIVATE KEY-----\nsynthetic-key",
+                )}
+            else:
+                provider_id = self.path.rstrip("/").split("/")[-1]
+                body = {"pk": int(provider_id)}
+                if mode != "masked" or provider_id != "37":
+                    body["client_secret"] = "synthetic-secret"
             response = json.dumps(body).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -71,6 +79,21 @@ class ReadabilityTests(unittest.TestCase):
         self.assertIn("provider 37 client_secret", str(caught.exception))
         self.assertNotIn("synthetic-secret", str(caught.exception))
         self.assertEqual(len(paths), 3)
+
+    def test_signing_key_read_is_required_when_managed(self):
+        with api_server("complete") as (url, paths):
+            readability.check(url, "synthetic-token", ("synthetic-certificate",))
+        self.assertEqual(len(paths), 5)
+        self.assertEqual(paths[-1], "/api/v3/crypto/certificatekeypairs/synthetic-certificate/view_private_key/")
+
+    def test_unreadable_signing_key_refuses_plan_without_key_output(self):
+        for mode in ("key-denied", "key-masked", "key-obfuscated"):
+            with self.subTest(mode=mode), api_server(mode) as (url, paths):
+                with self.assertRaises(SystemExit) as caught:
+                    readability.check(url, "synthetic-token", ("synthetic-certificate",))
+                self.assertIn("signing certificate synthetic-certificate", str(caught.exception))
+                self.assertNotIn("synthetic-key", str(caught.exception))
+                self.assertEqual(len(paths), 5)
 
     def test_denied_and_redirected_reads_fail_closed(self):
         for mode in ("denied", "redirect"):

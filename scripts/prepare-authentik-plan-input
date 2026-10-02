@@ -10,9 +10,12 @@ cd "$repo_root"
 : "${AUTHENTIK_TOKEN:?AUTHENTIK_TOKEN is required when Authentik management is enabled}"
 : "${SOPS_AGE_KEY_FILE:?SOPS_AGE_KEY_FILE is required when Authentik management is enabled}"
 : "${TF_VAR_authentik_client_secrets_path:?TF_VAR_authentik_client_secrets_path is required}"
+: "${TF_VAR_authentik_signing_keys_path:?TF_VAR_authentik_signing_keys_path is required}"
 [[ $AUTHENTIK_URL == https://auth.diloreto.com ]]
-[[ $TF_VAR_authentik_client_secrets_path = /* ]]
-[[ ! -e $TF_VAR_authentik_client_secrets_path && ! -L $TF_VAR_authentik_client_secrets_path ]]
+for target in "$TF_VAR_authentik_client_secrets_path" "$TF_VAR_authentik_signing_keys_path"; do
+  [[ $target = /* && ! -e $target && ! -L $target ]]
+done
+[[ $TF_VAR_authentik_client_secrets_path != "$TF_VAR_authentik_signing_keys_path" ]]
 for command in jq python3 sops; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
@@ -31,10 +34,15 @@ if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
 PY
 
 client_secrets_parent=$(dirname "$TF_VAR_authentik_client_secrets_path")
-[[ -d $client_secrets_parent && ! -L $client_secrets_parent ]]
-[[ $(stat -c '%a' "$client_secrets_parent" 2>/dev/null || stat -f '%Lp' "$client_secrets_parent") == 700 ]]
+signing_keys_parent=$(dirname "$TF_VAR_authentik_signing_keys_path")
+for parent in "$client_secrets_parent" "$signing_keys_parent"; do
+  [[ -d $parent && ! -L $parent ]]
+  [[ $(stat -c '%a' "$parent" 2>/dev/null || stat -f '%Lp' "$parent") == 700 ]]
+done
 client_secrets=$(mktemp "$client_secrets_parent/client-secrets.XXXXXX")
-trap 'rm -f "$client_secrets"' EXIT INT TERM
+signing_keys=""
+trap 'rm -f "$client_secrets" "$signing_keys"' EXIT INT TERM
+signing_keys=$(mktemp "$signing_keys_parent/signing-keys.XXXXXX")
 SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
   infrastructure/tofu/authentik/client-secrets.sops.json >"$client_secrets"
 jq -e '
@@ -49,10 +57,20 @@ jq -e '
     (.certificate_private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----")))
 ' "$client_secrets" >/dev/null
 
-# The Authentik API omits client_secret for identities without provider change
-# permission. Without this guard, removing ignore_changes can produce a false
-# rotation plan even when the SOPS secret is already live.
+SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
+  infrastructure/tofu/authentik/signing-keys.sops.json >"$signing_keys"
+jq -e '
+  .schemaVersion == 1 and
+  (.certificates | type == "object" and (keys == ["jellyfin-oidc"])) and
+  all(.certificates[];
+    type == "object" and (keys == ["private_key"]) and
+    (.private_key | type == "string" and test("^-----BEGIN (RSA |EC )?PRIVATE KEY-----")))
+' "$signing_keys" >/dev/null
+
+# Masked OAuth secrets or an unreadable signing key would propose false
+# updates even when the SOPS values are already live. Refuse both cases.
 python3 scripts/check-authentik-secret-readability.py
-chmod 0600 "$client_secrets"
+chmod 0600 "$client_secrets" "$signing_keys"
 mv "$client_secrets" "$TF_VAR_authentik_client_secrets_path"
+mv "$signing_keys" "$TF_VAR_authentik_signing_keys_path"
 trap - EXIT INT TERM

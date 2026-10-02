@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "certificates": {
+    "jellyfin-oidc": {
+      "private_key": "-----BEGIN PRIVATE KEY-----\nsynthetic-offline-test-key-not-valid-PEM\n-----END PRIVATE KEY-----\n"
+    }
+  }
+}

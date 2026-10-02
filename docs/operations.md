@@ -160,10 +160,13 @@ approval for the plan identity's provider-change grant: a view-only identity doe
 not receive OAuth secrets from the API, so a secret plan would otherwise propose
 false updates even if the encrypted value is already live. Protect the plan token
 as a mutating credential. `scripts/prepare-authentik-plan-input` checks all four
-secret reads without printing their values and refuses a masked identity. Run it
-in a private provider session, with the prepared secret file path supplied as
-`TF_VAR_authentik_client_secrets_path`; use the same SOPS revision for the saved
-plan and consumer update. The apply token remains separate. Vaultwarden's
+OAuth secret reads and every owned signing-certificate private-key read without
+printing their values; it refuses a masked or inaccessible identity. Run it in a
+private provider session, with unused output paths supplied as
+`TF_VAR_authentik_client_secrets_path` and `TF_VAR_authentik_signing_keys_path`.
+It prepares both encrypted authorities; use the same SOPS revision for the saved
+plan and any consumer update. [Authentik ownership](authentik-ownership.md) defines
+membership, shared stages, system defaults and the certificate-discovery boundary. The apply token remains separate. Vaultwarden's
 protected client-secret file and Home Assistant's existing `!secret` entry derive
 from the same Authentik SOPS client secrets during site convergence; CWA's
 generic OAuth setting remains a manually verified admin UI step because its

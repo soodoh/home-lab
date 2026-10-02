@@ -53,6 +53,9 @@ class LocalProviderCredentialsTests(unittest.TestCase):
         plan_data, apply_data = json.loads(plan.read_text()), json.loads(apply.read_text())
         self.assertEqual(plan_data["AUTHENTIK_TOKEN"], CREDENTIALS["AUTHENTIK_PLAN_TOKEN"])
         self.assertEqual(apply_data["AUTHENTIK_TOKEN"], CREDENTIALS["AUTHENTIK_APPLY_TOKEN"])
+        for values in (plan_data, apply_data):
+            self.assertEqual(values["TF_VAR_authentik_token"], values["AUTHENTIK_TOKEN"])
+            self.assertEqual(values["TF_VAR_authentik_url"], values["AUTHENTIK_URL"])
         self.assertEqual(plan_data["TAILSCALE_OAUTH_CLIENT_ID"], CREDENTIALS["TAILSCALE_PLAN_ID"])
         self.assertEqual(apply_data["TAILSCALE_OAUTH_CLIENT_SECRET"], CREDENTIALS["TAILSCALE_APPLY_SECRET"])
         self.assertEqual(plan_data["OMADA_USERNAME"], CREDENTIALS["OMADA_PLAN_USERNAME"])

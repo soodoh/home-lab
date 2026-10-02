@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
+import copy
 import json
 from pathlib import Path
 import unittest
+
+from jsonschema import Draft202012Validator
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -12,20 +15,22 @@ OAUTH_PROVIDER_IDS = {"15", "21", "37", "47"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
-    def test_live_inventory_is_complete(self) -> None:
-        self.assertEqual(DESIRED["schemaVersion"], 3)
-        self.assertTrue(DESIRED["sourceInventory"]["complete"])
+    def test_desired_inventory_is_complete(self) -> None:
+        self.assertEqual(DESIRED["schemaVersion"], 4)
+        self.assertNotIn("sourceInventory", DESIRED)
         self.assertEqual(len(DESIRED["applications"]), 22)
         self.assertEqual(len(DESIRED["proxyProviders"]), 18)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
         self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 26)
-        self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {"passwordless-webauthn"})
+        self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {
+            "passwordless-webauthn", "default-authentication-mfa-validation",
+        })
         self.assertEqual(
             set(DESIRED["customFlows"]),
-            {"passwordless-authentication", "jellyfin-ldap-authentication"},
+            {"passwordless-authentication", "jellyfin-ldap-authentication", "invitation-enrollment"},
         )
-        self.assertEqual(len(DESIRED["flowStageBindings"]), 5)
+        self.assertEqual(len(DESIRED["flowStageBindings"]), 10)
         self.assertEqual(set(DESIRED["scopeMappings"]), {"vaultwarden-email"})
         self.assertEqual(set(DESIRED["certificates"]), {"jellyfin-ldap"})
         self.assertEqual(set(DESIRED["ldapProviders"]), {"jellyfin"})
@@ -90,6 +95,45 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             for binding in bindings.values()
         }
         self.assertEqual(bound_applications, set(DESIRED["applications"]))
+
+    def test_desired_inventory_validates_against_native_json_schema(self) -> None:
+        schema = json.loads((ROOT / "desired.schema.json").read_text())
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(DESIRED)
+        elevated = copy.deepcopy(DESIRED)
+        elevated["groups"]["jellyfin"]["is_superuser"] = True
+        self.assertTrue(list(Draft202012Validator(schema).iter_errors(elevated)))
+        unowned_field = copy.deepcopy(DESIRED)
+        unowned_field["systemSettings"]["default"]["base_url"] = "https://example.invalid"
+        self.assertTrue(list(Draft202012Validator(schema).iter_errors(unowned_field)))
+
+    def test_authentication_and_enrollment_preserve_reviewed_behavior(self) -> None:
+        group = DESIRED["groups"]["jellyfin"]
+        self.assertFalse(group["is_superuser"])
+        self.assertEqual(len(group["member_usernames"]), 5)
+        self.assertEqual(len(group["member_usernames"]), len(set(group["member_usernames"])))
+        identification = DESIRED["identificationStages"]["default-authentication-identification"]
+        self.assertEqual(identification["webauthn_stage_ref"], "passwordless-webauthn")
+        self.assertIsNone(identification["enrollment_flow"])
+        webauthn = DESIRED["webauthnStages"]["default-authenticator-webauthn-setup"]
+        self.assertEqual(webauthn["resident_key_requirement"], "required")
+        self.assertEqual(webauthn["max_attempts"], 3)
+        self.assertEqual(DESIRED["authenticatorValidateStages"]["default-authentication-mfa-validation"]["not_configured_action"], "skip")
+        self.assertFalse(DESIRED["invitationStages"]["enrollment-invitation"]["continue_flow_without_invitation"])
+        writer = DESIRED["userWriteStages"]["enrollment-write"]
+        self.assertEqual(writer["create_users_group_ref"], "jellyfin")
+        self.assertEqual(writer["user_creation_mode"], "always_create")
+        self.assertFalse(writer["create_users_as_inactive"])
+        bindings = sorted((b for b in DESIRED["flowStageBindings"].values()
+                           if b["flow_ref"] == "invitation-enrollment"), key=lambda b: b["order"])
+        self.assertEqual([b["stage_ref"] for b in bindings], [
+            "enrollment-invitation", "enrollment-first", "enrollment-second", "enrollment-write", "enrollment-login",
+        ])
+        for stage in DESIRED["promptStages"].values():
+            self.assertEqual(stage["validation_policy_refs"], [])
+            self.assertTrue(set(stage["field_refs"]) <= set(DESIRED["promptFields"]))
+        self.assertTrue(DESIRED["systemSettings"]["default"]["flags"]["core_default_app_access"])
+        self.assertNotIn("eventRules", DESIRED)
 
     def test_mindwtr_remains_a_web_only_forward_auth_gate(self) -> None:
         app = DESIRED["applications"]["mindwtr"]
@@ -211,7 +255,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             outpost,
         )
         self.assertIn("AUTHENTIK_HOST: http://authentik-server:9000", outpost)
-        self.assertIn("AUTHENTIK_TOKEN: ${AUTHENTIK_LDAP_TOKEN:?", outpost)
+        self.assertIn("AUTHENTIK_TOKEN: file:///run/secrets/authentik_ldap_token", outpost)
         self.assertIn("      - jellyfin-auth", outpost)
         self.assertNotIn("\n    ports:", outpost)
         self.assertIn("  jellyfin-auth:\n    internal: true", authentik)
@@ -259,10 +303,28 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("-----BEGIN CERTIFICATE-----", certificate)
         self.assertNotIn("PRIVATE KEY", certificate)
 
+    def test_signing_material_has_separate_encrypted_custody(self) -> None:
+        encrypted_text = (ROOT / "signing-keys.sops.json").read_text()
+        encrypted = json.loads(encrypted_text)
+        self.assertEqual(set(encrypted["certificates"]), set(DESIRED["signingCertificates"]))
+        self.assertEqual(len(encrypted["sops"]["age"]), 2)
+        self.assertNotIn("-----BEGIN PRIVATE KEY-----", encrypted_text)
+        self.assertNotIn("-----BEGIN RSA PRIVATE KEY-----", encrypted_text)
+        for value in encrypted["certificates"].values():
+            self.assertEqual(set(value), {"private_key"})
+            self.assertRegex(value["private_key"], r"^ENC\[AES256_GCM,")
+        for value in DESIRED["signingCertificates"].values():
+            certificate = (ROOT / value["certificate_file"]).read_text()
+            self.assertIn("-----BEGIN CERTIFICATE-----", certificate)
+            self.assertNotIn("PRIVATE KEY", certificate)
+        self.assertEqual(DESIRED["oauthProviders"]["15"]["signing_key"], DESIRED["signingCertificates"]["jellyfin-oidc"]["pk"])
+        self.assertNotIn(DESIRED["oauthProviders"]["47"]["signing_key"],
+                         {value["pk"] for value in DESIRED["signingCertificates"].values()})
+
     def test_root_is_import_first_and_secret_aware(self) -> None:
         versions = (ROOT / "versions.tf").read_text()
         variables = (ROOT / "variables.tf").read_text()
-        main = (ROOT / "main.tf").read_text()
+        main = "\n".join((ROOT / name).read_text() for name in ("main.tf", "authentication.tf", "imports.tf"))
 
         self.assertIn('version = "= 2026.8.0"', versions)
         self.assertIn('key          = "home-lab/authentik/tofu.tfstate"', versions)
@@ -286,7 +348,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             self.assertIn(f'resource "{resource}"', main)
         self.assertNotIn("prevent_destroy", main)
-        self.assertEqual(main.count("import {"), 10)
+        self.assertEqual(main.count("import {"), 22)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
         self.assertIn("length(local.desired.applicationPolicyBindings) == 26", main)
@@ -294,7 +356,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("for_each = local.existing_proxy_providers", main)
         self.assertIn("for_each = local.existing_applications", main)
         self.assertIn("data.authentik_stage.default_authentication_login", main)
-        self.assertIn("data.authentik_stage.default_authenticator_webauthn_setup", main)
+        self.assertIn("authentik_stage_authenticator_webauthn.managed", main)
         self.assertIn("local.client_secrets.oauthProviders[each.key].client_secret", main)
         self.assertIn("authentik_property_mapping_provider_scope.scope_mappings", main)
         self.assertIn("local.client_secrets.ldap.certificate_private_key", main)
@@ -328,8 +390,23 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_rbac_role.roles["{key}"]' for key in DESIRED["rbacRoles"]),
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
+        for resource_type, resource_name, desired_key in (
+            ("authentik_group", "managed", "groups"),
+            ("authentik_stage_identification", "managed", "identificationStages"),
+            ("authentik_stage_authenticator_webauthn", "managed", "webauthnStages"),
+            ("authentik_stage_invitation", "managed", "invitationStages"),
+            ("authentik_stage_prompt_field", "managed", "promptFields"),
+            ("authentik_stage_prompt", "managed", "promptStages"),
+            ("authentik_stage_user_write", "managed", "userWriteStages"),
+            ("authentik_stage_user_login", "managed", "userLoginStages"),
+            ("authentik_policy_password", "managed", "passwordPolicies"),
+            ("authentik_brand", "managed", "brands"),
+            ("authentik_system_settings", "managed", "systemSettings"),
+            ("authentik_certificate_key_pair", "signing", "signingCertificates"),
+        ):
+            expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 89)
+        self.assertEqual(len(allow), 113)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

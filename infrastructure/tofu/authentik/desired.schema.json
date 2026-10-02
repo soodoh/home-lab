@@ -7,7 +7,6 @@
   "required": [
     "$schema",
     "schemaVersion",
-    "sourceInventory",
     "applications",
     "applicationPolicyBindings",
     "authenticatorValidateStages",
@@ -24,64 +23,135 @@
     "ldapSearchPermissions",
     "serviceApplicationBindings",
     "outposts",
-    "retainedOAuthProviders"
+    "retainedOAuthProviders",
+    "brands",
+    "groups",
+    "identificationStages",
+    "invitationStages",
+    "passwordPolicies",
+    "promptFields",
+    "promptStages",
+    "signingCertificates",
+    "systemSettings",
+    "userLoginStages",
+    "userWriteStages",
+    "webauthnStages"
   ],
   "properties": {
     "$schema": {
       "const": "./desired.schema.json"
     },
     "schemaVersion": {
-      "const": 3
+      "const": 4
     },
-    "sourceInventory": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "capturedAt",
-        "complete",
-        "applicationsSha256",
-        "proxyProvidersSha256",
-        "oauthProvidersSha256",
-        "applicationPolicyBindingsSha256",
-        "customConfigurationSha256"
-      ],
-      "properties": {
-        "capturedAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "complete": {
-          "type": "boolean"
-        },
-        "applicationsSha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "proxyProvidersSha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "oauthProvidersSha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "applicationPolicyBindingsSha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "customConfigurationSha256": {
-          "$ref": "#/$defs/sha256"
-        }
-      }
+    "brands": {
+      "additionalProperties": {
+        "$ref": "#/$defs/brandsEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "groups": {
+      "additionalProperties": {
+        "$ref": "#/$defs/groupsEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "identificationStages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/identificationStagesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "invitationStages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/invitationStagesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "passwordPolicies": {
+      "additionalProperties": {
+        "$ref": "#/$defs/passwordPoliciesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "promptFields": {
+      "additionalProperties": {
+        "$ref": "#/$defs/promptFieldsEntry"
+      },
+      "maxProperties": 5,
+      "minProperties": 5,
+      "type": "object"
+    },
+    "promptStages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/promptStagesEntry"
+      },
+      "maxProperties": 2,
+      "minProperties": 2,
+      "type": "object"
+    },
+    "signingCertificates": {
+      "additionalProperties": {
+        "$ref": "#/$defs/signingCertificatesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "systemSettings": {
+      "additionalProperties": {
+        "$ref": "#/$defs/systemSettingsEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "userLoginStages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/userLoginStagesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "userWriteStages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/userWriteStagesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
+    },
+    "webauthnStages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/webauthnStagesEntry"
+      },
+      "maxProperties": 1,
+      "minProperties": 1,
+      "type": "object"
     },
     "applications": {
       "type": "object",
-      "minProperties": 23,
-      "maxProperties": 23,
+      "minProperties": 22,
+      "maxProperties": 22,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
     },
     "proxyProviders": {
       "type": "object",
-      "minProperties": 19,
-      "maxProperties": 19,
+      "minProperties": 18,
+      "maxProperties": 18,
       "propertyNames": {
         "pattern": "^(?:[1-9][0-9]*|[a-z0-9]+(?:-[a-z0-9]+)*)$"
       },
@@ -112,8 +182,8 @@
     },
     "applicationPolicyBindings": {
       "type": "object",
-      "minProperties": 27,
-      "maxProperties": 27,
+      "minProperties": 26,
+      "maxProperties": 26,
       "propertyNames": {
         "$ref": "#/$defs/uuid"
       },
@@ -123,10 +193,13 @@
     },
     "authenticatorValidateStages": {
       "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
+      "minProperties": 2,
+      "maxProperties": 2,
       "propertyNames": {
-        "const": "passwordless-webauthn"
+        "enum": [
+          "default-authentication-mfa-validation",
+          "passwordless-webauthn"
+        ]
       },
       "additionalProperties": {
         "$ref": "#/$defs/authenticatorValidateStage"
@@ -134,16 +207,16 @@
     },
     "customFlows": {
       "type": "object",
-      "minProperties": 2,
-      "maxProperties": 2,
+      "minProperties": 3,
+      "maxProperties": 3,
       "additionalProperties": {
         "$ref": "#/$defs/customFlow"
       }
     },
     "flowStageBindings": {
       "type": "object",
-      "minProperties": 5,
-      "maxProperties": 5,
+      "minProperties": 10,
+      "maxProperties": 10,
       "propertyNames": {
         "pattern": "^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]+(?:-[a-z0-9]+)*)$"
       },
@@ -228,6 +301,728 @@
     }
   },
   "$defs": {
+    "brandsEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "type": "object"
+        },
+        "branding_custom_css": {
+          "type": "string"
+        },
+        "branding_default_flow_background": {
+          "type": "string"
+        },
+        "branding_favicon": {
+          "type": "string"
+        },
+        "branding_logo": {
+          "type": "string"
+        },
+        "branding_title": {
+          "type": "string"
+        },
+        "client_certificates": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "default": {
+          "type": "boolean"
+        },
+        "default_application": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domain": {
+          "type": "string"
+        },
+        "flow_authentication_slug": {
+          "type": "string"
+        },
+        "flow_device_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flow_invalidation_slug": {
+          "type": "string"
+        },
+        "flow_lockdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flow_recovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flow_unenrollment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flow_user_settings_slug": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "web_certificate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "attributes",
+        "branding_custom_css",
+        "branding_default_flow_background",
+        "branding_favicon",
+        "branding_logo",
+        "branding_title",
+        "client_certificates",
+        "default",
+        "default_application",
+        "domain",
+        "flow_authentication_slug",
+        "flow_device_code",
+        "flow_invalidation_slug",
+        "flow_lockdown",
+        "flow_recovery",
+        "flow_unenrollment",
+        "flow_user_settings_slug",
+        "pk",
+        "web_certificate"
+      ],
+      "type": "object"
+    },
+    "groupsEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "type": "object"
+        },
+        "is_superuser": {
+          "const": false
+        },
+        "member_usernames": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "parents": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "roles": {
+          "$ref": "#/$defs/uuidArray"
+        }
+      },
+      "required": [
+        "attributes",
+        "is_superuser",
+        "member_usernames",
+        "name",
+        "parents",
+        "pk",
+        "roles"
+      ],
+      "type": "object"
+    },
+    "identificationStagesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "captcha_stage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "case_insensitive_matching": {
+          "type": "boolean"
+        },
+        "enable_remember_me": {
+          "type": "boolean"
+        },
+        "enrollment_flow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "password_stage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passwordless_flow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "pretend_user_exists": {
+          "type": "boolean"
+        },
+        "recovery_flow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "show_matched_user": {
+          "type": "boolean"
+        },
+        "show_source_labels": {
+          "type": "boolean"
+        },
+        "sources": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "user_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "webauthn_stage_ref": {
+          "enum": [
+            "passwordless-webauthn"
+          ]
+        }
+      },
+      "required": [
+        "captcha_stage",
+        "case_insensitive_matching",
+        "enable_remember_me",
+        "enrollment_flow",
+        "name",
+        "password_stage",
+        "passwordless_flow",
+        "pk",
+        "pretend_user_exists",
+        "recovery_flow",
+        "show_matched_user",
+        "show_source_labels",
+        "sources",
+        "user_fields",
+        "webauthn_stage_ref"
+      ],
+      "type": "object"
+    },
+    "invitationStagesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "continue_flow_without_invitation": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        }
+      },
+      "required": [
+        "continue_flow_without_invitation",
+        "name",
+        "pk"
+      ],
+      "type": "object"
+    },
+    "passwordPoliciesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_digits": {
+          "type": "integer"
+        },
+        "amount_lowercase": {
+          "type": "integer"
+        },
+        "amount_symbols": {
+          "type": "integer"
+        },
+        "amount_uppercase": {
+          "type": "integer"
+        },
+        "check_have_i_been_pwned": {
+          "type": "boolean"
+        },
+        "check_static_rules": {
+          "type": "boolean"
+        },
+        "check_zxcvbn": {
+          "type": "boolean"
+        },
+        "error_message": {
+          "type": "string"
+        },
+        "execution_logging": {
+          "type": "boolean"
+        },
+        "hibp_allowed_count": {
+          "type": "integer"
+        },
+        "length_min": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "password_field": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "symbol_charset": {
+          "type": "string"
+        },
+        "zxcvbn_score_threshold": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "amount_digits",
+        "amount_lowercase",
+        "amount_symbols",
+        "amount_uppercase",
+        "check_have_i_been_pwned",
+        "check_static_rules",
+        "check_zxcvbn",
+        "error_message",
+        "execution_logging",
+        "hibp_allowed_count",
+        "length_min",
+        "name",
+        "password_field",
+        "pk",
+        "symbol_charset",
+        "zxcvbn_score_threshold"
+      ],
+      "type": "object"
+    },
+    "promptFieldsEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "field_key": {
+          "type": "string"
+        },
+        "initial_value": {
+          "type": "string"
+        },
+        "initial_value_expression": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "placeholder_expression": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "sub_text": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "field_key",
+        "initial_value",
+        "initial_value_expression",
+        "label",
+        "name",
+        "order",
+        "pk",
+        "placeholder",
+        "placeholder_expression",
+        "required",
+        "sub_text",
+        "type"
+      ],
+      "type": "object"
+    },
+    "promptStagesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "field_refs": {
+          "items": {
+            "enum": [
+              "default-enrollment-field-email",
+              "default-enrollment-field-name",
+              "default-enrollment-field-password",
+              "default-enrollment-field-password-repeat",
+              "default-enrollment-field-username"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "validation_policy_refs": {
+          "items": {
+            "enum": [
+              "password-change"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "field_refs",
+        "name",
+        "pk",
+        "validation_policy_refs"
+      ],
+      "type": "object"
+    },
+    "signingCertificatesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "certificate_file": {
+          "pattern": "^[a-z0-9-]+[.]pem$",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        }
+      },
+      "required": [
+        "certificate_file",
+        "name",
+        "pk"
+      ],
+      "type": "object"
+    },
+    "systemSettingsEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "avatars": {
+          "type": "string"
+        },
+        "default_token_duration": {
+          "type": "string"
+        },
+        "default_token_length": {
+          "type": "integer"
+        },
+        "default_user_change_email": {
+          "type": "boolean"
+        },
+        "default_user_change_name": {
+          "type": "boolean"
+        },
+        "default_user_change_username": {
+          "type": "boolean"
+        },
+        "event_retention": {
+          "type": "string"
+        },
+        "flags": {
+          "additionalProperties": false,
+          "properties": {
+            "core_default_app_access": {
+              "type": "boolean"
+            },
+            "enterprise_audit_include_expanded_diff": {
+              "type": "boolean"
+            },
+            "flows_continuous_login": {
+              "type": "boolean"
+            },
+            "flows_refresh_others": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "core_default_app_access",
+            "enterprise_audit_include_expanded_diff",
+            "flows_continuous_login",
+            "flows_refresh_others"
+          ],
+          "type": "object"
+        },
+        "footer_links": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "gdpr_compliance": {
+          "type": "boolean"
+        },
+        "impersonation": {
+          "type": "boolean"
+        },
+        "pagination_default_page_size": {
+          "type": "integer"
+        },
+        "pagination_max_page_size": {
+          "type": "integer"
+        },
+        "reputation_lower_limit": {
+          "type": "integer"
+        },
+        "reputation_upper_limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "avatars",
+        "default_token_duration",
+        "default_token_length",
+        "default_user_change_email",
+        "default_user_change_name",
+        "default_user_change_username",
+        "event_retention",
+        "flags",
+        "footer_links",
+        "gdpr_compliance",
+        "impersonation",
+        "pagination_default_page_size",
+        "pagination_max_page_size",
+        "reputation_lower_limit",
+        "reputation_upper_limit"
+      ],
+      "type": "object"
+    },
+    "userLoginStagesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "geoip_binding": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "network_binding": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "remember_device": {
+          "type": "string"
+        },
+        "remember_me_offset": {
+          "type": "string"
+        },
+        "session_duration": {
+          "type": "string"
+        },
+        "terminate_other_sessions": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "geoip_binding",
+        "name",
+        "network_binding",
+        "pk",
+        "remember_device",
+        "remember_me_offset",
+        "session_duration",
+        "terminate_other_sessions"
+      ],
+      "type": "object"
+    },
+    "userWriteStagesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "create_users_as_inactive": {
+          "type": "boolean"
+        },
+        "create_users_group_ref": {
+          "enum": [
+            "jellyfin"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "user_creation_mode": {
+          "type": "string"
+        },
+        "user_path_template": {
+          "type": "string"
+        },
+        "user_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "create_users_as_inactive",
+        "create_users_group_ref",
+        "name",
+        "pk",
+        "user_creation_mode",
+        "user_path_template",
+        "user_type"
+      ],
+      "type": "object"
+    },
+    "webauthnStagesEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "authenticator_attachment": {
+          "enum": [
+            null,
+            "platform",
+            "cross-platform"
+          ]
+        },
+        "configure_flow_slug": {
+          "type": "string"
+        },
+        "device_type_restrictions": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "friendly_name": {
+          "type": "string"
+        },
+        "hints": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "resident_key_requirement": {
+          "type": "string"
+        },
+        "user_verification": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authenticator_attachment",
+        "configure_flow_slug",
+        "device_type_restrictions",
+        "friendly_name",
+        "hints",
+        "max_attempts",
+        "name",
+        "pk",
+        "resident_key_requirement",
+        "user_verification"
+      ],
+      "type": "object"
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
@@ -758,7 +1553,8 @@
           "$ref": "#/$defs/uuid"
         },
         "name": {
-          "const": "Passwordless WebAuthn"
+          "minLength": 1,
+          "type": "string"
         },
         "not_configured_action": {
           "enum": [
@@ -915,7 +1711,12 @@
             "passwordless-webauthn",
             "default-authentication-identification",
             "default-authentication-password",
-            "default-authentication-login"
+            "default-authentication-login",
+            "enrollment-invitation",
+            "enrollment-first",
+            "enrollment-second",
+            "enrollment-write",
+            "enrollment-login"
           ]
         },
         "order": {

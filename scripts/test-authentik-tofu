@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Run native mock-provider tests without unsupported import operations.
+
+Only imports.tf is omitted. All production resource definitions and desired values
+are tested unchanged in a disposable copy, with synthetic fixtures and no inherited
+provider credentials. Actual imports require a reviewed remote-backed plan.
+"""
+
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+root = Path(__file__).resolve().parents[1] / "infrastructure/tofu/authentik"
+environment = {
+    "PATH": os.environ["PATH"],
+    "HOME": os.environ["HOME"],
+    "AWS_REGION": "us-east-1",
+    "TF_IN_AUTOMATION": "true",
+}
+with tempfile.TemporaryDirectory(prefix="authentik-mock-tests-") as directory:
+    target = Path(directory)
+    for source in root.glob("*.tf"):
+        if source.name != "imports.tf":
+            shutil.copyfile(source, target / source.name)
+    for source in [root / "desired.json", root / "desired.schema.json", root / ".terraform.lock.hcl", *root.glob("*.pem")]:
+        shutil.copyfile(source, target / source.name)
+    shutil.copytree(root / "tests", target / "tests")
+    subprocess.run(
+        ["tofu", f"-chdir={target}", "init", "-backend=false", "-input=false", "-lockfile=readonly", "-no-color"],
+        env=environment, check=True,
+    )
+    subprocess.run(["tofu", f"-chdir={target}", "test", "-no-color"], env=environment, check=True)

@@ -24,6 +24,13 @@ private staging, **not** production data activation. A reusable activation
 procedure must define writer exclusion, database validation, external storage,
 before-images, rollback and post-activation health before production restore.
 
+## Authentik notification recipient policy
+
+Decide whether `default-notify-configuration-warning` should notify administrators
+or be intentionally suppressed. Its recipient policy is outside the Authentik
+adoption scope. Reobserve the live rule, event-user destination and policy bindings
+before proposing a separately approved notification change.
+
 ## Deferred ingress qualifications
 
 Actual ephemeral CI/application access, isolated authenticated GOST destination

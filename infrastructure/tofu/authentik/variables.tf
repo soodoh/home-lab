@@ -10,6 +10,12 @@ variable "authentik_client_secrets_path" {
   default     = ""
 }
 
+variable "authentik_signing_keys_path" {
+  type        = string
+  description = "Absolute path to mode-0600 signing-key JSON decrypted into this run's private temporary directory."
+  default     = ""
+}
+
 variable "authentik_url" {
   type    = string
   default = "https://authentik.invalid"
