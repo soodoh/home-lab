@@ -1,0 +1,50 @@
+---
+- name: Observe current host state before changing Omada mail
+  ansible.builtin.import_playbook: observe-hosts.yml
+
+- name: Observe current backup admission before changing Omada mail
+  ansible.builtin.import_playbook: observe-backups.yml
+
+- name: Converge Omada SMTP and recipients under production ownership
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require explicit approval for SMTP and recipient changes
+      ansible.builtin.assert:
+        that: omada_mail_apply_confirmed | default(false) | bool
+        fail_msg: Live mail convergence requires omada_mail_apply_confirmed=true.
+      when: not ansible_check_mode
+
+    - name: Observe active Compose state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire production ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: omada-mail
+
+  tasks:
+    - name: Reobserve active Compose under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Converge only SMTP and the selected site's recipients
+      ansible.builtin.import_role:
+        name: omada_mail
+
+  post_tasks:
+    - name: Release production ownership only on complete success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: omada-mail

@@ -3,6 +3,8 @@ def exact_keys($wanted):
   type == "object" and (keys == ($wanted | sort));
 def single_line:
   type == "string" and length > 0 and (test("[\r\n\u0000]") | not);
+def credential:
+  single_line and test("^[!-~]{1,128}$");
 def email:
   single_line and test("^[^@[:space:]<>]+@[^@[:space:]<>]+\\.[^@[:space:]<>]+$");
 try (
@@ -12,8 +14,8 @@ try (
   (.smtp.host | single_line and test("^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)*[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$")) and
   (.smtp.port | type == "number" and floor == . and . >= 1 and . <= 65535) and
   (.smtp.security | . == "starttls" or . == "tls") and
-  (.smtp.username | single_line) and
-  (.smtp.password | single_line) and
+  (.smtp.username | credential) and
+  (.smtp.password | credential) and
   (.smtp.sender | email) and
   (.recipients | type == "array" and length > 0 and all(.[]; email) and (unique | length) == length) and
   # Proton submission requires the token's paired address as sender.

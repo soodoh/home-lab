@@ -1,0 +1,13 @@
+---
+- name: Observe Omada mail without changing settings or sending email
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Compare desired mail configuration using the plan identity
+      ansible.builtin.import_role:
+        name: omada_mail
+      vars:
+        omada_mail_observe_only: true
+      check_mode: true

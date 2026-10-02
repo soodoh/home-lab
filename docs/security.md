@@ -17,9 +17,12 @@ private temporary output when the current run ends.
 `secrets/production.sops.yaml` is the structured encrypted application source.
 [`Omada mail`](omada-mail.md) has a separate desired authority in
 `secrets/omada-mail.sops.json`: dedicated SMTP token, server, sender and
-recipients. Capture and validation do not activate it. Omada has no documented
-SMTP password-file reader; do not inject these values into Compose or claim
-that a secret mount configures its native controller settings.
+recipients. Capture and observation do not activate it. The approval-gated native
+Ansible mail interface decrypts on the controller and protects requests with
+`no_log` and verified HTTPS; SMTP tokens are masked by the API and cannot be
+compared during a normal observation. Omada has no documented SMTP password-file
+reader; do not inject these values into Compose or claim that a secret mount
+configures its native controller settings.
 Authentik OAuth client secrets are instead authoritative in
 `infrastructure/tofu/authentik/client-secrets.sops.json`. Site convergence reads
 that source on the controller to render Home Assistant's protected `!secret`

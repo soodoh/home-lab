@@ -1,0 +1,58 @@
+---
+- name: Load protected Omada mail inputs on the controller
+  delegate_to: localhost
+  become: false
+  no_log: true
+  block:
+    - name: Require a private provider session
+      ansible.builtin.assert:
+        that:
+          - omada_mail_session_dir is match('^/')
+
+    - name: Select the plan or apply capability before read-only module overrides
+      ansible.builtin.set_fact:
+        omada_mail_capability: "{{ 'plan' if (ansible_check_mode or omada_mail_observe_only | bool) else 'apply' }}"
+
+    - name: Inspect the selected credential file without reading it
+      ansible.builtin.stat:
+        path: "{{ omada_mail_session_dir }}/{{ omada_mail_capability }}-credentials.json"
+        get_checksum: false
+        get_mime: false
+      register: omada_mail_credential_stat
+      check_mode: false
+
+    - name: Inspect provider session protection
+      ansible.builtin.stat:
+        path: "{{ omada_mail_session_dir }}"
+        get_checksum: false
+        get_mime: false
+      register: omada_mail_session_stat
+      check_mode: false
+
+    - name: Refuse an unprotected or stale provider session
+      ansible.builtin.assert:
+        that:
+          - omada_mail_session_stat.stat.isdir | default(false)
+          - not omada_mail_session_stat.stat.islnk | default(true)
+          - omada_mail_session_stat.stat.mode == '0700'
+          - omada_mail_session_stat.stat.pw_name == lookup('ansible.builtin.env', 'USER')
+          - omada_mail_credential_stat.stat.isreg | default(false)
+          - not omada_mail_credential_stat.stat.islnk | default(true)
+          - omada_mail_credential_stat.stat.mode == '0600'
+          - omada_mail_credential_stat.stat.pw_name == lookup('ansible.builtin.env', 'USER')
+          - (now().timestamp() - omada_mail_credential_stat.stat.mtime) >= 0
+          - (now().timestamp() - omada_mail_credential_stat.stat.mtime) <= 3600
+        fail_msg: Use a fresh mode-0700 provider session with owned mode-0600 credentials.
+
+    - name: Read desired configuration and mode-specific controller credentials
+      ansible.builtin.set_fact:
+        omada_mail_domain: "{{ (lookup('ansible.builtin.file', omada_mail_domain_file) | from_json).omada_domain }}"
+        omada_mail_desired: >-
+          {{ lookup('community.sops.sops', omada_mail_sops_file, input_type='json',
+            age_keyfile=lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE')) | from_json }}
+        omada_mail_credentials: >-
+          {{ lookup('ansible.builtin.file', omada_mail_session_dir ~ '/' ~
+            omada_mail_capability ~ '-credentials.json') | from_json }}
+
+- name: Observe or converge the native Omada mail interface
+  ansible.builtin.import_tasks: controller.yml

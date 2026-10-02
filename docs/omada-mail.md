@@ -1,32 +1,33 @@
 # Omada mail configuration
 
-`secrets/omada-mail.sops.json` is the desired authority for Omada's SMTP
-credentials, server, sender and alert recipients. SOPS encrypts every value to
-both repository age recipients. Recover the age identity from independent
+`secrets/omada-mail.sops.json` is the desired authority for SMTP credentials,
+server, sender and the selected site's alert recipients. SOPS encrypts every
+value to both repository age recipients. Recover the age identity from independent
 protected storage; ciphertext alone is not sufficient for recovery.
 
-The input contract is validated by native jq in
-[`omada-mail-input.jq`](../scripts/omada-mail-input.jq):
+The [native jq input contract](../scripts/omada-mail-input.jq) requires:
 
 - `schema_version`: `1`.
 - `smtp`: `host`, integer `port`, `security` (`starttls` or `tls`),
-  `username`, `password` (the dedicated SMTP token), and `sender`.
+  `username`, `password` (a dedicated SMTP token), and `sender`.
 - `recipients`: a nonempty list of unique recipient email addresses.
+- Username and token: visible ASCII, 1–128 characters, matching the native form.
 
-Use a dedicated Omada SMTP token, not an account login password or another
-application's token. For Proton, pair the token with a custom-domain address
-and use that address for both username and sender. Its submission transport is
-`smtp.protonmail.ch:587` with STARTTLS. Do not revoke an old token until a
-separately approved rotation has been applied and delivery verified.
+Use a dedicated Omada SMTP token, not an account password or another application's
+token. For Proton, pair the token with a custom-domain address and use that address
+for both username and sender. Submission is `smtp.protonmail.ch:587` with STARTTLS.
+Omada's SSL checkbox is **off** for STARTTLS and **on** for implicit TLS; this does
+not disable management-API HTTPS certificate verification. The transport mapping
+follows TP-Link's guidance, not an independent SMTP downgrade-resistance audit.
 
-## Capture and validate without applying
+## Capture and validate
 
-Initial capture uses a private, per-run wizard outside Git. It prompts for the
-username and token with hidden input, defaults the recipient to
-`paul@diloreto.com`, and writes only ciphertext into `secrets/`. It does not
-change the controller, send email, stage files or commit. Temporary plaintext
-capture files are mode 0600 inside a mode-0700 directory and removed on exit.
-Do not run with shell tracing, terminal recording or a shared terminal.
+Initial capture uses a private, per-run wizard outside Git. It captures credentials
+with hidden input, defaults the recipient to `paul@diloreto.com`, and writes only
+ciphertext into `secrets/`. It does not change the controller, send email, stage
+files or commit. Temporary plaintext files are mode 0600 in a mode-0700 directory
+and removed on normal exit or handled interruption. Do not enable shell tracing,
+terminal recording or shared-terminal access.
 
 For subsequent edits, use native SOPS in a protected local editor:
 
@@ -34,35 +35,102 @@ For subsequent edits, use native SOPS in a protected local editor:
 sops secrets/omada-mail.sops.json
 scripts/check-omada-mail
 python3 scripts/test-omada-mail.py
+python3 scripts/test-omada-mail-convergence.py
 ```
 
-The checker requires the protected age identity and validates decrypted input
-in a pipe without printing values or writing plaintext under Git. Review the
-ciphertext and configuration tooling separately from live activation.
+The checker requires the protected age identity and validates decrypted input in
+a pipe without printing values or writing plaintext under Git. Convergence tests
+exercise native Ansible tasks against a synthetic loopback HTTPS controller; they
+never use production credentials or deliver real email.
 
-## Activation boundary
+## Observe without applying
 
-This setup path **stages desired input only**. It neither configures SMTP nor
-enables notification delivery. Applying it requires a separately reviewed
-controller configuration step and a successful test email to the intended
-recipient before declaring delivery functional.
+Start from a clean reviewed checkout and a **fresh private provider session** using
+[operations](operations.md#prepare-a-disposable-controller). Supply
+`SOPS_AGE_KEY_FILE` from protected storage and export
+`HOME_LAB_PROVIDER_SESSION_DIR` with the new plan/apply credential files. The role
+refuses stale, unowned, symlinked or unprotected credentials. It uses the reviewed
+HTTPS origin, normal system certificate trust, no proxy and no redirects. It
+refuses unqualified controller versions and absent or ambiguous sites.
 
-The pinned `mbentley/omada-controller` image does not document an SMTP
-password-file or `_FILE` reader. Do not invent an environment variable or add
-an ineffective Compose secret mount. Omada persists SMTP settings in its own
-controller data; that data remains sensitive and belongs in the existing
-protected backup/recovery scope. SOPS remains the desired credential authority,
-not a second plaintext copy in Compose's interpolation environment.
+```sh
+export ANSIBLE_CONFIG=ansible/ansible.cfg
+ansible-playbook ansible/playbooks/observe-omada-mail.yml
+ansible-playbook ansible/playbooks/converge-omada-mail.yml --check
+```
 
-The Omada OpenTofu provider manages alert/event delivery toggles, but not the
-SMTP server, SMTP credential or recipient list. Keep their controller
-configuration separate from provider adoption. For Omada STARTTLS, its native
-SSL checkbox is **off**; it is **on** for implicit TLS. Do not confuse this
-with disabling HTTPS certificate verification for the management API.
+The observer is read-only even without `--check`: authentication creates a session,
+but no configuration PATCH or test-email submission is permitted. Check mode uses
+only the plan identity and reports bounded SMTP/recipient change decisions.
+The convergence playbook additionally observes host, Compose and backup admission;
+check mode does not acquire a production mutation lock.
 
-## Primary sources
+**The controller masks the SMTP token.** Public-settings convergence is not proof
+that the stored token matches SOPS. A normal run does not repeatedly rewrite an
+unreadable credential. A token-only rotation requires the explicit rotation flag.
+
+## Approved activation or rotation
+
+This source interface is not an apply approval. Review fresh observation and the
+entire intended change, then explicitly approve application. The playbook acquires
+the existing Docker-host production lock and reobserves Compose before API writes.
+Do not run OpenTofu notification changes or manual controller edits concurrently:
+the native whole-document PATCH has no compare-and-swap guarantee. A reread refuses
+already-visible concurrent edits, but cannot eliminate the final read/write race.
+
+After separate approval, the invocation shape is:
+
+```sh
+ansible-playbook ansible/playbooks/converge-omada-mail.yml \
+  -e omada_mail_apply_confirmed=true -e omada_mail_send_test=true
+```
+
+For an approved **token-only** rotation, also pass
+`-e omada_mail_rotate_credentials=true`. Keep the previous token valid and its SOPS
+revision recoverable until delivery with the new token has been verified.
+
+The role configures controller-wide SMTP and **only recipients** in the selected
+site's notification document. It preserves every notification toggle, delivery
+flag, delay, webhook selection and unmodelled field; only controller-owned
+`resource` metadata is omitted from the write. It does not write global recipients,
+IGMP settings, Compose configuration or OpenTofu state. The provider remains the
+owner of adopted notification toggles; Ansible is not a second writer of them.
+
+After writes, the role rereads and verifies public SMTP settings, recipients and
+all preserved notification fields. Tests are opt-in, one submission per desired
+recipient, using reread form settings and the native stored-password sentinel,
+not a desired token supplied as a transient test credential. API success means
+**submission accepted**, not confirmed mailbox delivery. Independently check receipt
+and require a fresh observer/check before declaring mail functional. Writes and
+sentinel behavior still need qualification on the real controller during the first
+separately approved activation; synthetic tests are not that evidence.
+
+Failure retains the production lock. Reobserve controller and host state, keep
+private evidence and resolve the retained owner using the existing independently
+reviewed lock-clear procedure. Do not automatically roll back or revoke credentials.
+
+## Secret delivery boundary
+
+The pinned `mbentley/omada-controller` image has no documented SMTP password-file
+or `_FILE` reader. Do not add an ineffective Compose secret mount. `community.sops`
+decrypts on the controller; native Ansible API requests use `no_log`. Omada persists
+SMTP settings in its sensitive controller data, covered by the existing protected
+backup/recovery scope. SOPS remains desired authority, not another plaintext copy
+in Compose's interpolation environment.
+
+The pinned OpenTofu provider models notification toggles, but not SMTP or recipients.
+Keep adoption separate and require import-only no-op plans before behavior changes.
+
+## Interface and primary sources
+
+The native role is version-bound to the reviewed `6.3.0.45` interface: SMTP
+`GET/PATCH /{controller}/api/v2/global/settings/mail-server`, site notification
+`GET/PATCH /{controller}/api/v2/sites/{site}/logs/notification`, and opt-in test mail
+`POST /{controller}/api/v2/settings/test-mail`. The bundled native UI supplies the
+SMTP form fields and masked-password test behavior. Requalify after upgrades.
 
 - [Proton SMTP submission and dedicated tokens](https://proton.me/support/smtp-submission).
 - [TP-Link SMTP encryption, including STARTTLS](https://www.tp-link.com/us/support/faq/3260/).
 - [Image configuration interfaces](https://github.com/mbentley/docker-omada-controller#optional-environment-variables).
 - [Pinned provider notification coverage](https://github.com/wncservices/terraform-provider-omada/blob/v0.11.10/docs/resources/notification_settings.md).
+- [Provider's whole-document notification writer](https://github.com/wncservices/terraform-provider-omada/blob/v0.11.10/internal/omada/notification.go).

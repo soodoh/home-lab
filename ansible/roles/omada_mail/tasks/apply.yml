@@ -1,0 +1,89 @@
+---
+# Inherited localhost delegation, no_log and verified HTTPS from controller.yml.
+- name: Reread both documents immediately before writing
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    method: GET
+    headers: "{{ omada_mail_headers }}"
+  loop: ["{{ omada_mail_smtp_url }}", "{{ omada_mail_notification_url }}"]
+  register: omada_mail_prewrite
+  changed_when: false
+
+- name: Refuse concurrent controller edits observed since admission
+  ansible.builtin.assert:
+    that:
+      - omada_mail_prewrite.results[0].json.errorCode == 0
+      - omada_mail_prewrite.results[1].json.errorCode == 0
+      - omada_mail_prewrite.results[0].json.result == omada_mail_smtp_current
+      - >-
+        (omada_mail_prewrite.results[1].json.result | dict2items |
+          rejectattr('key', 'equalto', 'resource') | items2dict) == omada_mail_notifications_current
+    fail_msg: Controller settings changed during this run; reobserve and review rather than overwriting them.
+
+- name: Apply SMTP settings or an explicitly requested token rotation
+  ansible.builtin.uri:
+    url: "{{ omada_mail_smtp_url }}"
+    method: PATCH
+    headers: "{{ omada_mail_headers }}"
+    body_format: json
+    body: "{{ omada_mail_smtp_desired }}"
+  register: omada_mail_smtp_write
+  failed_when: omada_mail_smtp_write.status != 200 or omada_mail_smtp_write.json.errorCode != 0
+  changed_when: true
+  when: omada_mail_smtp_changed
+
+- name: Update only recipients in the preserved notification document
+  ansible.builtin.uri:
+    url: "{{ omada_mail_notification_url }}"
+    method: PATCH
+    headers: "{{ omada_mail_headers }}"
+    body_format: json
+    body: "{{ omada_mail_notifications_current | combine({'recipients': omada_mail_recipients_desired}) }}"
+  register: omada_mail_recipient_write
+  failed_when: omada_mail_recipient_write.status != 200 or omada_mail_recipient_write.json.errorCode != 0
+  changed_when: true
+  when: omada_mail_recipients_changed
+
+- name: Reread persisted settings even after a public-settings no-op
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    method: GET
+    headers: "{{ omada_mail_headers }}"
+  loop: ["{{ omada_mail_smtp_url }}", "{{ omada_mail_notification_url }}"]
+  register: omada_mail_verified
+  changed_when: false
+
+- name: Verify SMTP settings and recipients without claiming a readable token
+  ansible.builtin.assert:
+    that:
+      - omada_mail_verified.results[0].json.errorCode == 0
+      - omada_mail_verified.results[1].json.errorCode == 0
+      - >-
+        omada_mail_verified.results[0].json.result | combine(omada_mail_smtp_public) ==
+          omada_mail_verified.results[0].json.result
+      - omada_mail_verified.results[0].json.result.password is string
+      - omada_mail_verified.results[0].json.result.password | length > 0
+      - >-
+        (omada_mail_verified.results[1].json.result.recipients | map(attribute='email') | sort) ==
+          (omada_mail_desired.recipients | sort)
+      - >-
+        (omada_mail_verified.results[1].json.result | dict2items |
+          rejectattr('key', 'in', ['recipients', 'resource']) | items2dict) ==
+          (omada_mail_notifications_current | dict2items | rejectattr('key', 'equalto', 'recipients') | items2dict)
+    fail_msg: Persisted mail settings or unrelated notification fields differ; retain ownership and inspect live state.
+
+# Native UI sends its reread password sentinel so the controller tests the saved
+# credential. Do not substitute a desired token into a transient test payload.
+- name: Submit opt-in test email using reread controller settings
+  ansible.builtin.uri:
+    url: "{{ omada_mail_api }}/settings/test-mail"
+    method: POST
+    headers: "{{ omada_mail_headers }}"
+    body_format: json
+    body: "{{ omada_mail_verified.results[0].json.result | combine({'receiver': item}) }}"
+    timeout: 60
+  loop: "{{ omada_mail_desired.recipients }}"
+  register: omada_mail_test_submission
+  failed_when: omada_mail_test_submission.status != 200 or omada_mail_test_submission.json.errorCode != 0
+  changed_when: true
+  when: omada_mail_send_test | bool

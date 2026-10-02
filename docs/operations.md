@@ -170,6 +170,27 @@ Authentik plan or apply makes a consumer switch atomic; verify a fresh OIDC logi
 and a no-op plan before declaring rotation complete. Do not count the CWA step
 as complete until its admin setting and fresh login have been checked.
 
+### Omada SMTP and recipients
+
+[Omada mail](omada-mail.md) uses a separate SOPS authority and native Ansible
+API convergence, not Compose interpolation or an invented password-file reader.
+Use `observe-omada-mail.yml` with a fresh private plan credential session;
+`converge-omada-mail.yml --check` also validates host, Compose and backup admission.
+A separately approved apply uses the apply identity under the production host
+lock. SMTP is controller-wide; recipients belong only to the reviewed site.
+Notification toggles remain provider-owned and must be preserved. Serialize
+these writes against manual controller edits and OpenTofu notification applies:
+the native whole-document PATCH has no compare-and-swap guarantee.
+
+The API masks the SMTP token. Public-settings convergence cannot prove secret
+synchronization; an approved token-only rotation needs its explicit flag. Opt-in
+tests use the reread controller settings, not a transient desired token, and
+successful submission does not prove mailbox delivery. Keep the old token valid
+until receipt is independently verified. Failed convergence retains the host
+lock; inspect live state and preserve private evidence rather than automatically
+rolling back or clearing ownership. SMTP native writes and test behavior still
+require live qualification on the first separately approved activation.
+
 ### Download-client credential rotation and Arr provider ownership
 
 For the Servarr root, use the [documented one-key Arr provider exception](security.md#opentofu-state-and-plans): there is no separate read-only Arr API key. In a fresh private provider session, run

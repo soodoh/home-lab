@@ -51,8 +51,8 @@ class OmadaMailInputTests(unittest.TestCase):
             "host": ["", "https://smtp.example.com", "host\nheader", "user@host"],
             "port": ["587", 0, 65536, 587.5, True],
             "security": ["none", "ssl", ""],
-            "username": ["", "user\rheader", 123],
-            "password": ["", "synthetic\nsecret", "synthetic\x00secret", None],
+            "username": ["", "user\rheader", 123, "user with spaces", "x" * 129],
+            "password": ["", "synthetic\nsecret", "synthetic\x00secret", None, "x" * 129, "unicode-\u2603"],
             "sender": ["", "not-email", "a@example.com\nBcc:other@example.com"],
         }
         for field, values in bad.items():

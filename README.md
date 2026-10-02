@@ -17,7 +17,7 @@ roll back configuration, **not application data**.
   production activation is not yet qualified.
 - [Security](docs/security.md): protect credentials, state and recovery material.
 - [Deployment access](docs/deployment-access.md): Tailscale SSH and controller access.
-- [Omada mail](docs/omada-mail.md): encrypted SMTP desired input; activation is separate.
+- [Omada mail](docs/omada-mail.md): encrypted SMTP authority and approval-gated native convergence.
 
 ## Initial manual setup (or a new controller)
 

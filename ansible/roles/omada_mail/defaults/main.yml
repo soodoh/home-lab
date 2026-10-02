@@ -1,0 +1,11 @@
+---
+omada_mail_controller_root: "{{ playbook_dir }}/../.."
+omada_mail_domain_file: "{{ omada_mail_controller_root }}/infrastructure/tofu/omada/domain.auto.tfvars.json"
+omada_mail_sops_file: "{{ omada_mail_controller_root }}/secrets/omada-mail.sops.json"
+omada_mail_session_dir: "{{ lookup('ansible.builtin.env', 'HOME_LAB_PROVIDER_SESSION_DIR') }}"
+omada_mail_apply_confirmed: false
+omada_mail_observe_only: false
+omada_mail_rotate_credentials: false
+omada_mail_send_test: false
+# Empty means the controller's normal system trust store, never insecure TLS.
+omada_mail_ca_path: ""

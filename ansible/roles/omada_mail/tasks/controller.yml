@@ -1,0 +1,186 @@
+---
+- name: Reconcile Omada mail with protected native API requests
+  delegate_to: localhost
+  become: false
+  no_log: true
+  module_defaults:
+    ansible.builtin.uri:
+      validate_certs: true
+      ca_path: "{{ omada_mail_ca_path if omada_mail_ca_path | length > 0 else omit }}"
+      use_proxy: false
+      follow_redirects: none
+      status_code: 200
+      return_content: true
+      timeout: 30
+  block:
+    - name: Require explicit approval and the reviewed HTTPS origin
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode or omada_mail_observe_only | bool or omada_mail_apply_confirmed | bool
+          - omada_mail_domain.endpoint is match('^https://[A-Za-z0-9.-]+(:[0-9]+)?$')
+          - omada_mail_credentials.OMADA_URL == omada_mail_domain.endpoint
+          - omada_mail_credentials.OMADA_USERNAME | length > 0
+          - omada_mail_credentials.OMADA_PASSWORD | length > 0
+          - omada_mail_domain.controller_version == '6.3.0.45'
+        fail_msg: Omada mail requires explicit apply approval and its qualified controller interface.
+
+    - name: Validate desired SMTP input without exposing values
+      ansible.builtin.command:
+        argv: [jq, -e, -f, "{{ omada_mail_controller_root }}/scripts/omada-mail-input.jq"]
+        stdin: "{{ omada_mail_desired | to_json }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Read controller identity over verified HTTPS
+      ansible.builtin.uri:
+        url: "{{ omada_mail_domain.endpoint }}/api/info"
+        method: GET
+      register: omada_mail_info
+      changed_when: false
+      check_mode: false
+
+    - name: Require the qualified controller version and a safe path identity
+      ansible.builtin.assert:
+        that:
+          - omada_mail_info.json.errorCode == 0
+          - omada_mail_info.json.result.controllerVer == omada_mail_domain.controller_version
+          - omada_mail_info.json.result.omadacId is match('^[A-Za-z0-9_-]+$')
+
+    - name: Bind the native API base
+      ansible.builtin.set_fact:
+        omada_mail_api: "{{ omada_mail_domain.endpoint }}/{{ omada_mail_info.json.result.omadacId }}/api/v2"
+
+    - name: Authenticate with the mode-specific controller identity
+      ansible.builtin.uri:
+        url: "{{ omada_mail_api }}/login"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ omada_mail_credentials.OMADA_USERNAME }}"
+          password: "{{ omada_mail_credentials.OMADA_PASSWORD }}"
+      register: omada_mail_login
+      changed_when: false
+      check_mode: false
+
+    - name: Require an authenticated session rather than an HTTP-only success
+      ansible.builtin.assert:
+        that:
+          - omada_mail_login.json.errorCode == 0
+          - omada_mail_login.json.result.token | length > 0
+          - omada_mail_login.cookies_string | length > 0
+
+    - name: Bind private authentication headers
+      ansible.builtin.set_fact:
+        omada_mail_headers:
+          Csrf-Token: "{{ omada_mail_login.json.result.token }}"
+          Cookie: "{{ omada_mail_login.cookies_string }}"
+
+    - name: Resolve the selected site without choosing the first result
+      ansible.builtin.uri:
+        url: "{{ omada_mail_api }}/sites?currentPage=1&currentPageSize=100"
+        method: GET
+        headers: "{{ omada_mail_headers }}"
+      register: omada_mail_sites
+      changed_when: false
+      check_mode: false
+
+    - name: Require a complete site enumeration
+      ansible.builtin.assert:
+        that:
+          - omada_mail_sites.json.errorCode == 0
+          - omada_mail_sites.json.result.data | type_debug == 'list'
+          - omada_mail_sites.json.result.totalRows == omada_mail_sites.json.result.data | length
+
+    - name: Select exactly the reviewed site
+      ansible.builtin.set_fact:
+        omada_mail_matching_sites: >-
+          {{ omada_mail_sites.json.result.data | selectattr('name', 'equalto', omada_mail_domain.site_name) | list }}
+
+    - name: Refuse absent or ambiguous site ownership
+      ansible.builtin.assert:
+        that:
+          - omada_mail_matching_sites | length == 1
+          - omada_mail_matching_sites[0].id is match('^[A-Za-z0-9_-]+$')
+
+    - name: Bind the selected site's notification document
+      ansible.builtin.set_fact:
+        omada_mail_notification_url: "{{ omada_mail_api }}/sites/{{ omada_mail_matching_sites[0].id }}/logs/notification"
+        omada_mail_smtp_url: "{{ omada_mail_api }}/global/settings/mail-server"
+
+    - name: Read current SMTP and the complete notification document
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        method: GET
+        headers: "{{ omada_mail_headers }}"
+      loop: ["{{ omada_mail_smtp_url }}", "{{ omada_mail_notification_url }}"]
+      register: omada_mail_observed
+      changed_when: false
+      check_mode: false
+
+    - name: Require valid API envelopes and notification structure
+      ansible.builtin.assert:
+        that:
+          - omada_mail_observed.results[0].json.errorCode == 0
+          - omada_mail_observed.results[1].json.errorCode == 0
+          - omada_mail_observed.results[0].json.result is mapping
+          - omada_mail_observed.results[0].json.result.smtpEnable is boolean
+          - omada_mail_observed.results[0].json.result.sslEnable is boolean
+          - omada_mail_observed.results[0].json.result.authEnable is boolean
+          - omada_mail_observed.results[1].json.result.alertEmailSetting is mapping
+          - omada_mail_observed.results[1].json.result.eventEmailSetting is mapping
+          - omada_mail_observed.results[1].json.result.webhookSetting is mapping
+          - omada_mail_observed.results[1].json.result.alertNotifications | type_debug == 'list'
+          - omada_mail_observed.results[1].json.result.eventNotifications | type_debug == 'list'
+          - omada_mail_observed.results[1].json.result.recipients | type_debug == 'list'
+
+    - name: Project desired settings and preserve the rest of the notification document
+      ansible.builtin.set_fact:
+        omada_mail_smtp_current: "{{ omada_mail_observed.results[0].json.result }}"
+        omada_mail_notifications_current: >-
+          {{ omada_mail_observed.results[1].json.result | dict2items |
+            rejectattr('key', 'equalto', 'resource') | items2dict }}
+        omada_mail_smtp_desired:
+          smtpEnable: true
+          smtpServer: "{{ omada_mail_desired.smtp.host }}"
+          port: "{{ omada_mail_desired.smtp.port }}"
+          sslEnable: "{{ omada_mail_desired.smtp.security == 'tls' }}"
+          authEnable: true
+          username: "{{ omada_mail_desired.smtp.username }}"
+          password: "{{ omada_mail_desired.smtp.password }}"
+          senderAddress: "{{ omada_mail_desired.smtp.sender }}"
+        omada_mail_recipients_desired: "{{ omada_mail_desired.recipients | map('community.general.dict_kv', 'email') | list }}"
+
+    - name: Refuse unknown SMTP fields rather than silently dropping them
+      ansible.builtin.assert:
+        that:
+          - omada_mail_smtp_current.keys() | difference(omada_mail_smtp_desired.keys()) | length == 0
+
+    - name: Compare only readable SMTP settings and the authoritative recipient list
+      ansible.builtin.set_fact:
+        omada_mail_smtp_public: >-
+          {{ omada_mail_smtp_desired | dict2items | rejectattr('key', 'equalto', 'password') | items2dict }}
+        omada_mail_recipients_changed: >-
+          {{ (omada_mail_notifications_current.recipients | map(attribute='email') | sort) !=
+            (omada_mail_desired.recipients | sort) }}
+
+    - name: Make masked-secret rotation an explicit decision
+      ansible.builtin.set_fact:
+        omada_mail_smtp_changed: >-
+          {{ omada_mail_rotate_credentials | bool or
+            omada_mail_smtp_current | combine(omada_mail_smtp_public) != omada_mail_smtp_current }}
+
+    - name: Apply and verify only explicitly approved configuration
+      ansible.builtin.import_tasks: apply.yml
+      when:
+        - not ansible_check_mode
+        - not omada_mail_observe_only | bool
+
+- name: Report only bounded Omada mail decisions
+  ansible.builtin.debug:
+    msg:
+      smtp_update_required: "{{ omada_mail_smtp_changed }}"
+      recipients_update_required: "{{ omada_mail_recipients_changed }}"
+      credential_comparison: unavailable_masked_by_controller
+      test_submission: "{{ 'accepted' if not ansible_check_mode and not omada_mail_observe_only | bool and omada_mail_send_test | bool else 'not_sent' }}"
+      mailbox_delivery: not_verified
+  changed_when: (ansible_check_mode or omada_mail_observe_only | bool) and (omada_mail_smtp_changed or omada_mail_recipients_changed)
