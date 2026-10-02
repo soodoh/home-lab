@@ -18,6 +18,7 @@ locals {
 
   group_member_usernames = toset(flatten([for group in values(local.groups) : group.member_usernames]))
   group_ids_by_pk        = { for key, group in local.groups : group.pk => authentik_group.managed[key].id }
+  flow_ids_by_pk         = { for key, flow in local.custom_flows : flow.pk => authentik_flow.custom[key].uuid if try(flow.pk, null) != null }
   referenced_flow_slugs = toset(concat(
     [for stage in values(local.webauthn_stages) : stage.configure_flow_slug],
     flatten([for brand in values(local.brands) : [
@@ -119,7 +120,7 @@ resource "authentik_stage_identification" "managed" {
   show_source_labels        = each.value.show_source_labels
   enrollment_flow           = each.value.enrollment_flow
   recovery_flow             = each.value.recovery_flow
-  passwordless_flow         = each.value.passwordless_flow
+  passwordless_flow         = try(local.flow_ids_by_pk[each.value.passwordless_flow], each.value.passwordless_flow)
   sources                   = each.value.sources
 }
 
@@ -189,6 +190,12 @@ resource "authentik_stage_user_login" "managed" {
   terminate_other_sessions = each.value.terminate_other_sessions
   remember_me_offset       = each.value.remember_me_offset
   remember_device          = each.value.remember_device
+
+  lifecycle {
+    # Provider 2026.8.0 writes these fields but does not read them. The plan
+    # preflight independently checks them against desired state; do not hide drift.
+    ignore_changes = [network_binding, geoip_binding]
+  }
 }
 
 resource "authentik_policy_password" "managed" {
@@ -257,7 +264,8 @@ resource "authentik_system_settings" "managed" {
 resource "authentik_certificate_key_pair" "signing" {
   for_each = local.signing_certificates
 
-  name             = each.value.name
-  certificate_data = file("${path.module}/${each.value.certificate_file}")
-  key_data         = local.signing_keys.certificates[each.key].private_key
+  name = each.value.name
+  # The pinned reader appends a newline to both native PEM exports.
+  certificate_data = "${file("${path.module}/${each.value.certificate_file}")}\n"
+  key_data         = "${local.signing_keys.certificates[each.key].private_key}\n"
 }

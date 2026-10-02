@@ -69,6 +69,11 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
+    condition     = authentik_stage_identification.managed["default-authentication-identification"].passwordless_flow == authentik_flow.custom["passwordless-authentication"].uuid
+    error_message = "Identification must preserve its existing passwordless flow selection."
+  }
+
+  assert {
     condition     = length(authentik_stage_authenticator_validate.custom["passwordless-webauthn"].configuration_stages) == 1 && toset(authentik_stage_authenticator_validate.custom["passwordless-webauthn"].configuration_stages) == toset([authentik_stage_authenticator_webauthn.managed["default-authenticator-webauthn-setup"].id])
     error_message = "Passwordless configuration must reference the owned WebAuthn setup stage."
   }
@@ -111,5 +116,10 @@ run "authentication_and_onboarding_preserve_behavior" {
   assert {
     condition     = authentik_provider_oauth2.providers["15"].signing_key == authentik_certificate_key_pair.signing["jellyfin-oidc"].id && authentik_provider_oauth2.providers["47"].signing_key == local.desired.oauthProviders["47"].signing_key
     error_message = "Only the independently adopted signing key becomes owned; discovery-owned signing material remains external."
+  }
+
+  assert {
+    condition     = authentik_certificate_key_pair.signing["jellyfin-oidc"].certificate_data == "${file("${path.module}/jellyfin-oidc.pem")}\n" && authentik_certificate_key_pair.signing["jellyfin-oidc"].key_data == "${jsondecode(file(var.authentik_signing_keys_path)).certificates["jellyfin-oidc"].private_key}\n"
+    error_message = "PEM comparison must match the pinned reader's appended newline without rotating material."
   }
 }

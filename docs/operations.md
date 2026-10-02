@@ -161,7 +161,9 @@ not receive OAuth secrets from the API, so a secret plan would otherwise propose
 false updates even if the encrypted value is already live. Protect the plan token
 as a mutating credential. `scripts/prepare-authentik-plan-input` checks all four
 OAuth secret reads and every owned signing-certificate private-key read without
-printing their values; it refuses a masked or inaccessible identity. Run it in a
+printing their values; it refuses a masked or inaccessible identity. It also
+checks live login-stage binding values that the pinned provider cannot read back.
+Run it in a
 private provider session, with unused output paths supplied as
 `TF_VAR_authentik_client_secrets_path` and `TF_VAR_authentik_signing_keys_path`.
 It prepares both encrypted authorities; use the same SOPS revision for the saved

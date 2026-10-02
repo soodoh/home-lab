@@ -36,7 +36,12 @@ def api_server(mode):
                 self.send_header("Location", "https://example.invalid/")
                 self.end_headers()
                 return
-            if self.path.endswith("/view_private_key/"):
+            if self.path.startswith("/api/v3/stages/user_login/"):
+                body = {
+                    "network_binding": "bind_asn" if mode == "binding-drift" else "no_binding",
+                    "geoip_binding": "no_binding",
+                }
+            elif self.path.endswith("/view_private_key/"):
                 if mode == "key-denied":
                     self.send_error(403)
                     return
@@ -94,6 +99,15 @@ class ReadabilityTests(unittest.TestCase):
                 self.assertIn("signing certificate synthetic-certificate", str(caught.exception))
                 self.assertNotIn("synthetic-key", str(caught.exception))
                 self.assertEqual(len(paths), 5)
+
+    def test_login_binding_reader_gap_is_checked_independently(self):
+        expected = (("synthetic-login", "no_binding", "no_binding"),)
+        with api_server("complete") as (url, paths):
+            readability.check(url, "synthetic-token", login_bindings=expected)
+        self.assertEqual(paths[-1], "/api/v3/stages/user_login/synthetic-login/")
+        with api_server("binding-drift") as (url, paths):
+            with self.assertRaisesRegex(SystemExit, "binding drift; refuse plan"):
+                readability.check(url, "synthetic-token", login_bindings=expected)
 
     def test_denied_and_redirected_reads_fail_closed(self):
         for mode in ("denied", "redirect"):

@@ -39,7 +39,14 @@ The shared identification stage references the owned passwordless validation sta
 WebAuthn setup requires resident keys and keeps its configured attempt limit.
 Default MFA validation retains `not_configured_action = "skip"`; owning that stage
 does not make MFA enrollment mandatory. Unchanged shared password/login stages and
-stock flows remain data-source references rather than additional writers.
+stock flows remain data-source references rather than additional writers. The
+identification stage also retains its owned passwordless-flow selector.
+
+Provider 2026.8.0 writes login-stage `network_binding` and `geoip_binding` but
+omits both from its reader. Permanent lifecycle exclusions avoid false import
+updates; the plan-input preflight independently compares both live values to Git
+and refuses drift. Keep the preflight mandatory; remove these exclusions only
+with a provider version that round-trips the fields and a fresh complete plan.
 
 ## System and notification boundaries
 
@@ -64,7 +71,9 @@ encrypted `signing-keys.sops.json`, decrypted only into the current private
 controller session through `TF_VAR_authentik_signing_keys_path`. The provider's
 private-key read must succeed before planning; its reader silently omits key data
 on an unsuccessful private-key export, which would otherwise cause a false update.
-Keep remote state, saved plans and all decrypted inputs protected.
+Keep remote state, saved plans and all decrypted inputs protected. Configuration
+adds the pinned reader's extra newline to native PEM exports for comparison;
+this representation adjustment does not change cryptographic material.
 
 OAuth client secrets and the LDAP bind/TLS material retain their independent
 `client-secrets.sops.json` authority. Signing-key adoption must preserve the existing
