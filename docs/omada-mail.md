@@ -155,5 +155,5 @@ SMTP form fields and masked-password test behavior. Requalify after upgrades.
 - [Proton SMTP submission and dedicated tokens](https://proton.me/support/smtp-submission).
 - [TP-Link SMTP encryption, including STARTTLS](https://www.tp-link.com/us/support/faq/3260/).
 - [Image configuration interfaces](https://github.com/mbentley/docker-omada-controller#optional-environment-variables).
-- [Pinned provider notification coverage](https://github.com/wncservices/terraform-provider-omada/blob/v0.11.10/docs/resources/notification_settings.md).
-- [Provider's whole-document notification writer](https://github.com/wncservices/terraform-provider-omada/blob/v0.11.10/internal/omada/notification.go).
+- [Pinned provider notification coverage](https://github.com/wncservices/terraform-provider-omada/blob/v0.13.0/docs/resources/notification_settings.md).
+- [Provider's whole-document notification writer](https://github.com/wncservices/terraform-provider-omada/blob/v0.13.0/internal/omada/notification.go).

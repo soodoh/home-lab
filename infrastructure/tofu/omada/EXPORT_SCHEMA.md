@@ -38,7 +38,7 @@ zero-drift follow-up plan; do not introduce a second desired setting or write
 site settings to clear the observed difference.
 
 IPTV writes on controller `6.3.0.45` are not qualified for preserving WAN
-selection and MLD configuration. Provider `0.11.10` omits the observed
+selection and MLD configuration. Provider `0.13.0`, like `0.11.10`, omits the observed
 `igmpSetting.wanPortId` and `mldSetting` from its IPTV PUT. Read-only adoption
 does not establish how the controller handles those omissions. Qualify
 preservation under separate write approval or fix the provider before changing
@@ -51,7 +51,7 @@ preserve the existing key, but its write-only interface cannot detect password
 drift. Do not export or put Wi-Fi/SNMP credentials in Git.
 
 Individual alert/event selector maps are intentionally not declared here. Provider
-v0.11.10 refreshes only selector keys already in state; declaring even matching
+v0.13.0 refreshes only selector keys already in state; declaring even matching
 sparse maps during import causes an update. Review any future selector adoption
 separately instead of calling it a no-op import. Unlisted selectors remain intact.
 SMTP belongs to [native Ansible](../../../docs/omada-mail.md), not this root.
@@ -63,6 +63,27 @@ eliminate a concurrent-edit race.
 
 Other sites/networks, WLAN-group configuration, WAN configuration, AP names/radios
 and switch configuration remain outside this ownership boundary.
+
+## Provider upgrade scope
+
+The [0.12.0 release](https://github.com/wncservices/terraform-provider-omada/releases/tag/v0.12.0)
+fixes untagged-SSID creation and adds authenticator-app MFA login, access-point
+configuration, controller settings and gateway-less VLAN creation. The
+[0.13.0 release](https://github.com/wncservices/terraform-provider-omada/releases/tag/v0.13.0)
+adds firmware schedules and rejects unsafe zero-tag port-profile updates. These
+capabilities do not authorize new ownership, firmware updates or account changes;
+this root still owns only the explicitly declared resources.
+
+The IPTV and notification clients and resources in `0.13.0` are unchanged from
+`0.11.10`; the
+[IPTV writer](https://github.com/wncservices/terraform-provider-omada/blob/v0.13.0/internal/omada/iptv.go)
+and [notification writer](https://github.com/wncservices/terraform-provider-omada/blob/v0.13.0/internal/omada/notification.go)
+still have the boundaries above. The new
+[controller-settings resource](https://github.com/wncservices/terraform-provider-omada/blob/v0.13.0/docs/resources/controller_settings.md)
+explicitly excludes SMTP. Neither native SMTP ownership nor account-derived
+recipient visibility is repaired by upgrading the provider. Require a fresh
+whole-root zero-change plan for a maintenance upgrade; new resources need
+separate adoption and write qualification.
 
 ## Fresh identity export
 
