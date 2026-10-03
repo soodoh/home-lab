@@ -317,8 +317,8 @@ Wolf grant, then observe hosts, Compose and strict backups afresh:
 
 ```sh
 ansible-playbook ansible/playbooks/converge-wolf-security.yml --check
-# After review, with verified console access and no active Wolf sessions:
-ansible-playbook ansible/playbooks/converge-wolf-security.yml \\
+# After review, with verified console access and no active Wolf sessions or lobbies:
+ansible-playbook ansible/playbooks/converge-wolf-security.yml \
   -e wolf_security_apply_confirmed=true -e wolf_security_console_confirmed=true
 ```
 
@@ -328,7 +328,8 @@ stopping Wolf when a pin changes. Verify native packet allow/deny behavior,
 owner-tailnet access and other service health; qualify a real Moonlight session
 before declaring streaming behavior verified. The namespace behavior test is
 `ansible/tests/wolf-firewall.yml`; assignment tests use synthetic data in
-`ansible/tests/wolf-image-pins.yml`. These are not production migration receipts.
+`ansible/tests/wolf-image-pins.yml`; writer-exclusion response tests are in
+`ansible/tests/wolf-admission.yml`. These are not production migration receipts.
 On failure, inspect the retained production lock and root-only
 `/var/lib/home-lab-wolf-security.*` before-image; do not clear them or infer safe
 rollback from a Git revert. A fresh backup is needed before claiming the changed
@@ -349,7 +350,7 @@ review above; image-only does not automatically mean low risk:
 ```sh
 ansible-playbook ansible/playbooks/deploy-compose.yml --check
 # From reviewed committed source, after release/data compatibility review:
-ansible-playbook ansible/playbooks/deploy-compose.yml \\
+ansible-playbook ansible/playbooks/deploy-compose.yml \
   -e compose_native_apply_confirmed=true -e compose_native_change_class=routine
 ```
 
