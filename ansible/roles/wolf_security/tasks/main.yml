@@ -74,6 +74,9 @@
 - name: Admit only an idle Wolf writer
   ansible.builtin.import_tasks: idle.yml
 
+- name: Admit existing private configuration and preview all image assignments
+  ansible.builtin.import_tasks: config-admission.yml
+
 - name: Converge the separately owned protocol-port firewall
   ansible.builtin.import_tasks: firewall.yml
 

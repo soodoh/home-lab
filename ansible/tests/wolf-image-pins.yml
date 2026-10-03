@@ -47,7 +47,15 @@
           ansible.builtin.copy:
             dest: "{{ wolf_security_config_path }}"
             content: "{{ wolf_fixture }}"
+            owner: "{{ wolf_fixture_owner | default(omit) }}"
+            group: "{{ wolf_fixture_group | default(omit) }}"
             mode: '0600'
+
+        - name: Observe native synthetic document metadata
+          ansible.builtin.stat:
+            path: "{{ wolf_security_config_path }}"
+            get_checksum: false
+          register: wolf_fixture_metadata_before
 
         - name: Apply the real image assignment task seam
           ansible.builtin.import_role:
@@ -62,6 +70,19 @@
           ansible.builtin.slurp:
             src: "{{ wolf_security_config_path }}"
           register: wolf_fixture_changed
+
+        - name: Observe metadata after native atomic replacements
+          ansible.builtin.stat:
+            path: "{{ wolf_security_config_path }}"
+            get_checksum: false
+          register: wolf_fixture_metadata_after
+
+        - name: Require preservation of private native document ownership
+          ansible.builtin.assert:
+            that:
+              - wolf_fixture_metadata_after.stat.uid == wolf_fixture_metadata_before.stat.uid
+              - wolf_fixture_metadata_after.stat.gid == wolf_fixture_metadata_before.stat.gid
+              - wolf_fixture_metadata_after.stat.mode == wolf_fixture_metadata_before.stat.mode
 
         - name: Verify pins and preservation of unrelated settings
           ansible.builtin.assert:
@@ -120,6 +141,28 @@
                 msg: The native assignment seam accepted an unreviewed source.
           rescue:
             - name: Require the actual source identity refusal
+              ansible.builtin.assert:
+                that: >-
+                  (ansible_failed_result.results | map(attribute='msg') |
+                    select('search', 'declared image is missing or duplicated') | list | length) > 0
+        - name: Introduce a duplicated source with an unchanged image-field count
+          ansible.builtin.copy:
+            dest: "{{ wolf_security_config_path }}"
+            content: "{{ wolf_fixture | replace('ghcr.io/games-on-whales/steam:edge', 'ghcr.io/games-on-whales/es-de:edge') }}"
+            mode: '0600'
+
+        - name: Refuse a duplicated application source
+          block:
+            - name: Exercise duplicate-source admission
+              ansible.builtin.import_role:
+                name: wolf_security
+                tasks_from: assignments
+
+            - name: Fail if a duplicated source was accepted
+              ansible.builtin.fail:
+                msg: The native assignment seam accepted a duplicated source.
+          rescue:
+            - name: Require the actual duplicate source refusal
               ansible.builtin.assert:
                 that: >-
                   (ansible_failed_result.results | map(attribute='msg') |

@@ -1,0 +1,30 @@
+---
+- name: Inspect persisted Wolf configuration ownership
+  ansible.builtin.stat:
+    path: "{{ wolf_security_config_path }}"
+    follow: false
+    get_checksum: false
+  register: wolf_security_config_metadata
+  no_log: true
+
+- name: Require the observed private application-owned configuration
+  ansible.builtin.assert:
+    that:
+      - wolf_security_config_metadata.stat.isreg
+      - not wolf_security_config_metadata.stat.islnk
+      - wolf_security_config_metadata.stat.uid == 1000
+      - wolf_security_config_metadata.stat.gid == 1000
+      - wolf_security_config_metadata.stat.mode == '0600'
+      - wolf_security_config_metadata.stat.nlink == 1
+    fail_msg: Inspect unexpected Wolf configuration metadata before changing images.
+
+- name: Read persisted settings without exposing paired-client data
+  ansible.builtin.slurp:
+    src: "{{ wolf_security_config_path }}"
+  register: wolf_security_config_before
+  no_log: true
+
+- name: Preview only native image-field replacements before any live change
+  ansible.builtin.import_tasks: assignments.yml
+  vars:
+    wolf_security_assignment_check: true

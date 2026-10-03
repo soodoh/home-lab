@@ -179,9 +179,11 @@ this policy does not hide LAN discovery or authenticate a backend.
 
 Other app definitions, paired clients, certificates and profile data remain
 Wolf-owned and backed up. The native API supports append/remove, not image-only
-updates. Convergence requires no active sessions, stops only Wolf, retains a
-protected complete configuration before-image, changes only the declared image
-fields, checks preservation and waits for healthy startup. Unknown, duplicated
+updates. Convergence requires no active sessions or lobbies and admits the
+observed private configuration (UID/GID 1000, mode 0600) before firewall writes.
+It stops only Wolf, retains a protected complete configuration before-image,
+changes only the declared image fields, preserves application ownership and
+checks the complete changed settings again after healthy startup. Unknown, duplicated
 or retargeted images refuse admission. It does not launch Steam or an emulator
 or prove first-use application compatibility. Image digest updates are reviewed
 changes, including Renovate candidates; changing tags also requires reviewing

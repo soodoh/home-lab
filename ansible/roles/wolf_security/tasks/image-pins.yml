@@ -1,32 +1,4 @@
 ---
-- name: Inspect persisted Wolf configuration ownership
-  ansible.builtin.stat:
-    path: "{{ wolf_security_config_path }}"
-    follow: false
-    get_checksum: false
-  register: wolf_security_config_metadata
-  no_log: true
-
-- name: Refuse unexpected persisted configuration ownership
-  ansible.builtin.assert:
-    that:
-      - wolf_security_config_metadata.stat.isreg
-      - not wolf_security_config_metadata.stat.islnk
-      - wolf_security_config_metadata.stat.uid == 0
-      - wolf_security_config_metadata.stat.nlink == 1
-    fail_msg: Inspect unexpected Wolf configuration metadata before changing images.
-
-- name: Read persisted settings without exposing paired-client data
-  ansible.builtin.slurp:
-    src: "{{ wolf_security_config_path }}"
-  register: wolf_security_config_before
-  no_log: true
-
-- name: Preview only native image-field replacements
-  ansible.builtin.import_tasks: assignments.yml
-  vars:
-    wolf_security_assignment_check: true
-
 - name: Update only changed persisted image assignments under writer exclusion
   when:
     - not ansible_check_mode
@@ -112,12 +84,30 @@
       register: wolf_security_config_loaded
       no_log: true
 
-    - name: Verify pins persisted after healthy startup
+    - name: Verify the complete changed configuration persisted after healthy startup
       ansible.builtin.assert:
-        that: item.image in (wolf_security_config_loaded.content | b64decode)
-        fail_msg: A Wolf application pin did not persist after startup.
-      loop: "{{ wolf_security_policy.image_pins }}"
+        that: wolf_security_config_loaded.content == wolf_security_config_after.content
+        fail_msg: Wolf settings changed during startup; retain the before-image and production lock.
       no_log: true
+
+    - name: Inspect configuration metadata after the writer restart
+      ansible.builtin.stat:
+        path: "{{ wolf_security_config_path }}"
+        follow: false
+        get_checksum: false
+      register: wolf_security_config_metadata_after
+      no_log: true
+
+    - name: Verify private application ownership was preserved
+      ansible.builtin.assert:
+        that:
+          - wolf_security_config_metadata_after.stat.isreg
+          - not wolf_security_config_metadata_after.stat.islnk
+          - wolf_security_config_metadata_after.stat.nlink == 1
+          - wolf_security_config_metadata_after.stat.uid == wolf_security_config_metadata.stat.uid
+          - wolf_security_config_metadata_after.stat.gid == wolf_security_config_metadata.stat.gid
+          - wolf_security_config_metadata_after.stat.mode == wolf_security_config_metadata.stat.mode
+        fail_msg: Wolf metadata changed during convergence; retain the before-image and production lock.
 
     - name: Remove only the verified terminal configuration before-image
       ansible.builtin.file:
