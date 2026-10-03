@@ -51,10 +51,15 @@
     mode: '0644'
   register: wolf_security_unit
 
-- name: Require firewall admission before Docker starts on subsequent boots
+- name: Validate the installed scoped unit with the native systemd analyzer
+  ansible.builtin.command:
+    argv: [/usr/bin/systemd-analyze, verify, "/etc/systemd/system/{{ wolf_security_service }}"]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Start the scoped firewall before enabling Docker's boot dependency
   ansible.builtin.systemd_service:
     name: "{{ wolf_security_service }}"
-    enabled: true
     state: started
     daemon_reload: "{{ wolf_security_unit.changed }}"
   when: not ansible_check_mode
@@ -71,4 +76,10 @@
   ansible.builtin.command:
     argv: [/usr/sbin/nft, list, table, inet, home_lab_wolf]
   changed_when: false
+  when: not ansible_check_mode
+
+- name: Require verified firewall admission before Docker starts on subsequent boots
+  ansible.builtin.systemd_service:
+    name: "{{ wolf_security_service }}"
+    enabled: true
   when: not ansible_check_mode
