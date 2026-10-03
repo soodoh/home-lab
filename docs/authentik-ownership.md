@@ -27,10 +27,18 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Jellyfin (existing media entitlement) | family | Jellyfin, Seerr |
 | Karaoke Users | family | Karaoke Eternal |
 | Caro Library Users | caro | Caro Tachidesk |
-| CWA Users | personal | Calibre-Web-Automated |
+| CWA Users | personal | Calibre-Web-Automated, Grimmory |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
 | App Operators | operators (Paul only) | Calibre, CWA, Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, Radarr 4K, Readarr, SABnzbd, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
+
+Grimmory has a new create-only provider/application during the [CWA transition](grimmory.md),
+not an invented import ID. It shares the existing personal entitlement without
+auto-provisioning directory users or mapping application access to admin roles.
+Its separate client secret uses the same Authentik SOPS authority; its signed OIDC
+client reuses the already managed RSA signing certificate, not a competing
+discovery-owned key writer. Keep CWA/Calibre ownership until validation; their
+retirement requires explicit reviewed destroy actions.
 
 `App Operators` grants application access, not in-application administrator roles.
 `authentik Admins` and its independently administered membership grant Authentik

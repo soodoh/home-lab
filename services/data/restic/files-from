@@ -8,6 +8,9 @@
 /srv/home-lab-state/calibre-data/plugins
 /srv/home-lab-state/calibre-data/books
 /srv/home-lab-state/calibre-web-data
+/srv/home-lab-state/grimmory-data
+/srv/home-lab-state/grimmory-db-data
+/srv/home-lab-state/grimmory-bookdrop
 /srv/home-lab-state/caro-tachidesk-data
 /srv/home-lab-state/ddns-updater-data
 /srv/home-lab-state/frigate-data

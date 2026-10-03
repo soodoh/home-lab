@@ -1,0 +1,39 @@
+---
+- name: Inspect Grimmory state directories without reading contents
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  loop:
+    - {path: /srv/home-lab-state/grimmory-data, uid: 1000}
+    - {path: /srv/home-lab-state/grimmory-bookdrop, uid: 1000}
+    - {path: /srv/home-lab-state/grimmory-db-data, uid: 999}
+  become: true
+  register: grimmory_directory_stats
+
+- name: Refuse unsafe existing Grimmory state directories
+  ansible.builtin.assert:
+    that:
+      - not (item.stat.islnk | default(false))
+      - not (item.stat.exists | default(false)) or item.stat.isdir | default(false)
+      - not (item.stat.exists | default(false)) or item.stat.uid == item.item.uid
+      - not (item.stat.exists | default(false)) or item.stat.gid == item.item.uid
+      - not (item.stat.exists | default(false)) or item.stat.mode == '0700'
+    fail_msg: Inspect existing Grimmory directory ownership before convergence.
+  loop: "{{ grimmory_directory_stats.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Create protected Grimmory directories before extending backup scope
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.uid }}"
+    group: "{{ item.uid }}"
+    mode: "0700"
+  loop:
+    - {path: /srv/home-lab-state/grimmory-data, uid: 1000}
+    - {path: /srv/home-lab-state/grimmory-bookdrop, uid: 1000}
+    - {path: /srv/home-lab-state/grimmory-db-data, uid: 999}
+  become: true

@@ -45,9 +45,9 @@ trap 'rm -f "$client_secrets" "$signing_keys"' EXIT INT TERM
 signing_keys=$(mktemp "$signing_keys_parent/signing-keys.XXXXXX")
 SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
   infrastructure/tofu/authentik/client-secrets.sops.json >"$client_secrets"
-jq -e '
+jq -e --slurpfile desired infrastructure/tofu/authentik/desired.json '
   .schemaVersion == 2 and
-  (.oauthProviders | type == "object" and (keys | sort) == ["15", "21", "37", "47"]) and
+  (.oauthProviders | type == "object" and (keys | sort) == ($desired[0].oauthProviders | keys | sort)) and
   all(.oauthProviders[];
     type == "object" and
     (keys == ["client_secret"]) and

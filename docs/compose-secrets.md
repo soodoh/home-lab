@@ -25,7 +25,7 @@ necessary.
 Openfit's admin password is bootstrap-only. The remaining input, `ZWAVE_SECRET`,
 should be removed from injection after independent consumer checks, not migrated.
 
-All but Vaultwarden's OIDC secret originate in
+Credential-file inputs other than Vaultwarden's OIDC secret originate in
 [`production.sops.yaml`](../secrets/production.sops.yaml). Its OIDC secret comes
 from the separately authoritative
 [`Authentik client secrets`](../infrastructure/tofu/authentik/client-secrets.sops.json).
@@ -36,6 +36,14 @@ retains its separate Authentik authority. Openfit is deliberately excluded; its
 two credentials remain environment-based. The unused `ZWAVE_SECRET` injection
 is removed, but its encrypted source is neither deleted nor revoked.
 `production.env` is CLI interpolation, not a blanket service `env_file`.
+
+[Grimmory](grimmory.md) adds production-SOPS database/bootstrap credentials.
+Its database reads native MariaDB password files; the app reads the protected
+database-password file as `spring.datasource.password` through Spring Boot
+`configtree:`. Grimmory's OIDC secret remains solely in Authentik SOPS and is
+converged through its native settings API, not mounted under a fictional `_FILE`
+setting or copied into Docker environment values. The administrator password is
+controller-only bootstrap/authentication input, not a Compose credential mount.
 
 These declarations are **not proof of current live state**. Frigate camera
 URLs use its native credential placeholders, and Recyclarr API-key references

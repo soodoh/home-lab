@@ -1,0 +1,124 @@
+---
+# Production entrypoint inherits controller delegation, no_log and verified HTTPS.
+- name: Verify Authentik discovery before configuring the consumer
+  ansible.builtin.uri:
+    url: https://auth.diloreto.com/application/o/grimmory/.well-known/openid-configuration
+    method: GET
+  register: grimmory_discovery
+  changed_when: false
+  check_mode: false
+
+- name: Require the expected per-provider issuer
+  ansible.builtin.assert:
+    that:
+      - grimmory_discovery.json.issuer == 'https://auth.diloreto.com/application/o/grimmory/'
+      - grimmory_discovery.json.authorization_endpoint is match('^https://auth\.diloreto\.com/')
+      - grimmory_discovery.json.token_endpoint is match('^https://auth\.diloreto\.com/')
+    fail_msg: Apply and verify the reviewed Authentik provider before consumer convergence.
+
+- name: Read native Grimmory setup status
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/setup/status"
+    method: GET
+  register: grimmory_setup_status
+  changed_when: false
+  check_mode: false
+
+- name: Refuse implicit first-user provisioning
+  ansible.builtin.assert:
+    that:
+      - grimmory_setup_status.json.data is boolean
+      - >-
+        grimmory_setup_status.json.data or
+        (not ansible_check_mode and grimmory_initialize_confirmed | bool)
+    fail_msg: Initialize Grimmory only with grimmory_initialize_confirmed=true on its first approved apply.
+
+- name: Provision a separate protected administrator only on an explicitly approved empty instance
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/setup"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ grimmory_admin_username }}"
+      email: "{{ grimmory_admin_email }}"
+      name: Grimmory Administrator
+      password: "{{ grimmory_production_secrets.GRIMMORY_ADMIN_PASSWORD }}"
+  changed_when: true
+  when: not grimmory_setup_status.json.data
+
+- name: Authenticate the existing protected administrator without resetting any account
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/auth/login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ grimmory_admin_username }}"
+      password: "{{ grimmory_production_secrets.GRIMMORY_ADMIN_PASSWORD }}"
+  register: grimmory_login
+  changed_when: false
+  check_mode: false
+
+- name: Bind native API authorization and the reviewed settings in dependency order
+  ansible.builtin.set_fact:
+    grimmory_api_headers:
+      Authorization: "Bearer {{ grimmory_login.json.accessToken }}"
+    grimmory_settings:
+      - name: OIDC_PROVIDER_DETAILS
+        response: oidcProviderDetails
+        value:
+          providerName: Authentik
+          clientId: "{{ grimmory_oidc_desired.oauthProviders.grimmory.client_id }}"
+          issuerUri: https://auth.diloreto.com/application/o/grimmory/
+          scopes: openid profile email
+          claimMapping:
+            username: preferred_username
+            name: name
+            email: email
+            groups: groups
+      - name: OIDC_PROVIDER_CLIENT_SECRET
+        response: oidcProviderClientSecret
+        value: "{{ grimmory_oidc_secrets.oauthProviders.grimmory.client_secret }}"
+      - name: OIDC_AUTO_PROVISION_DETAILS
+        response: oidcAutoProvisionDetails
+        value:
+          enableAutoProvisioning: false
+          allowLocalAccountLinking: "{{ grimmory_allow_local_account_linking | bool }}"
+          defaultPermissions: []
+          defaultLibraryIds: []
+      - name: OIDC_GROUP_SYNC_MODE
+        response: oidcGroupSyncMode
+        value: DISABLED
+      - name: OIDC_ENABLED
+        response: oidcEnabled
+        value: true
+      - name: OIDC_FORCE_ONLY_MODE
+        response: oidcForceOnlyMode
+        value: true
+    grimmory_setting_changes: []
+    cacheable: false
+
+- name: Read native application settings without logging secret values
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/settings"
+    method: GET
+    headers: "{{ grimmory_api_headers }}"
+  register: grimmory_settings_current
+  changed_when: false
+  check_mode: false
+
+- name: Select only differing managed settings without touching library or user data
+  ansible.builtin.set_fact:
+    grimmory_setting_changes: "{{ grimmory_setting_changes + [{'name': item.name, 'value': item.value}] }}"
+    cacheable: false
+  loop: "{{ grimmory_settings }}"
+  when: grimmory_settings_current.json[item.response] | default(none) != item.value
+
+- name: Report the bounded check-mode settings decision
+  ansible.builtin.debug:
+    msg: "Grimmory authentication settings would change: {{ grimmory_setting_changes | length }}"
+  no_log: false
+  when: ansible_check_mode
+
+- name: Write and verify managed authentication settings
+  ansible.builtin.include_tasks: apply.yml
+  when: not ansible_check_mode

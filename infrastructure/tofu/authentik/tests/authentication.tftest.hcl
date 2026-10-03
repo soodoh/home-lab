@@ -64,6 +64,19 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
+    condition = (
+      !contains(keys(local.existing_oauth_providers), "grimmory") &&
+      tostring(authentik_application.applications["grimmory"].protocol_provider) == authentik_provider_oauth2.providers["grimmory"].id &&
+      authentik_policy_binding.application_access["96719d44-e9d4-468b-8bc6-350014c4f846"].group == authentik_group.managed["cwa-users"].id &&
+      authentik_provider_oauth2.providers["grimmory"].client_type == "confidential" &&
+      authentik_provider_oauth2.providers["grimmory"].sub_mode == "user_uuid" &&
+      authentik_provider_oauth2.providers["grimmory"].signing_key == authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
+      toset(authentik_provider_oauth2.providers["grimmory"].grant_types) == toset(["authorization_code", "refresh_token"])
+    )
+    error_message = "Grimmory must create a separate signed OIDC client without importing an invented ID or widening membership."
+  }
+
+  assert {
     condition     = authentik_stage_identification.managed["default-authentication-identification"].webauthn_stage == authentik_stage_authenticator_validate.custom["passwordless-webauthn"].id
     error_message = "Identification must reference the owned passwordless validator."
   }

@@ -191,8 +191,8 @@
     },
     "applications": {
       "type": "object",
-      "minProperties": 22,
-      "maxProperties": 22,
+      "minProperties": 23,
+      "maxProperties": 23,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
@@ -210,14 +210,14 @@
     },
     "oauthProviders": {
       "type": "object",
-      "maxProperties": 4,
+      "maxProperties": 5,
       "propertyNames": {
-        "pattern": "^[1-9][0-9]*$"
+        "pattern": "^([1-9][0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/oauthProvider"
       },
-      "minProperties": 4
+      "minProperties": 5
     },
     "customBlueprints": {
       "type": "object",
@@ -231,8 +231,8 @@
     },
     "applicationPolicyBindings": {
       "type": "object",
-      "minProperties": 26,
-      "maxProperties": 26,
+      "minProperties": 27,
+      "maxProperties": 27,
       "propertyNames": {
         "$ref": "#/$defs/uuid"
       },
@@ -1333,7 +1333,7 @@
       ],
       "properties": {
         "pk": {
-          "type": "integer",
+          "type": ["integer", "null"],
           "minimum": 1
         },
         "name": {

@@ -189,6 +189,11 @@
       become: true
       when: not ansible_check_mode
 
+    - name: Prepare Grimmory directories before extending backup scope
+      ansible.builtin.import_role:
+        name: grimmory
+        tasks_from: directories
+
     - name: Converge pinned backup tools
       ansible.builtin.import_role:
         name: restic_backup
@@ -223,6 +228,11 @@
         tasks_from: deploy
       vars:
         compose_native_apply_confirmed: true
+
+    - name: Converge Grimmory authentication from the encrypted authorities
+      ansible.builtin.import_role:
+        name: grimmory
+      when: not ansible_check_mode
 
   post_tasks:
     - name: Release production ownership after complete native convergence

@@ -11,18 +11,18 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "37", "47"}
+OAUTH_PROVIDER_IDS = {"15", "21", "37", "47", "grimmory"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 6)
         self.assertNotIn("sourceInventory", DESIRED)
-        self.assertEqual(len(DESIRED["applications"]), 22)
+        self.assertEqual(len(DESIRED["applications"]), 23)
         self.assertEqual(len(DESIRED["proxyProviders"]), 18)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 26)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 27)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {
             "passwordless-webauthn", "default-authentication-mfa-validation",
         })
@@ -142,6 +142,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             "jellyfin": family, "seerr": family, "karaoke-eternal": family,
             "caro-tachidesk": {"carodilo", "eabbado"},
             "calibre-web-automated": {"paul", "sarabeth"},
+            "grimmory": {"paul", "sarabeth"},
             "frigate": {"paul", "sarabeth"}, "vaultwarden": {"paul", "sarabeth"},
         }
         groups = {value["pk"]: value for value in DESIRED["groups"].values()}
@@ -395,7 +396,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(main.count("import {"), 22)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
-        self.assertIn("length(local.desired.applicationPolicyBindings) == 26", main)
+        self.assertIn("length(local.desired.applicationPolicyBindings) == 27", main)
         self.assertIn("for_each = local.existing_application_policy_bindings", main)
         self.assertIn("for_each = local.existing_proxy_providers", main)
         self.assertIn("for_each = local.existing_applications", main)
@@ -450,7 +451,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 119)
+        self.assertEqual(len(allow), 122)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

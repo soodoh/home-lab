@@ -1,6 +1,18 @@
 {
   "$schema": "./desired.schema.json",
   "applicationPolicyBindings": {
+    "96719d44-e9d4-468b-8bc6-350014c4f846": {
+      "application_slug": "grimmory",
+      "enabled": true,
+      "failure_result": false,
+      "group": "49b212c7-85d7-4ae7-b5f7-cbcc3df51fc2",
+      "negate": false,
+      "order": 0,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
     "01d9c9fd-76de-4dc9-a0bf-01601f45fd40": {
       "application_slug": "prowlarr",
       "enabled": true,
@@ -315,6 +327,23 @@
     }
   },
   "applications": {
+    "grimmory": {
+      "name": "Grimmory",
+      "slug": "grimmory",
+      "uuid": null,
+      "group": "Media",
+      "provider_id": "grimmory",
+      "provider_type": "oauth2",
+      "backchannel_provider_ids": [],
+      "meta_launch_url": "https://grimmory.ts.diloreto.com/",
+      "meta_icon": "",
+      "meta_description": "",
+      "meta_publisher": "",
+      "policy_engine_mode": "any",
+      "open_in_new_tab": false,
+      "meta_hide": false,
+      "import_existing": false
+    },
     "calibre": {
       "backchannel_provider_ids": [],
       "group": "Media",
@@ -914,6 +943,49 @@
     }
   },
   "oauthProviders": {
+    "grimmory": {
+      "pk": null,
+      "name": "Grimmory OIDC",
+      "authentication_flow": null,
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "client_id": "grimmory",
+      "client_type": "confidential",
+      "allowed_redirect_uris": [
+        {
+          "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
+          "url": "https://grimmory.ts.diloreto.com/oauth2-callback"
+        },
+        {
+          "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
+          "url": "https://books.diloreto.com/oauth2-callback"
+        }
+      ],
+      "access_code_validity": "minutes=1",
+      "access_token_validity": "minutes=5",
+      "refresh_token_validity": "days=30",
+      "refresh_token_threshold": "seconds=0",
+      "include_claims_in_id_token": true,
+      "issuer_mode": "per_provider",
+      "sub_mode": "user_uuid",
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "signing_key": "d5259cb9-db22-467a-9d72-6911b16a459f",
+      "encryption_key": null,
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "logout_method": "backchannel",
+      "logout_uri": "https://grimmory.ts.diloreto.com/api/v1/auth/oidc/backchannel-logout",
+      "jwt_federation_sources": [],
+      "jwt_federation_providers": []
+    },
     "15": {
       "access_code_validity": "minutes=1",
       "access_token_validity": "minutes=5",

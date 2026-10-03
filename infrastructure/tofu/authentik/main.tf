@@ -23,6 +23,7 @@ locals {
   ldap_providers                       = var.authentik_enable_management ? local.desired.ldapProviders : {}
   ldap_search_permissions              = var.authentik_enable_management ? local.desired.ldapSearchPermissions : {}
   oauth_providers                      = var.authentik_enable_management ? local.desired.oauthProviders : {}
+  existing_oauth_providers             = { for key, value in local.oauth_providers : key => value if value.pk != null }
   outposts                             = var.authentik_enable_management ? toset(keys(local.desired.outposts)) : toset([])
   existing_outposts = var.authentik_enable_management ? toset([
     for key, value in local.desired.outposts : key if value.import_existing
@@ -45,12 +46,12 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 6 &&
-      length(local.desired.applications) == 22 &&
+      length(local.desired.applications) == 23 &&
       length(local.desired.proxyProviders) == 18 &&
       (!var.authentik_enable_management || (
-        length(local.desired.oauthProviders) == 4 &&
+        length(local.desired.oauthProviders) == 5 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
-        length(local.desired.applicationPolicyBindings) == 26 &&
+        length(local.desired.applicationPolicyBindings) == 27 &&
         length(local.desired.authenticatorValidateStages) == 2 &&
         length(local.desired.certificates) == 1 &&
         length(local.desired.customFlows) == 3 &&

@@ -178,7 +178,7 @@ Before planning the managed Authentik root, obtain independent
 approval for the plan identity's provider-change grant: a view-only identity does
 not receive OAuth secrets from the API, so a secret plan would otherwise propose
 false updates even if the encrypted value is already live. Protect the plan token
-as a mutating credential. `scripts/prepare-authentik-plan-input` checks all four
+as a mutating credential. `scripts/prepare-authentik-plan-input` checks all existing managed
 OAuth secret reads and every owned signing-certificate private-key read without
 printing their values; it refuses a masked or inaccessible identity. It also
 checks live login-stage binding values that the pinned provider cannot read back.
@@ -195,6 +195,11 @@ only observed HTTP writer is a bulk, CSRF-protected settings form. Do not assume
 Authentik plan or apply makes a consumer switch atomic; verify a fresh OIDC login
 and a no-op plan before declaring rotation complete. Do not count the CWA step
 as complete until its admin setting and fresh login have been checked.
+Grimmory consumes that same encrypted authority through its approval-gated native
+settings API role; see [Grimmory](grimmory.md) for first-user admission,
+`converge-grimmory.yml`, linking and reader/device qualification. A new provider
+has no imported ID: the preflight discovers it by client ID after creation and
+requires its secret read, rather than continuing to skip a create-only declaration.
 
 ### Omada SMTP and recipients
 

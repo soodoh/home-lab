@@ -1,0 +1,12 @@
+---
+grimmory_controller_root: "{{ playbook_dir }}/../.."
+grimmory_base_url: https://grimmory.ts.diloreto.com
+grimmory_admin_username: grimmory-admin
+grimmory_admin_email: grimmory-admin@diloreto.com
+grimmory_initialize_confirmed: false
+# Opt in only for the two-account linking window, then converge the default again.
+grimmory_allow_local_account_linking: false
+grimmory_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
+grimmory_sops_file: "{{ grimmory_controller_root }}/secrets/production.sops.yaml"
+grimmory_oidc_sops_file: "{{ grimmory_controller_root }}/infrastructure/tofu/authentik/client-secrets.sops.json"
+grimmory_oidc_desired_file: "{{ grimmory_controller_root }}/infrastructure/tofu/authentik/desired.json"

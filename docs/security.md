@@ -30,7 +30,13 @@ configures its native controller settings.
 Authentik OAuth client secrets are instead authoritative in
 `infrastructure/tofu/authentik/client-secrets.sops.json`. Site convergence reads
 that source on the controller to render Home Assistant's protected `!secret`
-entry and Vaultwarden's protected client-secret file. Only the public client ID
+entry and Vaultwarden's protected client-secret file. Grimmory uses the same
+encrypted authority through its native admin settings API, with controller-side
+Ansible `no_log` tasks and verified HTTPS; it has no native OIDC secret-file reader.
+Its database/bootstrap credentials remain in production SOPS, and its database
+password uses Spring Boot's native `configtree:` reader. See [Grimmory](grimmory.md)
+for the separate local administrator, account-linking window and cutover gates.
+Only the public Vaultwarden client ID
 is added to Compose's interpolation environment, from Authentik's reviewed `desired.json`.
 Calibre-Web-Automated's OIDC setting remains an explicitly manual admin step;
 do not treat an Authentik secret update as its completed rotation. Jellyfin OIDC's
@@ -201,7 +207,7 @@ removing local state.
 
 Authentik omits OAuth client secrets from its provider API response unless the
 caller has provider change permission. The Authentik OpenTofu plan identity
-therefore needs that permission on the four managed OAuth providers to plan
+therefore needs that permission on every existing managed OAuth provider to plan
 secret rotations without false updates on every refresh. Grant it on those
 objects rather than globally if the live RBAC model permits. This is an
 explicit exception to a read-only plan identity:

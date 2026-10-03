@@ -14,9 +14,9 @@ import {
 }
 
 import {
-  for_each = local.oauth_providers
+  for_each = local.existing_oauth_providers
   to       = authentik_provider_oauth2.providers[each.key]
-  id       = each.key
+  id       = each.value.pk
 }
 
 import {

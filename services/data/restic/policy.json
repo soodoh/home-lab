@@ -86,6 +86,7 @@
       "authentik-worker",
       "authentik-server",
       "calibre-web-automated",
+      "grimmory",
       "calibre",
       "caro-tachidesk",
       "tachidesk",
@@ -115,6 +116,7 @@
       "gluetun"
     ],
     "databases": [
+      "grimmory-db",
       "nextcloud-db",
       "postgres"
     ]

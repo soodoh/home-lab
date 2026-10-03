@@ -36,7 +36,12 @@ def api_server(mode):
                 self.send_header("Location", "https://example.invalid/")
                 self.end_headers()
                 return
-            if self.path.startswith("/api/v3/stages/user_login/"):
+            if self.path == "/api/v3/providers/oauth2/?page_size=1000":
+                matches = [] if mode == "new-absent" else [{"pk": 99, "client_id": "synthetic-new-client"}]
+                if mode == "new-duplicate":
+                    matches.append({"pk": 100, "client_id": "synthetic-new-client"})
+                body = {"pagination": {"count": len(matches), "next": 2 if mode == "new-paginated" else 0}, "results": matches}
+            elif self.path.startswith("/api/v3/stages/user_login/"):
                 body = {
                     "network_binding": "bind_asn" if mode == "binding-drift" else "no_binding",
                     "geoip_binding": "no_binding",
@@ -51,7 +56,7 @@ def api_server(mode):
             else:
                 provider_id = self.path.rstrip("/").split("/")[-1]
                 body = {"pk": int(provider_id)}
-                if mode != "masked" or provider_id != "37":
+                if not ((mode == "masked" and provider_id == "37") or (mode == "new-masked" and provider_id == "99")):
                     body["client_secret"] = "synthetic-secret"
             response = json.dumps(body).encode()
             self.send_response(200)
@@ -76,6 +81,20 @@ class ReadabilityTests(unittest.TestCase):
         with api_server("complete") as (url, paths):
             readability.check(url, "synthetic-token")
         self.assertEqual(paths, [f"/api/v3/providers/oauth2/{i}/" for i in (15, 21, 37, 47)])
+
+    def test_create_only_provider_is_discovered_again_after_apply(self):
+        providers = {"new": {"pk": None, "client_id": "synthetic-new-client"}}
+        with api_server("new-absent") as (url, paths):
+            readability.check(url, "synthetic-token", oauth_providers=providers)
+        self.assertEqual(paths, ["/api/v3/providers/oauth2/?page_size=1000"])
+        with api_server("complete") as (url, paths):
+            readability.check(url, "synthetic-token", oauth_providers=providers)
+        self.assertEqual(paths[-1], "/api/v3/providers/oauth2/99/")
+        for mode in ("new-masked", "new-duplicate", "new-paginated"):
+            with self.subTest(mode=mode), api_server(mode) as (url, paths):
+                with self.assertRaises(SystemExit) as caught:
+                    readability.check(url, "synthetic-token", oauth_providers=providers)
+                self.assertNotIn("synthetic-secret", str(caught.exception))
 
     def test_masked_secret_refuses_plan_without_printing_value(self):
         with api_server("masked") as (url, paths):

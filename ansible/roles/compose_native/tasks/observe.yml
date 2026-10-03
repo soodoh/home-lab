@@ -324,7 +324,9 @@
       - "{{ item }}"
   become: true
   register: compose_native_required_health
-  loop: "{{ compose_native_required_healthy_containers }}"
+  # Observe the active declaration, not not-yet-deployed candidate services.
+  # The complete declared/running-set assertion above still refuses missing writers.
+  loop: "{{ compose_native_required_healthy_containers | intersect(compose_native_declared_services.stdout_lines) }}"
   changed_when: false
   check_mode: false
   no_log: true

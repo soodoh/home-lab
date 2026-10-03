@@ -1,0 +1,56 @@
+---
+- name: Observe current host state before changing Grimmory authentication
+  ansible.builtin.import_playbook: observe-hosts.yml
+
+- name: Observe current backup admission before changing Grimmory authentication
+  ansible.builtin.import_playbook: observe-backups.yml
+
+- name: Converge Grimmory authentication under production ownership
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require explicit approval for authentication changes
+      ansible.builtin.assert:
+        that: grimmory_apply_confirmed | default(false) | bool
+        fail_msg: Live authentication convergence requires grimmory_apply_confirmed=true.
+      when: not ansible_check_mode
+
+    - name: Observe active Compose state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Admit existing Grimmory settings before acquiring ownership
+      ansible.builtin.import_role:
+        name: grimmory
+      check_mode: true
+      when: not (grimmory_initialize_confirmed | default(false) | bool)
+
+    - name: Acquire production ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: grimmory-authentication
+
+  tasks:
+    - name: Reobserve active Compose under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Converge only authentication settings
+      ansible.builtin.import_role:
+        name: grimmory
+
+  post_tasks:
+    - name: Release production ownership only on complete success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: grimmory-authentication

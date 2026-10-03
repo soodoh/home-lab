@@ -1,0 +1,101 @@
+---
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  grimmory:
+    image: ghcr.io/grimmory-tools/grimmory:v3.5.0@sha256:bf6fe21c6e247597f7869664a440b5a34242e2d2940575cae39c17bfaa66dc0b
+    container_name: grimmory
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      USER_ID: 1000
+      GROUP_ID: 1000
+      DATABASE_URL: jdbc:mariadb://grimmory-db:3306/grimmory
+      DATABASE_USERNAME: grimmory
+      # Spring Boot's native config-tree reader, not an invented *_FILE variable.
+      SPRING_CONFIG_IMPORT: configtree:/run/secrets/
+      API_DOCS_ENABLED: false
+      REMOTE_AUTH_ENABLED: false
+      FORCE_DISABLE_OIDC: false
+      OIDC_ALLOW_UNSAFE_HOSTS: false
+      ALLOWED_ORIGINS: https://grimmory.ts.diloreto.com
+      # Overlap admission: disable file operations until the writer cutover.
+      DISK_TYPE: NETWORK
+    secrets:
+      - source: grimmory_datasource_password
+        target: spring.datasource.password
+    depends_on:
+      grimmory-db:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/grimmory-data
+        target: /app/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/home-lab-state/calibre-data/books
+        target: /books
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/home-lab-state/grimmory-bookdrop
+        target: /bookdrop
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:6060/api/v1/healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+    networks:
+      - proxy
+      - grimmory-db
+
+  grimmory-db:
+    image: mariadb:11.8.9-ubi9@sha256:4d6c45144a18908d1244975e5c275fa56e688fbc77f889f27e68e1c5b8cb64d5
+    container_name: grimmory-db
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      MARIADB_DATABASE: grimmory
+      MARIADB_USER: grimmory
+      MARIADB_PASSWORD_FILE: /run/secrets/grimmory_db_password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/grimmory_db_root_password
+    secrets:
+      - grimmory_db_password
+      - grimmory_db_root_password
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/grimmory-db-data
+        target: /var/lib/mysql
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+    networks:
+      - grimmory-db
+
+secrets:
+  grimmory_datasource_password:
+    file: /etc/docker-compose/credentials/grimmory-datasource-password
+  grimmory_db_password:
+    file: /etc/docker-compose/credentials/grimmory-db-password
+  grimmory_db_root_password:
+    file: /etc/docker-compose/credentials/grimmory-db-root-password
+
+networks:
+  grimmory-db:
+    internal: true

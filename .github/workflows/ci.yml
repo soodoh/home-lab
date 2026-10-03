@@ -106,6 +106,8 @@ jobs:
           python scripts/controller/test-authentik-tofu-foundation.py
           python scripts/test-authentik-tofu
           python scripts/controller/test-authentik-secret-readability.py
+          python scripts/controller/test-grimmory.py
+          GRIMMORY_RUNTIME_TEST=1 python scripts/controller/test-grimmory-runtime.py
           python scripts/controller/test-compose-with-sops.py
           python scripts/controller/test-compose-credential-files.py
 

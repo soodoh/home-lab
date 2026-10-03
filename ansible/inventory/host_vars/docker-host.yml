@@ -41,10 +41,12 @@ compose_native_source_candidate_path: /var/lib/docker-compose/source-candidate.t
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
 compose_native_runtime_env_path: /etc/docker-compose/production.env
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
-compose_native_expected_service_count: 42
+compose_native_expected_service_count: 44
 compose_native_required_healthy_containers:
   - gluetun
   - seerr
+  - grimmory
+  - grimmory-db
 compose_native_wait_timeout: 600
 compose_native_secret_files:
   - /etc/docker-compose/credentials/nextcloud-mysql-password

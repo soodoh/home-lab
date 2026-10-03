@@ -1,0 +1,48 @@
+---
+- name: Reread application settings immediately before writing
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/settings"
+    method: GET
+    headers: "{{ grimmory_api_headers }}"
+  register: grimmory_settings_prewrite
+  changed_when: false
+
+- name: Refuse concurrent application settings edits
+  ansible.builtin.assert:
+    that: grimmory_settings_prewrite.json == grimmory_settings_current.json
+    fail_msg: Grimmory settings changed during admission; reobserve rather than overwrite them.
+
+# The native endpoint applies each entry sequentially, not atomically. On failure
+# retain production ownership and inspect; never silently restore an old secret.
+- name: Converge only differing native authentication settings
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/settings"
+    method: PUT
+    headers: "{{ grimmory_api_headers }}"
+    body_format: json
+    body: "{{ grimmory_setting_changes }}"
+  changed_when: true
+  when: grimmory_setting_changes | length > 0
+
+- name: Reread persisted authentication settings
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/settings"
+    method: GET
+    headers: "{{ grimmory_api_headers }}"
+  register: grimmory_settings_verified
+  changed_when: false
+
+- name: Require exact secret and public settings persistence
+  ansible.builtin.assert:
+    that: grimmory_settings_verified.json[item.response] == item.value
+    fail_msg: Grimmory authentication did not persist; retain ownership and inspect privately.
+  loop: "{{ grimmory_settings }}"
+
+- name: Require unrelated settings to remain unchanged
+  ansible.builtin.assert:
+    that: >-
+      (grimmory_settings_verified.json | dict2items |
+       rejectattr('key', 'in', grimmory_settings | map(attribute='response') | list) | items2dict) ==
+      (grimmory_settings_current.json | dict2items |
+       rejectattr('key', 'in', grimmory_settings | map(attribute='response') | list) | items2dict)
+    fail_msg: Unrelated settings changed during convergence; retain ownership and investigate.

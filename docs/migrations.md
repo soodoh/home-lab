@@ -4,6 +4,16 @@ This lists unresolved **decisions**, not migration receipts. Reobserve the host,
 remote state, provider and backup repositories before acting; Git history is not
 proof of current state.
 
+## CWA and Calibre retirement
+
+[Grimmory](grimmory.md) defines the proposed read-only overlap and authentication
+interface. No cutover is implied by these declarations. Reconcile Paul/Sarabeth
+accounts, shelves and Kobo progress on private copied data; qualify one backed-up
+Kobo before the second. Admit Bookshelf's Calibre-dependent import workflow before
+removing Calibre. Writer ownership, writable access, public route switching,
+provider destroys and source-state cleanup require separate approval after
+validation. Keep one-off migration tools/data/receipts outside Git.
+
 ## AWS recovery-key and separate backup identity
 
 The recovery KMS key was scheduled for deletion under independent AWS owner

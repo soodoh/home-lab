@@ -1,6 +1,7 @@
 include:
   - ./services/openfit.yml
   - ./services/apps.yml
+  - ./services/grimmory.yml
   - ./services/cli-proxy-api.yml
   - ./services/hass.yml
   - ./services/gaming.yml
