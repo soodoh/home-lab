@@ -1,0 +1,13 @@
+---
+- name: Refuse a security change during an active gaming session or lobby
+  ansible.builtin.assert:
+    that:
+      - wolf_security_session_body.success
+      - wolf_security_session_body.sessions | length == 0
+      - wolf_security_lobby_body.success
+      - wolf_security_lobby_body.lobbies | length == 0
+    fail_msg: Stop active Wolf sessions and lobbies before changing its security boundary.
+  vars:
+    # Wolf's native Unix API does not declare application/json consistently.
+    wolf_security_session_body: "{{ wolf_security_sessions.content | from_json }}"
+    wolf_security_lobby_body: "{{ wolf_security_lobbies.content | from_json }}"

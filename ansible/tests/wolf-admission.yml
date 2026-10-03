@@ -1,0 +1,54 @@
+---
+- name: Exercise Wolf Unix API response admission without Content-Type inference
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Admit native response content without an inferred json attribute
+      ansible.builtin.import_role:
+        name: wolf_security
+        tasks_from: idle
+      vars:
+        wolf_security_sessions:
+          content: '{"success":true,"sessions":[]}'
+        wolf_security_lobbies:
+          content: '{"success":true,"lobbies":[]}'
+
+    - name: Refuse active sessions independently of response Content-Type
+      block:
+        - name: Exercise session admission
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: idle
+          vars:
+            wolf_security_sessions:
+              content: '{"success":true,"sessions":[{"session_id":"synthetic"}]}'
+            wolf_security_lobbies:
+              content: '{"success":true,"lobbies":[]}'
+
+        - name: Fail if an active session was accepted
+          ansible.builtin.fail:
+            msg: An active session was accepted.
+      rescue:
+        - name: Require the native writer-exclusion refusal
+          ansible.builtin.assert:
+            that: ansible_failed_result.msg is search('Stop active Wolf sessions and lobbies')
+
+    - name: Refuse a running lobby even without a stream session
+      block:
+        - name: Exercise lobby admission
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: idle
+          vars:
+            wolf_security_sessions:
+              content: '{"success":true,"sessions":[]}'
+            wolf_security_lobbies:
+              content: '{"success":true,"lobbies":[{"id":"synthetic"}]}'
+
+        - name: Fail if an active lobby was accepted
+          ansible.builtin.fail:
+            msg: An active lobby was accepted.
+      rescue:
+        - name: Require the native lobby-exclusion refusal
+          ansible.builtin.assert:
+            that: ansible_failed_result.msg is search('Stop active Wolf sessions and lobbies')

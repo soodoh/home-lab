@@ -81,6 +81,8 @@ jobs:
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg
         run: |
+          ansible-playbook -i 'localhost,' -c local \
+            ansible/tests/wolf-admission.yml -e ansible_become=false
           ansible-playbook -i 'docker-host,' -c local \
             ansible/tests/wolf-image-pins.yml -e ansible_become=false
           ansible-playbook -i 'localhost,' -c local ansible/tests/wolf-firewall.yml

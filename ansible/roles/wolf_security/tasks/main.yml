@@ -71,14 +71,8 @@
   check_mode: false
   no_log: true
 
-- name: Refuse a security change during an active gaming session
-  ansible.builtin.assert:
-    that:
-      - wolf_security_sessions.json.success
-      - wolf_security_sessions.json.sessions | length == 0
-      - wolf_security_lobbies.json.success
-      - wolf_security_lobbies.json.lobbies | length == 0
-    fail_msg: Stop active Wolf sessions before changing its security boundary.
+- name: Admit only an idle Wolf writer
+  ansible.builtin.import_tasks: idle.yml
 
 - name: Converge the separately owned protocol-port firewall
   ansible.builtin.import_tasks: firewall.yml
