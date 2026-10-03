@@ -33,7 +33,7 @@ jobs:
       - name: Install validation dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes jq openssl rsync shellcheck
+          sudo apt-get install --yes jq openssl rsync shellcheck nftables iproute2 util-linux
           python -m pip install --disable-pip-version-check \
             ansible-core==2.21.2 ansible-lint==26.8.0 yamllint==1.38.0 \
             jsonschema==4.25.1
@@ -49,6 +49,7 @@ jobs:
         run: |
           python scripts/test-restic-runtime.py
           python scripts/test-restic-observer.py
+          python scripts/test-wolf-security.py
           python scripts/test-compose-mounts.py
           python scripts/test-qbittorrent-password.py
           python scripts/test-servarr-variables.py
@@ -75,6 +76,19 @@ jobs:
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
           done
+
+      - name: Test native Wolf security behavior
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        run: |
+          ansible-playbook -i 'docker-host,' -c local \
+            ansible/tests/wolf-image-pins.yml -e ansible_become=false
+          ansible-playbook -i 'localhost,' -c local ansible/tests/wolf-firewall.yml
+          TF_DATA_DIR=$(mktemp -d)
+          export TF_DATA_DIR
+          trap 'rm -rf "$TF_DATA_DIR"' EXIT
+          tofu -chdir=infrastructure/tofu/tailscale init -backend=false -input=false -lockfile=readonly
+          tofu -chdir=infrastructure/tofu/tailscale test
 
       - name: Compile retained Python helpers
         run: python -m compileall -q scripts infrastructure ansible/roles

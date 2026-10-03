@@ -1,0 +1,74 @@
+---
+- name: Inspect the general nftables service before introducing scoped rules
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, show, nftables.service, --property=ActiveState, --value]
+  register: wolf_security_general_firewall
+  changed_when: false
+  check_mode: false
+
+- name: Refuse a competing general nftables owner
+  ansible.builtin.assert:
+    that: wolf_security_general_firewall.stdout == 'inactive'
+    fail_msg: An active general nftables service requires ownership review; never flush its rules.
+
+- name: Install native nftables without recommended packages or service starts
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+    install_recommends: false
+    update_cache: false
+    policy_rc_d: 101
+
+- name: Keep the newly introduced general flush-ruleset service disabled
+  ansible.builtin.systemd_service:
+    name: nftables.service
+    enabled: false
+  when: not ansible_check_mode
+
+- name: Ensure the scoped native firewall configuration directory exists
+  ansible.builtin.file:
+    path: /etc/home-lab/wolf
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Converge only Wolf's native nftables table definition
+  ansible.builtin.template:
+    src: wolf.nft.j2
+    dest: "{{ wolf_security_rule_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/nft --check --file %s
+
+- name: Converge the native scoped firewall unit
+  ansible.builtin.template:
+    src: home-lab-wolf-firewall.service.j2
+    dest: "/etc/systemd/system/{{ wolf_security_service }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: wolf_security_unit
+
+- name: Require firewall admission before Docker starts on subsequent boots
+  ansible.builtin.systemd_service:
+    name: "{{ wolf_security_service }}"
+    enabled: true
+    state: started
+    daemon_reload: "{{ wolf_security_unit.changed }}"
+  when: not ansible_check_mode
+
+# Reassert native desired rules even when only the live table has drifted.
+# Native reload is atomic and does not restart Docker or Wolf.
+- name: Atomically reassert only the owned table on each live convergence
+  ansible.builtin.systemd_service:
+    name: "{{ wolf_security_service }}"
+    state: reloaded
+  when: not ansible_check_mode
+
+- name: Check the admitted native table after convergence
+  ansible.builtin.command:
+    argv: [/usr/sbin/nft, list, table, inet, home_lab_wolf]
+  changed_when: false
+  when: not ansible_check_mode

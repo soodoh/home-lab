@@ -1,0 +1,18 @@
+# Only this table is owned here. Never flush Docker or Tailscale's ruleset.
+# An atomic replacement works both on first admission and subsequent reloads.
+destroy table inet home_lab_wolf
+table inet home_lab_wolf {
+    chain clients {
+        iifname "lo" return
+        iifname "{{ wolf_security_policy.lan_interface }}" ip saddr { {{ wolf_security_policy.lan_ipv4_subnets | join(', ') }} } return
+        # Tailscale's later INPUT hook still enforces its owner-only port grants.
+        iifname "{{ wolf_security_policy.tailscale_interface }}" return
+        counter drop
+    }
+
+    chain input {
+        type filter hook input priority -10; policy accept;
+        tcp dport { {{ wolf_security_policy.tcp_ports | join(', ') }} } jump clients
+        udp dport { {{ wolf_security_policy.udp_ports | join(', ') }} } jump clients
+    }
+}

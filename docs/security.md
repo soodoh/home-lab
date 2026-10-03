@@ -157,6 +157,36 @@ Authentik's embedded proxy at `authentik-server:9000` without a host port;
 Z-Wave's UI port 8091 has no published host binding. Docker publishes private
 Traefik's TCP 443 only on the reviewed Docker-host Tailscale IPv4.
 
+## Wolf container authority
+
+Wolf intentionally controls the production rootful Docker daemon. Its compromise
+can compromise the entire application host; image pins, pairing and ingress rules
+reduce exposure, not that authority. GPU sharing remains unchanged. Steam's
+application-specific capabilities and seccomp/AppArmor exceptions are not removed
+without a qualified gaming test.
+
+[`security.json`](../services/data/wolf/security.json) owns spawned image
+references and the six streaming/control ports. Native Ansible owns only the
+`inet home_lab_wolf` nftables table, its systemd unit and persisted TOML `image`
+assignments. Never flush Docker/Tailscale rules or enable the packaged general
+`nftables.service` with its default flush-ruleset configuration. The scoped unit
+is required before Docker starts on subsequent boots; stopping it leaves its
+rules in place. Its earlier INPUT hook allows loopback, `192.168.0.0/24` on
+`ens18`, and Tailscale ingress. Tailscale separately admits those ports only for
+owner devices, not CI or administrator-only identities. IPv6 LAN streaming is
+not admitted. Shared mDNS port 5353 is unchanged and is not granted over tailnet;
+this policy does not hide LAN discovery or authenticate a backend.
+
+Other app definitions, paired clients, certificates and profile data remain
+Wolf-owned and backed up. The native API supports append/remove, not image-only
+updates. Convergence requires no active sessions, stops only Wolf, retains a
+protected complete configuration before-image, changes only the declared image
+fields, checks preservation and waits for healthy startup. Unknown, duplicated
+or retargeted images refuse admission. It does not launch Steam or an emulator
+or prove first-use application compatibility. Image digest updates are reviewed
+changes, including Renovate candidates; changing tags also requires reviewing
+the declared source identity.
+
 ## OpenTofu state and plans
 
 Active roots use remote S3 backends. Run `tofu init` and a fresh plan for every

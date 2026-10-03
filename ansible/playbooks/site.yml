@@ -209,6 +209,10 @@
         name: restic_backup
         tasks_from: systemd
 
+    - name: Converge Wolf protocol-port admission and spawned image pins
+      ansible.builtin.import_role:
+        name: wolf_security
+
     - name: Converge native Docker maintenance
       ansible.builtin.import_role:
         name: docker_maintenance

@@ -75,6 +75,17 @@
       "automerge": false
     }
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^services/data/wolf/security\\.json$/"],
+      "matchStrings": [
+        "\"image\"\\s*:\\s*\"(?<depName>ghcr\\.io/games-on-whales/[^:\"]+):(?<currentValue>[^@\" ]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
   "docker-compose": {
     "managerFilePatterns": [
       "/(^|/)services/[^/]+\\.ya?ml$/"

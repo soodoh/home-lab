@@ -1,0 +1,35 @@
+---
+- name: Exercise rendered Wolf firewall behavior in disposable namespaces
+  hosts: localhost
+  gather_facts: false
+  vars:
+    wolf_security_policy: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../services/data/wolf/security.json') | from_json }}"
+  tasks:
+    - name: Allocate private rendered-rule scratch
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: wolf-firewall-test.
+      register: wolf_firewall_fixture
+
+    - name: Render and exercise the real native rules
+      block:
+        - name: Render the production nftables template
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../roles/wolf_security/templates/wolf.nft.j2"
+            dest: "{{ wolf_firewall_fixture.path }}/wolf.nft"
+            mode: '0600'
+
+        - name: Run Linux namespace packet-admission behavior tests
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - "{{ playbook_dir }}/../../scripts/test-wolf-firewall.py"
+              - --rules
+              - "{{ wolf_firewall_fixture.path }}/wolf.nft"
+          become: true
+          changed_when: false
+      always:
+        - name: Remove only disposable rendered-rule scratch
+          ansible.builtin.file:
+            path: "{{ wolf_firewall_fixture.path }}"
+            state: absent

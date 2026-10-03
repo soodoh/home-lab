@@ -1,0 +1,87 @@
+---
+- name: Require the adopted Wolf security interface
+  ansible.builtin.assert:
+    that:
+      - wolf_security_config_path == '/mnt/games/wolf/cfg/config.toml'
+      - wolf_security_rule_path == '/etc/home-lab/wolf/firewall.nft'
+      - wolf_security_service == 'home-lab-wolf-firewall.service'
+      - wolf_security_policy.lan_interface == 'ens18'
+      - wolf_security_policy.lan_ipv4_subnets == ['192.168.0.0/24']
+      - wolf_security_policy.tailscale_interface == 'tailscale0'
+      - wolf_security_policy.tcp_ports == [47984, 47989, 48010]
+      - wolf_security_policy.udp_ports == [47999, 48100, 48200]
+      - wolf_security_policy.image_pins | length > 0
+      - (wolf_security_policy.image_pins | map(attribute='source') | unique | length) == (wolf_security_policy.image_pins | length)
+    fail_msg: Wolf security requires the reviewed LAN, protocol ports and image identities.
+
+- name: Require independent console confirmation before live convergence
+  ansible.builtin.assert:
+    that: wolf_security_console_confirmed | default(false) | bool
+    fail_msg: Confirm working Proxmox console access before applying Wolf firewall rules.
+  when: not ansible_check_mode
+
+- name: Require tag-and-digest application pins without changing repositories
+  ansible.builtin.assert:
+    that:
+      - item.source is match('^ghcr.io/games-on-whales/[a-z0-9-]+:[a-zA-Z0-9._-]+$')
+      - item.image is match('^' ~ (item.source | regex_escape) ~ '@sha256:[0-9a-f]{64}$')
+  loop: "{{ wolf_security_policy.image_pins }}"
+  loop_control:
+    label: "{{ item.source }}"
+
+- name: Inspect the running Wolf container without logging its configuration
+  community.docker.docker_container_info:
+    name: wolf
+  register: wolf_security_container
+  no_log: true
+
+- name: Require running Wolf and its adopted configuration mount
+  ansible.builtin.assert:
+    that:
+      - wolf_security_container.exists
+      - wolf_security_container.container.State.Running
+      - wolf_security_container.container.HostConfig.NetworkMode == 'host'
+      - >-
+        (wolf_security_container.container.Config.Env |
+          select('match', '^WOLF_(HTTP|HTTPS|CONTROL|RTSP_SETUP|VIDEO_PING|AUDIO_PING)_PORT=') | list | length) == 0
+      - >-
+        (wolf_security_container.container.Mounts | selectattr('Destination', 'equalto', '/etc/wolf') |
+          map(attribute='Source') | list) == ['/mnt/games/wolf']
+      - >-
+        (wolf_security_container.container.Mounts | selectattr('Destination', 'equalto', '/run/user/wolf') | list | length) == 1
+    fail_msg: Inspect unexpected Wolf ownership or runtime mounts before security convergence.
+
+- name: Read active Wolf sessions through its local-only management socket
+  ansible.builtin.uri:
+    url: http://localhost/api/v1/sessions
+    unix_socket: "{{ (wolf_security_container.container.Mounts | selectattr('Destination', 'equalto', '/run/user/wolf') | first).Source }}/wolf.sock"
+    return_content: true
+    use_proxy: false
+  register: wolf_security_sessions
+  check_mode: false
+  no_log: true
+
+- name: Read active Wolf lobbies without exposing their settings
+  ansible.builtin.uri:
+    url: http://localhost/api/v1/lobbies
+    unix_socket: "{{ (wolf_security_container.container.Mounts | selectattr('Destination', 'equalto', '/run/user/wolf') | first).Source }}/wolf.sock"
+    return_content: true
+    use_proxy: false
+  register: wolf_security_lobbies
+  check_mode: false
+  no_log: true
+
+- name: Refuse a security change during an active gaming session
+  ansible.builtin.assert:
+    that:
+      - wolf_security_sessions.json.success
+      - wolf_security_sessions.json.sessions | length == 0
+      - wolf_security_lobbies.json.success
+      - wolf_security_lobbies.json.lobbies | length == 0
+    fail_msg: Stop active Wolf sessions before changing its security boundary.
+
+- name: Converge the separately owned protocol-port firewall
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Converge persisted application image references
+  ansible.builtin.import_tasks: image-pins.yml

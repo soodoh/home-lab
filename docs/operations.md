@@ -307,8 +307,32 @@ Do not claim a changed artifact is backed up until strict admission succeeds.
 ```sh
 ansible-playbook ansible/playbooks/site.yml --check
 # Review the current output and obtain host approval before applying.
-ansible-playbook ansible/playbooks/site.yml
+ansible-playbook ansible/playbooks/site.yml -e wolf_security_console_confirmed=true
 ```
+
+Site convergence includes the scoped Wolf firewall and app-image pins. Confirm
+independent Proxmox console access before supplying the console flag. For a
+narrow security change, first review and apply the Tailscale root's owner-only
+Wolf grant, then observe hosts, Compose and strict backups afresh:
+
+```sh
+ansible-playbook ansible/playbooks/converge-wolf-security.yml --check
+# After review, with verified console access and no active Wolf sessions:
+ansible-playbook ansible/playbooks/converge-wolf-security.yml \\
+  -e wolf_security_apply_confirmed=true -e wolf_security_console_confirmed=true
+```
+
+The narrow interface does not publish a Compose source artifact. It changes only
+native firewall configuration and backed-up Wolf image assignments, briefly
+stopping Wolf when a pin changes. Verify native packet allow/deny behavior,
+owner-tailnet access and other service health; qualify a real Moonlight session
+before declaring streaming behavior verified. The namespace behavior test is
+`ansible/tests/wolf-firewall.yml`; assignment tests use synthetic data in
+`ansible/tests/wolf-image-pins.yml`. These are not production migration receipts.
+On failure, inspect the retained production lock and root-only
+`/var/lib/home-lab-wolf-security.*` before-image; do not clear them or infer safe
+rollback from a Git revert. A fresh backup is needed before claiming the changed
+application settings are backed up.
 
 `configure-backups.yml` is a narrower existing-host interface: it validates
 adopted files and journal under production/backup ownership, then converges

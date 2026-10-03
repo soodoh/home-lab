@@ -1,6 +1,7 @@
 locals {
   tags           = var.tailscale_policy_identity.tags
   owner_identity = var.tailscale_policy_identity.owner_identity
+  wolf_security  = jsondecode(file("${path.module}/../../../services/data/wolf/security.json"))
   github_subject = "repo:${var.tailscale_policy_identity.github_repository}:environment:${var.tailscale_policy_identity.github_environment}"
 
   policy = {
@@ -25,6 +26,14 @@ locals {
         src = ["autogroup:owner", "autogroup:admin"]
         dst = [local.tags.docker_host]
         ip  = ["tcp:8043"]
+      },
+      {
+        src = ["autogroup:owner"]
+        dst = [local.tags.docker_host]
+        ip = concat(
+          [for port in local.wolf_security.tcp_ports : "tcp:${port}"],
+          [for port in local.wolf_security.udp_ports : "udp:${port}"],
+        )
       },
       {
         src = ["autogroup:owner"]
@@ -91,11 +100,11 @@ locals {
       {
         src   = local.owner_identity
         proto = "tcp"
-        accept = [
+        accept = concat([
           "${local.owner_identity}:22",
           "${local.tags.docker_host}:443",
           "${local.tags.docker_host}:8043",
-        ]
+        ], [for port in local.wolf_security.tcp_ports : "${local.tags.docker_host}:${port}"])
         deny = [
           "${local.tags.docker_host}:8443",
           "${local.tags.docker_host}:8444",
@@ -110,18 +119,37 @@ locals {
           "${local.tags.proxmox}:22",
           "${local.tags.proxmox}:8006",
         ]
-        deny = [
+        deny = concat([
           "${local.tags.docker_host}:8088",
           "${local.tags.docker_host}:8043",
           "${local.tags.docker_host}:8443",
           "${local.tags.docker_host}:8444",
           "${local.tags.proxmox}:8007",
-        ]
+        ], [for port in local.wolf_security.tcp_ports : "${local.tags.docker_host}:${port}"])
+      },
+      {
+        src    = local.owner_identity
+        proto  = "udp"
+        accept = [for port in local.wolf_security.udp_ports : "${local.tags.docker_host}:${port}"]
+        deny   = ["${local.tags.docker_host}:5353"]
+      },
+      {
+        src   = local.tags.ci_deploy
+        proto = "udp"
+        deny  = [for port in local.wolf_security.udp_ports : "${local.tags.docker_host}:${port}"]
       },
       {
         src   = local.tags.proxmox
         proto = "tcp"
-        deny  = ["${local.tags.docker_host}:443"]
+        deny = concat(
+          ["${local.tags.docker_host}:443"],
+          [for port in local.wolf_security.tcp_ports : "${local.tags.docker_host}:${port}"],
+        )
+      },
+      {
+        src   = local.tags.proxmox
+        proto = "udp"
+        deny  = [for port in local.wolf_security.udp_ports : "${local.tags.docker_host}:${port}"]
       },
     ]
 

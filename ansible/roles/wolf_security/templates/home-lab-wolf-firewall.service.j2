@@ -1,0 +1,23 @@
+[Unit]
+Description=Home Lab Wolf protocol-port firewall
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft --file {{ wolf_security_rule_path }}
+ExecReload=/usr/sbin/nft --file {{ wolf_security_rule_path }}
+# Stopping this unit deliberately does not open the protocol ports.
+UMask=0022
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_NETLINK AF_UNIX
+
+[Install]
+RequiredBy=docker.service

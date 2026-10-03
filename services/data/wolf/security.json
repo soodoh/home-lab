@@ -1,0 +1,21 @@
+{
+  "lan_interface": "ens18",
+  "lan_ipv4_subnets": ["192.168.0.0/24"],
+  "tailscale_interface": "tailscale0",
+  "tcp_ports": [47984, 47989, 48010],
+  "udp_ports": [47999, 48100, 48200],
+  "image_pins": [
+    {
+      "source": "ghcr.io/games-on-whales/wolf-ui:main",
+      "image": "ghcr.io/games-on-whales/wolf-ui:main@sha256:cd6de1158b29068e4a4d4ce6312976067517239be97200a391be758a6ddfcf9b"
+    },
+    {
+      "source": "ghcr.io/games-on-whales/steam:edge",
+      "image": "ghcr.io/games-on-whales/steam:edge@sha256:ded0b1b47acd9adb8af9f068342f26ac31008904d9bbb91045d1a04e7d66a632"
+    },
+    {
+      "source": "ghcr.io/games-on-whales/es-de:edge",
+      "image": "ghcr.io/games-on-whales/es-de:edge@sha256:f5d1037e9dd6ff7406e190e00457152d0a9dcb4adbc32fe2132585cb5bbe7829"
+    }
+  ]
+}

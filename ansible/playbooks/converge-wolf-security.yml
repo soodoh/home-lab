@@ -1,0 +1,68 @@
+---
+- name: Observe hosts before changing Wolf security
+  ansible.builtin.import_playbook: observe-hosts.yml
+
+- name: Observe strict backup admission before changing Wolf security
+  ansible.builtin.import_playbook: observe-backups.yml
+
+- name: Converge Wolf protocol-port admission and spawned image pins
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ['!all', min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require explicit firewall and configuration apply approval
+      ansible.builtin.assert:
+        that:
+          - wolf_security_apply_confirmed | default(false) | bool
+          - wolf_security_console_confirmed | default(false) | bool
+        fail_msg: Confirm independent console access and the reviewed Wolf security apply.
+      when: not ansible_check_mode
+
+    - name: Observe active Compose before acquiring ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire production ownership for Wolf security
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: wolf-security
+
+  tasks:
+    - name: Read the acquired production owner identity
+      ansible.builtin.stat:
+        path: "{{ compose_native_apply_lock_path }}/owner"
+        checksum_algorithm: sha256
+      register: wolf_security_apply_owner
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Reobserve strict admission under exact ownership
+      ansible.builtin.import_role:
+        name: restic_backup
+        tasks_from: observe
+      vars:
+        restic_backup_observation_apply_owner_sha256: "{{ wolf_security_apply_owner.stat.checksum }}"
+      when: not ansible_check_mode
+
+    - name: Converge the reviewed Wolf security policy
+      ansible.builtin.import_role:
+        name: wolf_security
+
+    - name: Verify the complete production Compose service set
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+  post_tasks:
+    - name: Release ownership only after complete security convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: wolf-security

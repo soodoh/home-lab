@@ -1,0 +1,41 @@
+---
+# Native replacement seam shared by the stopped-writer caller and behavior tests.
+- name: Read image assignments without exposing other application settings
+  ansible.builtin.slurp:
+    src: "{{ wolf_security_config_path }}"
+  register: wolf_security_assignment_document
+  no_log: true
+
+- name: Require every image field to belong to the declared pin set
+  ansible.builtin.assert:
+    that:
+      - >-
+        (wolf_security_assignment_document.content | b64decode | regex_findall('(?m)^[ \t]*image[ \t]*=')) | length ==
+        wolf_security_policy.image_pins | length
+    fail_msg: Wolf application image fields differ from the reviewed set; do not overwrite unknown apps.
+
+- name: Require exactly one assignment for each declared image source
+  ansible.builtin.assert:
+    that:
+      - >-
+        (wolf_security_assignment_document.content | b64decode |
+          regex_findall(wolf_security_image_assignment_pattern)) | length == 1
+    fail_msg: A declared image is missing or duplicated in Wolf's configuration.
+  vars:
+    wolf_security_image_assignment_pattern: >-
+      (?m)^([ \t]*image[ \t]*=[ \t]*)(['"]){{ item.source | regex_escape }}(?:@sha256:[0-9a-f]{64})?\2([ \t]*)$
+  loop: "{{ wolf_security_policy.image_pins }}"
+  no_log: true
+
+- name: Replace only declared native image assignments
+  ansible.builtin.replace:
+    path: "{{ wolf_security_config_path }}"
+    regexp: "{{ wolf_security_image_assignment_pattern }}"
+    replace: '\g<1>\g<2>{{ item.image }}\g<2>\g<3>'
+  vars:
+    wolf_security_image_assignment_pattern: >-
+      (?m)^([ \t]*image[ \t]*=[ \t]*)(['"]){{ item.source | regex_escape }}(?:@sha256:[0-9a-f]{64})?\2([ \t]*)$
+  loop: "{{ wolf_security_policy.image_pins }}"
+  register: wolf_security_assignments
+  check_mode: "{{ wolf_security_assignment_check | default(ansible_check_mode) }}"
+  no_log: true

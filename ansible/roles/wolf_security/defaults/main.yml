@@ -1,0 +1,7 @@
+---
+# Image references and protocol-port admission are Git-owned; other Wolf settings
+# and paired-client certificates remain application-owned and backed up.
+wolf_security_policy: "{{ lookup('ansible.builtin.file', compose_native_controller_root ~ '/services/data/wolf/security.json') | from_json }}"
+wolf_security_config_path: /mnt/games/wolf/cfg/config.toml
+wolf_security_rule_path: /etc/home-lab/wolf/firewall.nft
+wolf_security_service: home-lab-wolf-firewall.service

@@ -1,0 +1,131 @@
+---
+# Runs the real native assignment tasks against disposable synthetic TOML, never
+# production settings. Supports a disposable Linux controller or the Docker host.
+- name: Exercise native Wolf image assignment behavior
+  hosts: docker-host
+  gather_facts: false
+  vars:
+    wolf_security_assignment_check: false
+    wolf_security_policy:
+      image_pins:
+        - source: ghcr.io/games-on-whales/es-de:edge
+          image: "ghcr.io/games-on-whales/es-de:edge@sha256:{{ 'a' * 64 }}"
+        - source: ghcr.io/games-on-whales/steam:edge
+          image: "ghcr.io/games-on-whales/steam:edge@sha256:{{ 'b' * 64 }}"
+    wolf_fixture: |
+      config_version = 7
+      hostname = "synthetic"
+      paired_clients = [{client_cert = "synthetic-public-certificate", settings = {run_uid = 1000}}]
+      [[profiles]]
+      id = "synthetic-profile"
+      [[profiles.apps]]
+      title = "emulator"
+      [profiles.apps.runner]
+      type = "docker"
+      image = 'ghcr.io/games-on-whales/es-de:edge'
+      mounts = ["synthetic:/data:rw"]
+      [[profiles.apps]]
+      title = "steam"
+      [profiles.apps.runner]
+      type = "docker"
+      image = "ghcr.io/games-on-whales/steam:edge@sha256:{{ 'c' * 64 }}"
+      env = ["SYNTHETIC=unchanged"]
+  tasks:
+    - name: Allocate a disposable synthetic fixture directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: wolf-image-assignment-test.
+      register: wolf_fixture_dir
+
+    - name: Set the native assignment fixture path
+      ansible.builtin.set_fact:
+        wolf_security_config_path: "{{ wolf_fixture_dir.path }}/config.toml"
+
+    - name: Exercise changes idempotency and refusal behavior
+      block:
+        - name: Write synthetic application-owned settings
+          ansible.builtin.copy:
+            dest: "{{ wolf_security_config_path }}"
+            content: "{{ wolf_fixture }}"
+            mode: '0600'
+
+        - name: Apply the real image assignment task seam
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: assignments
+
+        - name: Require actual assignment changes
+          ansible.builtin.assert:
+            that: wolf_security_assignments.changed
+
+        - name: Read the resulting synthetic document
+          ansible.builtin.slurp:
+            src: "{{ wolf_security_config_path }}"
+          register: wolf_fixture_changed
+
+        - name: Verify pins and preservation of unrelated settings
+          ansible.builtin.assert:
+            that:
+              - item.image in (wolf_fixture_changed.content | b64decode)
+              - >-
+                (wolf_fixture | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', '')) ==
+                (wolf_fixture_changed.content | b64decode | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', ''))
+          loop: "{{ wolf_security_policy.image_pins }}"
+
+        - name: Repeat the real assignment seam
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: assignments
+
+        - name: Require native idempotency
+          ansible.builtin.assert:
+            that: not wolf_security_assignments.changed
+
+        - name: Introduce an undeclared application image
+          ansible.builtin.copy:
+            dest: "{{ wolf_security_config_path }}"
+            content: "{{ wolf_fixture }}\n[[profiles.apps]]\nimage = 'unreviewed:latest'\n"
+            mode: '0600'
+
+        - name: Refuse undeclared application images
+          block:
+            - name: Exercise unknown-image admission
+              ansible.builtin.import_role:
+                name: wolf_security
+                tasks_from: assignments
+
+            - name: Fail if an undeclared application was accepted
+              ansible.builtin.fail:
+                msg: The native assignment seam accepted an undeclared application.
+          rescue:
+            - name: Require the actual image-set admission refusal
+              ansible.builtin.assert:
+                that: ansible_failed_result.msg is search('Wolf application image fields differ')
+
+        - name: Introduce a retargeted application with the same image-field count
+          ansible.builtin.copy:
+            dest: "{{ wolf_security_config_path }}"
+            content: "{{ wolf_fixture | replace('ghcr.io/games-on-whales/es-de:edge', 'ghcr.io/untrusted/es-de:edge') }}"
+            mode: '0600'
+
+        - name: Refuse a retargeted source
+          block:
+            - name: Exercise source identity admission
+              ansible.builtin.import_role:
+                name: wolf_security
+                tasks_from: assignments
+
+            - name: Fail if a retargeted source was accepted
+              ansible.builtin.fail:
+                msg: The native assignment seam accepted an unreviewed source.
+          rescue:
+            - name: Require the actual source identity refusal
+              ansible.builtin.assert:
+                that: >-
+                  (ansible_failed_result.results | map(attribute='msg') |
+                    select('search', 'declared image is missing or duplicated') | list | length) > 0
+      always:
+        - name: Remove only the disposable synthetic fixture
+          ansible.builtin.file:
+            path: "{{ wolf_fixture_dir.path }}"
+            state: absent
