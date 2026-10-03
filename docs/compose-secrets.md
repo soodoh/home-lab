@@ -233,10 +233,12 @@ These are not included as additional passwords/API keys in the count:
    path is not a changed Compose environment, so do not rely on `recreate: auto`
    to propagate a new value. Register protected file changes and explicitly
    recreate consumers through native Compose convergence without exposing secret
-   digests. The adopted deployment interface recreates the complete project for
-   source or credential-file changes; approval must include that restart window.
-   It also restarts Openfit without changing its configuration. Unchanged file
-   contents leave `recreate: auto` unchanged.
+   digests. The deployment interface observes live managed bind-mount
+   inode/metadata changes and recreates only their declared consumers. Native
+   rsync preserves unchanged source mounts, including directory mounts; native
+   Compose handles image/model/environment changes with `recreate: auto`.
+   Approval must cover affected consumers and any native dependency recreation,
+   not an unconditional project-wide restart.
 5. **Resolve recovery before removing dotenv copies.** The current Restic
    files-from list and recovery `common_paths` now declare both `production.env`
    and `/etc/docker-compose/credentials`. Recyclarr's read-only `secrets.yml` is

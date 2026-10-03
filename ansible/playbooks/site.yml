@@ -19,6 +19,14 @@
         apply_lock_operation: native-site-convergence
 
   tasks:
+    - name: Admit complete site convergence before any host changes
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: admission
+      vars:
+        compose_native_change_class: data
+        compose_native_apply_operation: native-site-convergence
+
     - name: Converge Tailscale deployment SSH access
       ansible.builtin.import_role:
         name: tailscale_deploy_access

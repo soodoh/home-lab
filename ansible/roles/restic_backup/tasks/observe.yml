@@ -1,0 +1,49 @@
+---
+- name: Require a declared backup admission class
+  ansible.builtin.assert:
+    that:
+      - restic_backup_admission | default('strict') in ['strict', 'routine']
+    fail_msg: Select strict recovery admission or a reviewed routine upgrade.
+
+- name: Read the reviewed backup policy
+  ansible.builtin.set_fact:
+    restic_backup_reviewed_policy: >-
+      {{ lookup('ansible.builtin.file',
+         playbook_dir + '/../../services/data/restic/policy.json') | from_json }}
+
+- name: Observe live backup admission under a single lock
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../../scripts/observe-restic-backups.py
+      --runner-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic-backup', rstrip=false, lstrip=false) | hash('sha256') }}
+      --policy-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/policy.json', rstrip=false, lstrip=false) | hash('sha256') }}
+      --files-from-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/files-from', rstrip=false, lstrip=false) | hash('sha256') }}
+      --excludes-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/excludes', rstrip=false, lstrip=false) | hash('sha256') }}
+      --restic-sha256 {{ restic_binary_sha256 }}
+      --rclone-sha256 {{ rclone_binary_sha256 }}
+      --games-id {{ restic_backup_reviewed_policy.repositories.games.id }}
+      --nfs-id {{ restic_backup_reviewed_policy.repositories.nfs.id }}
+      --proton-id {{ restic_backup_reviewed_policy.repositories.proton.id }}
+      --admission {{ restic_backup_admission | default('strict') }}
+      {{ ('--apply-owner-sha256 ' ~ restic_backup_observation_apply_owner_sha256) if restic_backup_observation_apply_owner_sha256 | default('') | length > 0 else '' }}
+    executable: /usr/bin/python3
+  register: restic_backup_observation_command
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Parse the bounded current backup observation
+  ansible.builtin.set_fact:
+    restic_backup_observation: "{{ restic_backup_observation_command.stdout | from_json }}"
+  no_log: true
+
+- name: Summarize fresh live backup state
+  ansible.builtin.debug:
+    msg:
+      admission: "{{ restic_backup_observation.admission }}"
+      warnings: "{{ restic_backup_observation.warnings }}"
+      observed_at: "{{ restic_backup_observation.observed_at }}"
+      policy_sha256: "{{ restic_backup_observation.policy_sha256 }}"
+      compose_artifact_sha256: "{{ restic_backup_observation.artifact_sha256 }}"
+      units: "{{ restic_backup_observation.units }}"
+      repositories: "{{ restic_backup_observation.repositories }}"

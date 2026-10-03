@@ -26,6 +26,9 @@ From a fresh reviewed checkout:
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-backups.yml
 ```
 
+Use the default **strict** observer for recovery; routine-upgrade admission is
+not three-copy qualification and does not bind a snapshot to the current deployment.
+
 The observer refuses active owners, opens each live repository and reports current
 repository IDs, policy/artifact identities and latest snapshots. Select one chain
 from this output. Do not use a snapshot ID copied from Git history or a previous run.

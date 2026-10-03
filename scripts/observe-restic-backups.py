@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observe one complete Restic chain while holding the host backup lock."""
+"""Observe strict recovery or routine local-backup admission under the backup lock."""
 
 from __future__ import annotations
 
@@ -141,6 +141,42 @@ def snapshot_id(snapshot: dict[str, Any]) -> str:
     return value
 
 
+def require_repository_identity(config: dict[str, Any], expected: str) -> None:
+    if config.get("id") != expected:
+        raise ObservationError("repository_identity")
+
+
+def require_fresh(snapshot: dict[str, Any], now: datetime) -> None:
+    age = (now - snapshot_time(snapshot)).total_seconds()
+    if age < 0 or age >= 172800:
+        raise ObservationError("snapshot_freshness")
+
+
+def select_local(snapshots: list[dict[str, Any]], policy_sha256: str, paths: list[str]) -> dict[str, Any]:
+    """Require current backup scope, but allow an earlier deployment artifact."""
+    required = {"cadence=daily", f"policy={policy_sha256}"}
+    for source in sorted(snapshots, key=snapshot_time, reverse=True):
+        snapshot_id(source)
+        tags = snapshot_tags(source)
+        covered = source.get("paths", [])
+        if not isinstance(covered, list) or any(not isinstance(root, str) for root in covered):
+            raise ObservationError("snapshot_paths")
+        if not required <= tags or not any(re.fullmatch(r"artifact=[0-9a-f]{64}", tag) for tag in tags):
+            continue
+        if all(any(path == root or path.startswith(root.rstrip("/") + "/") for root in covered)
+               for path in paths):
+            return source
+    raise ObservationError("local_snapshot_missing")
+
+
+def match_copy(source: dict[str, Any], destination: list[dict[str, Any]]) -> dict[str, Any] | None:
+    mapped = [item for item in destination if item.get("original") == snapshot_id(source)
+              and snapshot_tags(item) == snapshot_tags(source)]
+    if len(mapped) > 1:
+        raise ObservationError("snapshot_mapping_ambiguous")
+    return mapped[0] if mapped else None
+
+
 def select_chain(
     games: list[dict[str, Any]],
     nfs: list[dict[str, Any]],
@@ -200,7 +236,36 @@ def daily_history_present(parsed: dict[str, dict[str, str]]) -> bool:
     )
 
 
-def validate_units(policy: dict[str, Any]) -> dict[str, list[str]]:
+def validate_unit_state(unit: str, values: dict[str, str], *, routine: bool = False) -> None:
+    if values.get("ActiveState") == "inactive" and values.get("SubState") == "dead":
+        pass
+    elif routine and "-proton." in unit and values.get("ActiveState") == "failed" and values.get("SubState") == "failed":
+        pass
+    else:
+        raise ObservationError("backup_writer_state")
+    if unit.endswith(".service") and values.get("Result") != "success" and not (routine and "-proton." in unit):
+        raise ObservationError("backup_service_result")
+
+
+def validate_owners(journal: Path, apply_owner_sha256: str | None) -> None:
+    if journal.exists() or journal.is_symlink():
+        raise ObservationError("operation_owner_active")
+    for path in OWNERS:
+        if not path.exists() and not path.is_symlink():
+            if path == OWNERS[0] and apply_owner_sha256 is not None:
+                raise ObservationError("apply_owner_missing")
+            continue
+        if path != OWNERS[0] or apply_owner_sha256 is None:
+            raise ObservationError("operation_owner_active")
+        metadata = path.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise ObservationError("apply_owner_metadata")
+        if sorted(child.name for child in path.iterdir()) != ["owner"]:
+            raise ObservationError("apply_owner_metadata")
+        require_regular(path / "owner", 0o600, apply_owner_sha256)
+
+
+def validate_units(policy: dict[str, Any], *, routine: bool = False) -> dict[str, list[str]]:
     properties = [
         "LoadState", "ActiveState", "SubState", "Result", "NextElapseUSecRealtime",
         "LastTriggerUSec", "ExecMainStartTimestamp", "ExecMainExitTimestamp",
@@ -219,16 +284,13 @@ def validate_units(policy: dict[str, Any]) -> dict[str, list[str]]:
             raise ObservationError("timer_state")
         if not parsed[timer].get("NextElapseUSecRealtime"):
             raise ObservationError("timer_schedule")
-    if not daily_history_present(parsed):
+    if not routine and not daily_history_present(parsed):
         raise ObservationError("daily_cadence_history")
     for unit in UNITS:
         if unit.endswith(".timer"):
             continue
         values = parsed[unit]
-        if values.get("ActiveState") != "inactive" or values.get("SubState") != "dead":
-            raise ObservationError("backup_writer_state")
-        if unit.endswith(".service") and values.get("Result") != "success":
-            raise ObservationError("backup_service_result")
+        validate_unit_state(unit, values, routine=routine)
     schedules = {
         Path("/etc/systemd/system/home-lab-restic-daily.timer"): policy["schedule"]["daily_calendar"],
         Path("/etc/systemd/system/home-lab-restic-maintenance.timer"): policy["schedule"]["maintenance_calendar"],
@@ -252,8 +314,10 @@ def main() -> None:
     parser.add_argument("--games-id", required=True)
     parser.add_argument("--nfs-id", required=True)
     parser.add_argument("--proton-id", required=True)
+    parser.add_argument("--admission", choices=("strict", "routine"), default="strict")
+    parser.add_argument("--apply-owner-sha256")
     arguments = parser.parse_args()
-    expected_hex = vars(arguments)
+    expected_hex = {key: value for key, value in vars(arguments).items() if key != "admission" and value is not None}
     if any(HEX.fullmatch(value) is None for value in expected_hex.values()):
         raise ObservationError("expected_identity")
 
@@ -270,8 +334,7 @@ def main() -> None:
         if policy["runner"]["lock_path"] != str(LOCK_PATH):
             raise ObservationError("lock_policy_identity")
         journal = Path(policy["runner"]["journal_path"])
-        if journal.exists() or any(path.exists() for path in OWNERS):
-            raise ObservationError("operation_owner_active")
+        validate_owners(journal, arguments.apply_owner_sha256)
         runtime = (
             (Path(policy["runner"]["path"]), 0o755, arguments.runner_sha256),
             (Path(policy["runner"]["files_from_path"]), 0o440, arguments.files_from_sha256),
@@ -292,35 +355,51 @@ def main() -> None:
         policy_sha256 = hashlib.sha256(raw_policy).hexdigest()
 
         expected_ids = {"games": arguments.games_id, "nfs": arguments.nfs_id, "proton": arguments.proton_id}
-        configs = {
-            "games": parse_object(local_restic(policy, "games", ["cat", "config"]), "repository_config"),
-            "nfs": parse_object(local_restic(policy, "nfs", ["cat", "config"]), "repository_config"),
-            "proton": parse_object(proton_restic(policy, ["cat", "config"]), "repository_config"),
-        }
-        for name, config in configs.items():
-            if config.get("id") != expected_ids[name] or policy["repositories"][name].get("id") != expected_ids[name]:
+        units = validate_units(policy, routine=arguments.admission == "routine")
+        warnings = []
+        inventories = {}
+        for name in ("games", "nfs", "proton"):
+            if policy["repositories"][name].get("id") != expected_ids[name]:
                 raise ObservationError("repository_identity")
-
-        games = parse_snapshots(local_restic(policy, "games", ["snapshots", "--json"]), "snapshot_inventory")
-        nfs = parse_snapshots(local_restic(policy, "nfs", ["snapshots", "--json"]), "snapshot_inventory")
-        proton = parse_snapshots(proton_restic(policy, ["snapshots", "--json"]), "snapshot_inventory")
-        selected_games, selected_nfs, selected_proton = select_chain(
-            games, nfs, proton, policy_sha256, artifact_sha256,
-        )
-        selected_time = snapshot_time(selected_games)
-        age_seconds = int((datetime.now(timezone.utc) - selected_time).total_seconds())
-        if age_seconds < 0 or age_seconds >= 172800:
-            raise ObservationError("snapshot_freshness")
-        units = validate_units(policy)
+            try:
+                config_raw = proton_restic(policy, ["cat", "config"]) if name == "proton" else local_restic(policy, name, ["cat", "config"])
+                require_repository_identity(parse_object(config_raw, "repository_config"), expected_ids[name])
+                raw = proton_restic(policy, ["snapshots", "--json"]) if name == "proton" else local_restic(policy, name, ["snapshots", "--json"])
+                inventories[name] = parse_snapshots(raw, "snapshot_inventory")
+            except ObservationError as error:
+                if arguments.admission != "routine" or name == "games" or str(error) not in ("command_failed", "command_execution"):
+                    raise
+                inventories[name] = []
+                warnings.append(f"{name}_unavailable")
+        if arguments.admission == "strict":
+            selected_games, selected_nfs, selected_proton = select_chain(
+                inventories["games"], inventories["nfs"], inventories["proton"], policy_sha256, artifact_sha256,
+            )
+        else:
+            paths = [line.strip() for line in Path(policy["runner"]["files_from_path"]).read_text().splitlines()
+                     if line.strip() and not line.lstrip().startswith("#")]
+            if not paths or any(not path.startswith("/") for path in paths):
+                raise ObservationError("backup_scope")
+            selected_games = select_local(inventories["games"], policy_sha256, paths)
+            selected_nfs, selected_proton = (match_copy(selected_games, inventories[name]) for name in ("nfs", "proton"))
+            for name, copy in (("nfs", selected_nfs), ("proton", selected_proton)):
+                if copy is None:
+                    warnings.append(f"{name}_replication_lag")
+            for unit, properties in units.items():
+                if unit.endswith(".service") and parse_properties("\n".join(properties)).get("Result") != "success":
+                    warnings.append(f"{unit}_last_run_failed")
+        require_fresh(selected_games, datetime.now(timezone.utc))
 
         result = {
+            "admission": arguments.admission,
+            "warnings": warnings,
             "artifact_sha256": artifact_sha256,
             "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "policy_sha256": policy_sha256,
             "repositories": {
-                "games": {"id": configs["games"]["id"], "snapshot_id": snapshot_id(selected_games), "snapshot_time": selected_games["time"], "tags": selected_games["tags"]},
-                "nfs": {"id": configs["nfs"]["id"], "snapshot_id": snapshot_id(selected_nfs), "original_snapshot_id": selected_nfs["original"], "snapshot_time": selected_nfs["time"], "tags": selected_nfs["tags"]},
-                "proton": {"id": configs["proton"]["id"], "snapshot_id": snapshot_id(selected_proton), "original_snapshot_id": selected_proton["original"], "snapshot_time": selected_proton["time"], "tags": selected_proton["tags"]},
+                "games": {"id": expected_ids["games"], "snapshot_id": snapshot_id(selected_games), "snapshot_time": selected_games["time"], "tags": selected_games["tags"]},
+                "nfs": {"id": expected_ids["nfs"], "snapshot_id": snapshot_id(selected_nfs), "original_snapshot_id": selected_nfs["original"], "snapshot_time": selected_nfs["time"], "tags": selected_nfs["tags"]} if selected_nfs else None,
+                "proton": {"id": expected_ids["proton"], "snapshot_id": snapshot_id(selected_proton), "original_snapshot_id": selected_proton["original"], "snapshot_time": selected_proton["time"], "tags": selected_proton["tags"]} if selected_proton else None,
             },
             "units": units,
         }

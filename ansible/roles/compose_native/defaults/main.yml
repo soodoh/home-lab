@@ -14,6 +14,9 @@ compose_native_expected_service_count: 0
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
+# Choosing routine attests release review found no persistent-data/storage migration.
+compose_native_change_class: data
+compose_native_apply_operation: compose-native-deploy
 compose_native_sops_file: "{{ compose_native_controller_root }}/secrets/production.sops.yaml"
 compose_native_authentik_sops_file: "{{ compose_native_controller_root }}/infrastructure/tofu/authentik/client-secrets.sops.json"
 compose_native_authentik_desired_file: "{{ compose_native_controller_root }}/infrastructure/tofu/authentik/desired.json"

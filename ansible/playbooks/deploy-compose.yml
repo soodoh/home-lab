@@ -23,6 +23,11 @@
         name: compose_native
         tasks_from: observe
 
+    - name: Admit the reviewed upgrade under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: admission
+
     - name: Archive and converge committed Compose source
       ansible.builtin.import_role:
         name: compose_native

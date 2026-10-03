@@ -69,18 +69,37 @@ ansible-playbook ansible/playbooks/observe-proxmox.yml
 ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 ```
 
-Run the relevant observer afresh before **each** plan or host apply. The backup
-observer checks live owners, policy and Compose artifact, repository identities,
-timer cadence and the newest complete games → NFS → Proton chain within 48 hours;
-it does not create a backup. A fresh admission can cover several related
-reversible changes while the policy and artifact are unchanged, but is never a
-standing approval for another run. Changing the artifact or policy requires a
-new complete chain before declaring the changed state backed up or beginning a
-subsequent change that requires current-state backup admission. Do not bypass
-identity, ancestry or freshness checks. Before a destructive/data/storage change,
-verify the acceptable data-loss window and recovery path for affected data,
-including external storage; obtain a new chain or protected before-image when
-necessary. Git revert restores configuration, **not data**.
+Run the relevant observer afresh before **each** plan or host apply. Backup
+observation never creates a backup. Select admission according to reviewed risk:
+
+- **Routine reversible upgrades:** after checking release notes and startup
+  behavior for persistent-data compatibility, a daily local snapshot less than
+  48 hours old must cover the current files-from scope under the current backup
+  policy. Its `artifact=` tag may identify an earlier deployment. NFS/Proton lag,
+  unavailability or a terminal failed Proton copy is a warning, not a reason to
+  stop an otherwise covered upgrade. A failed **local** unit remains a blocker:
+  it combines scan and NFS copy, so failure alone cannot distinguish NFS lag from
+  a partial local snapshot. Inspect it rather than accepting possibly incomplete
+  data. Accessible repositories must still have the expected
+  identities and copied ancestry must be unambiguous. Independently committed
+  upgrades do not require a new backup for every deployment hash.
+- **Data/storage/schema changes, deletion or incompatible upgrades:** verify the
+  acceptable data-loss window, affected-data recovery path and external storage.
+  Obtain a fresh affected-data backup or protected before-image when needed and
+  explicitly review recovery before applying. The default `strict` observation
+  still requires a complete games → NFS → Proton chain less than 48 hours old
+  matching current policy and deployment; it is not by itself approval for a
+  destructive change or proof that an image won't migrate data at startup.
+
+For routine observation use
+`ansible-playbook ansible/playbooks/observe-backups.yml -e restic_backup_admission=routine`.
+Writer exclusion, interruption journals, unknown ownership, tool identities,
+policy/scope and freshness checks remain blockers in both modes. Convergence
+revalidates admission under the exact acquired production owner; that exception
+never admits another owner's lock. A fresh observation is current-run input,
+not standing approval. Only a matching complete chain proves the **changed
+artifact** has three-copy backup coverage. Git revert restores configuration,
+**not data**.
 
 Unknown locks, interruption journals, mounts, keys, owners, service counts or
 repository identities are refusals. Inspect them on the authoritative host.
@@ -271,12 +290,19 @@ never revoke it based on removal of an old ingress route.
 convergence: it observes active Compose, acquires the production host lock,
 checks Tailscale identity and GOST DNS, converges SSH access, backup tools and
 units, Docker maintenance and the complete committed Compose project, then
-observes the result. Source changes or changed credential files recreate the
-complete project: atomic replacement otherwise leaves file bind mounts reading
-old inodes. This includes Openfit startup, but does not change its configuration
-or bootstrap credential. Check mode validates
-active state; do not apply after a refused observation or check. Do not claim a
-changed artifact is backed up until a fresh complete chain is admitted.
+observes the result. Site convergence uses strict backup admission before host
+changes. Source publication uses native rsync with checksums, delayed atomic
+file replacement and deletion, preserving unchanged file/directory inodes.
+Publication is **not** atomic across the whole tree. A complete source
+before-image and the production lock remain until convergence succeeds.
+A small read-only mount observer compares inode/metadata identities for managed
+source and credential mounts, never secret contents or digests. Only declared
+consumers of changed mounts are explicitly recreated; native Compose's
+`recreate: auto` handles model/image/environment changes and removes orphans.
+Mutable application-state mounts are excluded, not a restart signal. Unchanged
+services are not restarted just because another image changed. Check mode
+validates active state; do not apply after a refused observation or check.
+Do not claim a changed artifact is backed up until strict admission succeeds.
 
 ```sh
 ansible-playbook ansible/playbooks/site.yml --check
@@ -290,8 +316,20 @@ reviewed policy and runners without bootstrapping repositories or running a
 backup. [`policy.json`](../services/data/restic/policy.json), native Restic
 files-from/excludes and systemd units define recurring behavior; the runner is
 only the writer-consistency adapter. `deploy-compose.yml` is a narrower
-Compose-only interface requiring `compose_native_apply_confirmed=true`; prefer
-`site.yml`. An interrupted source swap preserves host-local
+Compose-only interface requiring `compose_native_apply_confirmed=true`. Prefer
+it for an independently reviewed service upgrade; use `site.yml` for full host
+convergence. The default change class is `data` (strict admission). Selecting
+`compose_native_change_class=routine` attests the persistent-data compatibility
+review above; image-only does not automatically mean low risk:
+
+```sh
+ansible-playbook ansible/playbooks/deploy-compose.yml --check
+# From reviewed committed source, after release/data compatibility review:
+ansible-playbook ansible/playbooks/deploy-compose.yml \\
+  -e compose_native_apply_confirmed=true -e compose_native_change_class=routine
+```
+
+The host must have native rsync installed. An interrupted publication preserves host-local
 `/srv/docker-compose/previous`: inspect the lock, journal and before-image
 before retrying. Do not delete host-local artifacts merely because a controller
 session ended. [Recovery](../recovery/README.md) currently supports private
@@ -318,8 +356,9 @@ shortening the timeout or adding a filesystem snapshot layer by default. A
 source-level audit of the stop list found no *proven* safe removals: it covers
 databases, embedded application state, configuration writers and game profiles.
 Do not leave a writer running merely because it is not a database; require
-fresh mount/writer evidence and a private restore before narrowing the list. Keep the full daily chain and batch
-related reversible changes under the existing admission rule.
+fresh mount/writer evidence and a private restore before narrowing the list.
+Keep the full daily chain; routine admission changes upgrade gating, not backup
+scope, frequency, writer quiescence or replication.
 
 If the scan itself becomes the downtime bottleneck, snapshot-backed scanning
 is a separate, approval-gated storage design, **not** a change to this runner.
