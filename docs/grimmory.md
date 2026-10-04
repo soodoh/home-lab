@@ -123,12 +123,12 @@ classify custom columns explicitly instead of silently dropping them.
 | CWA state | Grimmory handling |
 | --- | --- |
 | Paul/Sarabeth identity | Create distinct target accounts; map actual target IDs by username, preserve permissions/library access, then link to the correct issuer/subject. Never copy password hashes or assume user IDs match. |
-| Private shelves and membership | Native shelf APIs preserve owner/privacy and exact book sets. The pinned target does not represent CWA's manual member ordering or shelf/membership dates; require an explicit disposition rather than claiming full shelf-schema parity. |
+| Private shelves and membership | Native shelf APIs preserve owner/privacy and exact book sets. Use supported native sorting; retain exact source member order and shelf/membership dates in the protected legacy archive. This disposition does not claim full shelf-schema/UI parity. |
 | System magic shelves | Recreate equivalent rules/native views; do not import caches or assume rule JSON compatibility. |
 | Unread/in-progress/finished | Map `0/2/1` to `UNREAD/READING/READ` on `user_book_progress`. Preserve status-modification/start timestamps separately. CWA has no dedicated completion-date field: do not label a generic modification date as completion, or use the bulk-status API's import-time completion date. |
 | Kobo progress/location | Map percentage, source percentage, location type/source/value and timestamps to target per-book state and Kobo reading-state JSON. Preserve statistics where representable. Validate exact resume location against the actual served KEPUB. |
 | Browser/KOReader/annotations | Inventory afresh and migrate only observed data with compatible locators/checksums. Server absence does not prove a device has no annotations. |
-| Historic activity/preferences | Preserve compatible values; classify unsupported download/activity history and UI preferences explicitly. Retain the protected source before-image until disposition is approved. |
+| Historic activity/preferences | Preserve compatible preferences. Represent historic CWA downloads as a separate private `Previous CWA Downloads` shelf per user, using native title sorting and identity-qualified current catalog books. Archive original download records, including removed-book references; do not invent activity timestamps or catalog entries. Classify other unsupported preferences separately. |
 | Records for removed books | Account for them in the private reconciliation; do not recreate phantom catalog entries or silently count them as migrated. |
 
 Use native APIs where they preserve ownership and history. The API cannot
@@ -147,6 +147,30 @@ through `/api/v1/books`, not the library's unpersonalized catalog endpoint.
 Custom text columns, untimestamped download history, UI preferences and unsupported
 shelf fields need a meaningful native mapping or separately approved protected
 retention. Merely retaining the original OPF/SQLite files is not target UI parity.
+An empty custom-column definition has no per-book values to transfer: retain its
+schema in the archive, but recheck both value and link tables during final
+extraction rather than assuming it stays empty.
+
+Keep the legacy archive outside Git, encrypted to the existing SOPS age
+recipients. Include source field definitions, exact values and identity mappings;
+verify native decryption and byte-identical read-back in a fresh private working
+directory without logging its content. An observation-time archive is not the
+final quiesced extraction or a full source backup. Obtain verified independent
+retention and refresh/reconcile the final archive before retiring source state;
+one local ciphertext copy is not a durable multi-copy backup. Keep the device
+before-images untouched and classify annotation retention separately from
+native annotation access. Remove disposable exports and execution tools after
+verification; retain the protected recovery payload and receipt, not those tools.
+
+Create each history shelf through its owner's native API session, with
+`publicShelf=false`, and reconcile exact UUID/path-qualified membership after
+restart. Never merge it into the dedicated Kobo selection shelf or enable
+`autoAddToShelf`: download history is not a device download request. Pinned
+Grimmory emits ordinary shelves as Kobo collections, with membership intersected
+against its dedicated Kobo shelf. Expect an additional history collection for
+already-selected books during separately approved device testing; verify that
+it neither expands the entitlement set nor leaks between users. Native sorting
+and these shelves still need isolated runtime qualification before admission.
 
 Local-account linking is disabled by default. Open only the reviewed two-account
 linking window with `grimmory_allow_local_account_linking=true`; auto-provisioning
