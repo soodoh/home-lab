@@ -28,9 +28,13 @@ Initial activation needs a separately reviewed backup-scope transition: strict
 observation binds the reviewed policy to the installed policy, so the existing
 chain does not qualify a not-yet-installed scope. Admit protected directory
 creation and native backup-policy convergence, then obtain a fresh complete chain
-under that scope before site convergence. Qualify this order before applying;
-never bypass the observer or count empty-directory coverage as migrated-data
-coverage. Compose-only deployment does not extend backup policy.
+under that scope before site convergence. The prepared runner selects stop-group
+members from the active Compose declarations: undeployed candidates are not
+queried, but a declared service without its container still refuses the backup
+before any stop or journal write. Install the reviewed runner with the new policy;
+this behavior is only synthetically qualified until separately approved host
+execution. Never bypass the observer or count empty-directory coverage as
+migrated-data coverage. Compose-only deployment does not extend backup policy.
 
 Bookshelf also mounts `/books`, and its native root-folder settings can use the
 Calibre integration. Before retiring Calibre, privately observe and separately

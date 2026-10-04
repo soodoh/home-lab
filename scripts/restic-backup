@@ -240,6 +240,17 @@ def compose(policy: dict[str, Any], arguments: list[str]) -> subprocess.Complete
     return run([*command, *arguments], timeout=300)
 
 
+def declared_services(policy: dict[str, Any]) -> set[str]:
+    result = compose(policy, ["config", "--services"])
+    require_success(result, "service_declaration")
+    services = result.stdout.splitlines()
+    if not services or len(services) != len(set(services)) or any(
+        re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", service) is None for service in services
+    ):
+        raise WorkflowError("service_declaration_output")
+    return set(services)
+
+
 def service_container(policy: dict[str, Any], service: str) -> str:
     result = compose(policy, ["ps", "--all", "--quiet", service])
     require_success(result, "service_inventory")
@@ -388,7 +399,8 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
     preflight(policy, ["games"])
     artifact = artifact_hash(policy)
     stop_order = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
-    running = [service for service in stop_order if service_running(policy, service)]
+    declared = declared_services(policy)
+    running = [service for service in stop_order if service in declared and service_running(policy, service)]
     journal = {"version": 1, "running_services": running, "started_at": int(time.time())}
     atomic_json(journal_path(policy), journal, 0o600)
     snapshot = None

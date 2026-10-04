@@ -103,6 +103,7 @@ class ResticRuntimeTests(unittest.TestCase):
             "recover_interruption": mock.Mock(),
             "preflight": mock.Mock(),
             "artifact_hash": mock.Mock(return_value="2" * 64),
+            "declared_services": mock.Mock(return_value={"app", "db"}),
             "service_running": mock.Mock(return_value=True),
             "atomic_json": mock.Mock(),
             "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
@@ -133,6 +134,7 @@ class ResticRuntimeTests(unittest.TestCase):
             "recover_interruption": mock.Mock(),
             "preflight": mock.Mock(),
             "artifact_hash": mock.Mock(return_value="2" * 64),
+            "declared_services": mock.Mock(return_value={"app", "inactive", "db"}),
             "service_running": mock.Mock(side_effect=lambda _policy, service: service != "inactive"),
             "atomic_json": mock.Mock(),
             "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
@@ -143,6 +145,76 @@ class ResticRuntimeTests(unittest.TestCase):
                 daily_local(policy, "1" * 64)
         compose.assert_called_once_with(policy, ["stop", "--timeout", "120", "app"])
         self.assertEqual(restart.call_args.args[1]["running_services"], ["app", "db"])
+
+    def test_new_policy_writers_wait_for_declaration_but_missing_declared_containers_refuse(self):
+        daily_local = self.runner["daily_local"]
+        policy = {
+            "stop_groups": {"applications": ["app", "candidate"], "databases": ["db"]},
+            "runner": {"files_from_path": "/etc/files-from", "exclude_file_path": "/etc/excludes"},
+        }
+        snapshot = "3" * 64
+        for candidate_declared, candidate_present in ((False, False), (True, False), (True, True)):
+            with self.subTest(candidate_declared=candidate_declared, candidate_present=candidate_present):
+                declarations = "app\ndb\n" + ("candidate\n" if candidate_declared else "")
+                events = []
+
+                def compose(_policy, arguments):
+                    events.append(arguments)
+                    if arguments == ["config", "--services"]:
+                        return subprocess.CompletedProcess([], 0, declarations, "")
+                    if arguments[:3] == ["ps", "--all", "--quiet"]:
+                        service = arguments[3]
+                        if service == "candidate" and not candidate_present:
+                            return subprocess.CompletedProcess([], 0 if candidate_declared else 1, "", "")
+                        return subprocess.CompletedProcess([], 0, "a" * 64 + "\n", "")
+                    return subprocess.CompletedProcess([], 0, "", "")
+
+                journal = mock.Mock()
+                backup = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps({
+                    "message_type": "summary", "snapshot_id": snapshot,
+                }), ""))
+                restart = mock.Mock()
+                with mock.patch.dict(daily_local.__globals__, {
+                    "recover_interruption": mock.Mock(), "preflight": mock.Mock(),
+                    "artifact_hash": mock.Mock(return_value="2" * 64),
+                    "compose": compose,
+                    "run": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "true\n", "")),
+                    "atomic_json": journal,
+                    "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+                    "restic_result": backup, "restart_recorded": restart,
+                    "copy_snapshot": mock.Mock(return_value="4" * 64),
+                }), mock.patch("builtins.print"):
+                    if candidate_declared and not candidate_present:
+                        with self.assertRaisesRegex(self.runner["WorkflowError"], "service_inventory_output"):
+                            daily_local(policy, "1" * 64)
+                        journal.assert_not_called()
+                        backup.assert_not_called()
+                        restart.assert_not_called()
+                        self.assertFalse(any(arguments[0] == "stop" for arguments in events))
+                    else:
+                        daily_local(policy, "1" * 64)
+                        if not candidate_declared:
+                            self.assertNotIn(["ps", "--all", "--quiet", "candidate"], events)
+                        applications = ["app", "candidate"] if candidate_present else ["app"]
+                        self.assertEqual(journal.call_args.args[1]["running_services"], [*applications, "db"])
+                        self.assertEqual([arguments for arguments in events if arguments[0] == "stop"], [
+                            ["stop", "--timeout", "120", *applications], ["stop", "--timeout", "120", "db"],
+                        ])
+                        backup.assert_called_once()
+                        restart.assert_called_once()
+
+    def test_service_declarations_refuse_failed_empty_duplicate_or_malformed_output(self):
+        declared = self.runner["declared_services"]
+        for result in (
+            subprocess.CompletedProcess([], 1, "app\n", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "app\napp\n", ""),
+            subprocess.CompletedProcess([], 0, "app\n../candidate\n", ""),
+        ):
+            with self.subTest(result=result), mock.patch.dict(declared.__globals__, {
+                "compose": mock.Mock(return_value=result),
+            }), self.assertRaises(self.runner["WorkflowError"]):
+                declared({})
 
     def test_reviewed_network_namespace_services_restart_after_gluetun(self):
         policy = json.loads(POLICY_PATH.read_text())
@@ -216,6 +288,7 @@ class ResticRuntimeTests(unittest.TestCase):
             "artifact_hash": mock.Mock(return_value="2" * 64),
             "atomic_json": mock.Mock(),
             "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+            "declared_services": mock.Mock(return_value={"stateless"}),
             "restic_result": mock.Mock(return_value=subprocess.CompletedProcess([], 3, "", "")),
             "restart_recorded": restart,
         }), mock.patch("builtins.print"):
