@@ -193,7 +193,7 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = authentik_certificate_key_pair.signing["jellyfin-oidc"].certificate_data == "${trimspace(file("${path.module}/jellyfin-oidc.pem"))}\n" && authentik_certificate_key_pair.signing["jellyfin-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["jellyfin-oidc"].private_key)}\n"
+    condition     = authentik_certificate_key_pair.signing["jellyfin-oidc"].certificate_data == "${file("${path.module}/jellyfin-oidc.pem")}\n" && authentik_certificate_key_pair.signing["jellyfin-oidc"].key_data == "${jsondecode(file(var.authentik_signing_keys_path)).certificates["jellyfin-oidc"].private_key}\n"
     error_message = "PEM comparison must match the pinned reader's appended newline without rotating material."
   }
 }

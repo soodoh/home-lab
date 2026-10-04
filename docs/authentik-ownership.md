@@ -107,9 +107,13 @@ controller session through `TF_VAR_authentik_signing_keys_path`. The provider's
 private-key read must succeed before planning; its reader silently omits key data
 on an unsuccessful private-key export, which would otherwise cause a false update.
 Keep remote state, saved plans and all decrypted inputs protected. Configuration
-normalizes supplied PEM boundaries and emits exactly one final newline to match
-the pinned reader. This preserves already-terminated OpenSSL material without
-perpetual updates; the representation adjustment does not change keys or certificates.
+preserves the native export representation and adds the pinned reader's newline.
+Imported material can retain a terminal newline in its native export, whereas
+API-created material is trimmed on ingestion. Match the supplied public PEM and
+encrypted private-key text to their respective exports; do not universally trim
+existing signers or add an extra OpenSSL newline to new ones. Representation
+qualification must prove identical certificate/key content and a fresh no-op plan,
+not apply an unexplained rewrite. This does not rotate cryptographic material.
 
 `grimmory-oidc.pem` is the dedicated Grimmory signer's public certificate; its
 private key is another entry in the same encrypted `signing-keys.sops.json`
