@@ -92,7 +92,7 @@ services:
       - nextcloud
 
   nextcloud-db:
-    image: mariadb:11.8.9-ubi9@sha256:4d6c45144a18908d1244975e5c275fa56e688fbc77f889f27e68e1c5b8cb64d5
+    image: mariadb:11.8.9-ubi9@sha256:689b8a9ccd6f313536cf53e9cd54c9fad8891d5284911d321eab0d018f7d33b6
     container_name: nextcloud-db
     restart: always
     # Read root-only Compose secrets before the official entrypoint drops to mysql.
