@@ -274,7 +274,7 @@ resource "authentik_certificate_key_pair" "signing" {
   for_each = local.signing_certificates
 
   name = each.value.name
-  # The pinned reader appends a newline to both native PEM exports.
-  certificate_data = "${file("${path.module}/${each.value.certificate_file}")}\n"
-  key_data         = "${local.signing_keys.certificates[each.key].private_key}\n"
+  # The pinned reader emits one final newline, regardless of supplied PEM endings.
+  certificate_data = "${trimspace(file("${path.module}/${each.value.certificate_file}"))}\n"
+  key_data         = "${trimspace(local.signing_keys.certificates[each.key].private_key)}\n"
 }
