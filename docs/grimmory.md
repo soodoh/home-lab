@@ -111,8 +111,11 @@ copy the complete stopped state. Preserve unknown locks/journals.
 
 Rehearse on isolated copied data before loading the production candidate. Map
 books using exact relative file paths/formats and verified content hashes,
-never title matching or coincidental numeric IDs. All supported files must map
-unambiguously; group formats into one target book. Preserve the original files,
+never title matching or coincidental numeric IDs. Compare the filesystem inventory
+as well as Calibre's catalog: a generic scan can include unindexed ebook files.
+Classify each extra file explicitly, without deleting it or guessing its identity
+from a directory's numeric suffix. All catalog files must map unambiguously;
+group formats into one target book. Preserve the original files,
 including KEPUB derivatives and OPF metadata that Grimmory's generic scanner does
 not directly consume. Transfer Calibre metadata through native metadata APIs;
 classify custom columns explicitly instead of silently dropping them.
@@ -120,9 +123,9 @@ classify custom columns explicitly instead of silently dropping them.
 | CWA state | Grimmory handling |
 | --- | --- |
 | Paul/Sarabeth identity | Create distinct target accounts; map actual target IDs by username, preserve permissions/library access, then link to the correct issuer/subject. Never copy password hashes or assume user IDs match. |
-| Private shelves and membership | Native shelf APIs where available; preserve owner/privacy and exact book sets. Check ordering separately: shelf schemas are not identical. |
+| Private shelves and membership | Native shelf APIs preserve owner/privacy and exact book sets. The pinned target does not represent CWA's manual member ordering or shelf/membership dates; require an explicit disposition rather than claiming full shelf-schema parity. |
 | System magic shelves | Recreate equivalent rules/native views; do not import caches or assume rule JSON compatibility. |
-| Unread/in-progress/finished | Map `0/2/1` to `UNREAD/READING/READ` on `user_book_progress`. Do not fabricate completion dates: the native bulk-status API stamps the import time. |
+| Unread/in-progress/finished | Map `0/2/1` to `UNREAD/READING/READ` on `user_book_progress`. Preserve status-modification/start timestamps separately. CWA has no dedicated completion-date field: do not label a generic modification date as completion, or use the bulk-status API's import-time completion date. |
 | Kobo progress/location | Map percentage, source percentage, location type/source/value and timestamps to target per-book state and Kobo reading-state JSON. Preserve statistics where representable. Validate exact resume location against the actual served KEPUB. |
 | Browser/KOReader/annotations | Inventory afresh and migrate only observed data with compatible locators/checksums. Server absence does not prove a device has no annotations. |
 | Historic activity/preferences | Preserve compatible values; classify unsupported download/activity history and UI preferences explicitly. Retain the protected source before-image until disposition is approved. |
@@ -133,6 +136,17 @@ express every historic Kobo field/date; any necessary target-DB import is a
 version/schema-qualified **one-off**, with Grimmory stopped, a target before-image,
 transactional writes, foreign-key checks and restart/read-back validation. Do not
 add a recurring database writer or custom application entrypoint to the repo.
+
+The pinned progress tables have second-precision `TIMESTAMP` columns; preserve
+full source timestamps in compatible Kobo JSON and reconcile the native precision
+explicitly. Kobo's response timestamps are second-precision in both applications.
+Native metadata and cover-upload APIs support catalog transfer, but the pinned
+author update DTO does not expose its stored `sort_name`: qualify any necessary
+supplement with the same stopped-schema transaction. Check personal read status
+through `/api/v1/books`, not the library's unpersonalized catalog endpoint.
+Custom text columns, untimestamped download history, UI preferences and unsupported
+shelf fields need a meaningful native mapping or separately approved protected
+retention. Merely retaining the original OPF/SQLite files is not target UI parity.
 
 Local-account linking is disabled by default. Open only the reviewed two-account
 linking window with `grimmory_allow_local_account_linking=true`; auto-provisioning
@@ -158,8 +172,12 @@ Require on the first device: correct book identities without unexpected
 duplicates/deletions, collections, finished/in-progress status, percentages,
 representative exact resume locations, annotations and a round-trip progress
 update. Different KEPUB conversion/identities can invalidate old span locators;
-percentage preservation is not proof of exact-location preservation. Resolve
-that discrepancy before migrating the second device or retiring CWA.
+percentage preservation is not proof of exact-location preservation. Compare the
+resolved chapter, span ID and span text in the old and actually served new KEPUB,
+not just the stored location string. A locator absent from the current CWA file
+may still resolve in an older device copy: inspect the backed-up device ebook
+before assuming it is lost or replacing it with an approximate percentage.
+Resolve that discrepancy before migrating the second device or retiring CWA.
 
 After both user-data reconciliation and device qualification, review a final
 cutover change: stop all source writers, import the final delta, retire Calibre
