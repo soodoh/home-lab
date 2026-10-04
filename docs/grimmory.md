@@ -160,7 +160,11 @@ CWA uses Calibre UUIDs for Kobo entitlements; Grimmory uses its own numeric book
 IDs and `/api/kobo/{token}` URLs. A URL-only replacement is not a transparent
 migration. Back up each device's configuration, SQLite database and annotations
 privately before changing it. Test one device first; never automatically factory
-reset or delete its existing books.
+reset or delete its existing books. Keep the verified raw device copy untouched;
+run SQLite integrity/backup and inspection on a separate working copy, accounting
+for any WAL. Inventory native `Bookmark` rows (including highlights and dogears),
+volume/chapter identities, container paths and offsets. Preserve them alongside
+reading-state history even when CWA has no annotation-sync records.
 
 Match the current per-user download selections using Grimmory's dedicated Kobo
 shelf: populate the full admitted catalog for whole-library sync, and the exact
@@ -177,6 +181,12 @@ resolved chapter, span ID and span text in the old and actually served new KEPUB
 not just the stored location string. A locator absent from the current CWA file
 may still resolve in an older device copy: inspect the backed-up device ebook
 before assuming it is lost or replacing it with an approximate percentage.
+Check download state and percentage as well: devices can retain reading-state
+records for ebooks no longer downloaded, and a zero-percent image-only opening
+page can carry a synthetic text-span locator absent from the archive. Preserve
+the original state and distinguish this from a missing mid-book passage; do not
+reset status or substitute an approximate location without approval. Qualification
+still needs a real device round trip, not just database/ZIP inspection.
 Resolve that discrepancy before migrating the second device or retiring CWA.
 
 After both user-data reconciliation and device qualification, review a final
