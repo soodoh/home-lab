@@ -12,16 +12,16 @@
     "url": "git+https://github.com/soodoh/home-lab.git"
   },
   "license": "MIT",
-  "packageManager": "bun@1.2.4",
+  "packageManager": "bun@1.4.2",
   "scripts": {
     "test:boundaries": "python3 scripts/check-source-boundaries.py"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.1",
-    "@commitlint/config-conventional": "^21.2.0",
-    "@commitlint/types": "^21.2.0",
-    "@types/node": "^26.2.0",
-    "js-yaml": "^5.2.3",
-    "lefthook": "^2.1.10"
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "@commitlint/types": "^21.2.3",
+    "@types/node": "^26.6.4",
+    "js-yaml": "^5.4.2",
+    "lefthook": "^2.1.16"
   }
 }
