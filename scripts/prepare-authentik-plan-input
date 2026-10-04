@@ -59,9 +59,9 @@ jq -e --slurpfile desired infrastructure/tofu/authentik/desired.json '
 
 SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
   infrastructure/tofu/authentik/signing-keys.sops.json >"$signing_keys"
-jq -e '
+jq -e --slurpfile desired infrastructure/tofu/authentik/desired.json '
   .schemaVersion == 1 and
-  (.certificates | type == "object" and (keys == ["jellyfin-oidc"])) and
+  (.certificates | type == "object" and (keys | sort) == ($desired[0].signingCertificates | keys | sort)) and
   all(.certificates[];
     type == "object" and (keys == ["private_key"]) and
     (.private_key | type == "string" and test("^-----BEGIN (RSA |EC )?PRIVATE KEY-----")))

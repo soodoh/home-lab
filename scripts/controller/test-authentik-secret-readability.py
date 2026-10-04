@@ -41,6 +41,13 @@ def api_server(mode):
                 if mode == "new-duplicate":
                     matches.append({"pk": 100, "client_id": "synthetic-new-client"})
                 body = {"pagination": {"count": len(matches), "next": 2 if mode == "new-paginated" else 0}, "results": matches}
+            elif self.path == "/api/v3/crypto/certificatekeypairs/?page_size=1000":
+                matches = [] if mode == "cert-absent" else [{"pk": "11111111-1111-1111-1111-111111111111", "name": "Synthetic signing"}]
+                if mode == "cert-duplicate":
+                    matches.append({"pk": "22222222-2222-2222-2222-222222222222", "name": "Synthetic signing"})
+                if mode == "cert-invalid-id":
+                    matches[0]["pk"] = None
+                body = {"pagination": {"count": len(matches) + (1 if mode == "cert-incomplete" else 0), "next": 2 if mode == "cert-paginated" else 0}, "results": matches}
             elif self.path.startswith("/api/v3/stages/user_login/"):
                 body = {
                     "network_binding": "bind_asn" if mode == "binding-drift" else "no_binding",
@@ -95,6 +102,20 @@ class ReadabilityTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as caught:
                     readability.check(url, "synthetic-token", oauth_providers=providers)
                 self.assertNotIn("synthetic-secret", str(caught.exception))
+
+    def test_create_only_signer_is_discovered_and_private_key_required_after_apply(self):
+        certificates = {"new": {"pk": None, "name": "Synthetic signing"}}
+        with api_server("cert-absent") as (url, paths):
+            readability.check(url, "synthetic-token", oauth_providers={}, signing_certificates=certificates)
+        self.assertEqual(paths, ["/api/v3/crypto/certificatekeypairs/?page_size=1000"])
+        with api_server("complete") as (url, paths):
+            readability.check(url, "synthetic-token", oauth_providers={}, signing_certificates=certificates)
+        self.assertEqual(paths[-1], "/api/v3/crypto/certificatekeypairs/11111111-1111-1111-1111-111111111111/view_private_key/")
+        for mode in ("cert-duplicate", "cert-paginated", "cert-incomplete", "cert-invalid-id", "key-denied", "key-masked", "key-obfuscated"):
+            with self.subTest(mode=mode), api_server(mode) as (url, paths):
+                with self.assertRaises(SystemExit) as caught:
+                    readability.check(url, "synthetic-token", oauth_providers={}, signing_certificates=certificates)
+                self.assertNotIn("synthetic-key", str(caught.exception))
 
     def test_masked_secret_refuses_plan_without_printing_value(self):
         with api_server("masked") as (url, paths):

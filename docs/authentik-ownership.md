@@ -36,8 +36,8 @@ Grimmory has a new create-only provider/application during the [CWA transition](
 not an invented import ID. It shares the existing personal entitlement without
 auto-provisioning directory users or mapping application access to admin roles.
 Its separate client secret uses the same Authentik SOPS authority; its signed OIDC
-client reuses the already managed RSA signing certificate, not a competing
-discovery-owned key writer. Keep CWA/Calibre ownership until validation; their
+client uses a dedicated create-only RSA signing certificate in the existing
+SOPS/OpenTofu signing authority, not a competing discovery-owned key writer. Keep CWA/Calibre ownership until validation; their
 retirement requires explicit reviewed destroy actions.
 
 `App Operators` grants application access, not in-application administrator roles.
@@ -109,6 +109,16 @@ on an unsuccessful private-key export, which would otherwise cause a false updat
 Keep remote state, saved plans and all decrypted inputs protected. Configuration
 adds the pinned reader's extra newline to native PEM exports for comparison;
 this representation adjustment does not change cryptographic material.
+
+`grimmory-oidc.pem` is the dedicated Grimmory signer's public certificate; its
+private key is another entry in the same encrypted `signing-keys.sops.json`
+authority. Its null observed ID excludes it from imports, and the provider uses
+a symbolic managed-certificate reference. Existing signer declarations and key
+material remain unchanged. After creation, exact-name discovery requires a
+complete inventory and the new private-key read permission on every plan; a
+create-only declaration is not a permanent permission exemption. Independently
+review grants, certificate validity and served JWKS before activation. Supplied
+certificates are not automatically renewed.
 
 OAuth client secrets and the LDAP bind/TLS material retain their independent
 `client-secrets.sops.json` authority. Signing-key adoption must preserve the existing

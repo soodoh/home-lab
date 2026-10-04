@@ -975,7 +975,8 @@
         "e72b12d8-ef3e-4b73-b172-0df830d666d7",
         "f371dd37-1069-4154-823e-01efd372eb06"
       ],
-      "signing_key": "d5259cb9-db22-467a-9d72-6911b16a459f",
+      "signing_key": null,
+      "signing_certificate_ref": "grimmory-oidc",
       "encryption_key": null,
       "grant_types": [
         "authorization_code",
@@ -2061,6 +2062,11 @@
     }
   },
   "signingCertificates": {
+    "grimmory-oidc": {
+      "certificate_file": "grimmory-oidc.pem",
+      "name": "Grimmory OIDC signing",
+      "pk": null
+    },
     "jellyfin-oidc": {
       "certificate_file": "jellyfin-oidc.pem",
       "name": "authentik Self-signed Certificate",

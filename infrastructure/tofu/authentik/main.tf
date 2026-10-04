@@ -22,7 +22,7 @@ locals {
   existing_flow_stage_bindings         = { for key, value in local.flow_stage_bindings : key => value if value.import_existing }
   ldap_providers                       = var.authentik_enable_management ? local.desired.ldapProviders : {}
   ldap_search_permissions              = var.authentik_enable_management ? local.desired.ldapSearchPermissions : {}
-  oauth_providers                      = var.authentik_enable_management ? local.desired.oauthProviders : {}
+  oauth_providers                      = { for key, provider in local.desired.oauthProviders : key => provider if var.authentik_enable_management }
   existing_oauth_providers             = { for key, value in local.oauth_providers : key => value if value.pk != null }
   outposts                             = var.authentik_enable_management ? toset(keys(local.desired.outposts)) : toset([])
   existing_outposts = var.authentik_enable_management ? toset([
@@ -126,6 +126,17 @@ check "outpost_provider_ownership" {
   }
 }
 
+check "oauth_signing_ownership" {
+  assert {
+    condition = alltrue([
+      for provider in values(local.desired.oauthProviders) :
+      try(provider.signing_certificate_ref, null) == null ? true :
+      provider.signing_key == null && contains(keys(local.desired.signingCertificates), provider.signing_certificate_ref)
+    ])
+    error_message = "A managed signing reference must name an owned certificate, without a fabricated or competing signing-key ID."
+  }
+}
+
 check "oauth_client_secrets" {
   assert {
     condition = !var.authentik_enable_management || (
@@ -213,6 +224,8 @@ resource "authentik_provider_oauth2" "providers" {
     authentik_property_mapping_provider_scope.scope_mappings["vaultwarden-email"].id : mapping
   ]
   signing_key = (
+    try(each.value.signing_certificate_ref, null) != null ?
+    authentik_certificate_key_pair.signing[each.value.signing_certificate_ref].id :
     each.value.signing_key == local.desired.signingCertificates["jellyfin-oidc"].pk ?
     authentik_certificate_key_pair.signing["jellyfin-oidc"].id : each.value.signing_key
   )

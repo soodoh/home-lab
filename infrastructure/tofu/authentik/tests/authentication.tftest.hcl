@@ -63,6 +63,16 @@ run "authentication_and_onboarding_preserve_behavior" {
     values = { pk = 5004 }
   }
 
+  override_resource {
+    target = authentik_certificate_key_pair.signing["grimmory-oidc"]
+    values = { id = "synthetic-grimmory-signer" }
+  }
+
+  override_resource {
+    target = authentik_certificate_key_pair.signing["jellyfin-oidc"]
+    values = { id = "synthetic-existing-signer" }
+  }
+
   assert {
     condition = (
       !contains(keys(local.existing_oauth_providers), "grimmory") &&
@@ -70,10 +80,22 @@ run "authentication_and_onboarding_preserve_behavior" {
       authentik_policy_binding.application_access["96719d44-e9d4-468b-8bc6-350014c4f846"].group == authentik_group.managed["cwa-users"].id &&
       authentik_provider_oauth2.providers["grimmory"].client_type == "confidential" &&
       authentik_provider_oauth2.providers["grimmory"].sub_mode == "user_uuid" &&
-      authentik_provider_oauth2.providers["grimmory"].signing_key == authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
+      !contains(keys(local.existing_signing_certificates), "grimmory-oidc") &&
+      authentik_provider_oauth2.providers["grimmory"].signing_key == authentik_certificate_key_pair.signing["grimmory-oidc"].id &&
       toset(authentik_provider_oauth2.providers["grimmory"].grant_types) == toset(["authorization_code", "refresh_token"])
     )
     error_message = "Grimmory must create a separate signed OIDC client without importing an invented ID or widening membership."
+  }
+
+  assert {
+    condition = (
+      length(local.existing_signing_certificates) == 1 &&
+      length(authentik_certificate_key_pair.signing) == 2 &&
+      authentik_certificate_key_pair.signing["grimmory-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
+      authentik_certificate_key_pair.signing["grimmory-oidc"].certificate_data == "${file("${path.module}/grimmory-oidc.pem")}\n" &&
+      authentik_certificate_key_pair.signing["grimmory-oidc"].key_data == "${jsondecode(file(var.authentik_signing_keys_path)).certificates["grimmory-oidc"].private_key}\n"
+    )
+    error_message = "The new signer must remain separately owned, supplied from its matching encrypted authority, and excluded from imports."
   }
 
   assert {

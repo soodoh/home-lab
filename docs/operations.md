@@ -200,6 +200,9 @@ settings API role; see [Grimmory](grimmory.md) for first-user admission,
 `converge-grimmory.yml`, linking and reader/device qualification. A new provider
 has no imported ID: the preflight discovers it by client ID after creation and
 requires its secret read, rather than continuing to skip a create-only declaration.
+The dedicated Grimmory signing certificate follows the same create-only boundary:
+rediscover it by exact name and independently admit its private-key read before
+subsequent plans. Do not grant provider identities their own permissions.
 
 ### Omada SMTP and recipients
 

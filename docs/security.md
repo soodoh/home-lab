@@ -41,8 +41,9 @@ is added to Compose's interpolation environment, from Authentik's reviewed `desi
 Calibre-Web-Automated's OIDC setting remains an explicitly manual admin step;
 do not treat an Authentik secret update as its completed rotation. Jellyfin OIDC's
 existing signing key has separate authority in
-`infrastructure/tofu/authentik/signing-keys.sops.json`; the public certificate is
-not secret. Its private-key export must be readable by the plan identity, and
+`infrastructure/tofu/authentik/signing-keys.sops.json`; Grimmory's dedicated RSA
+key uses that same authority without rotating existing material. Public
+certificates are not secret. Its private-key export must be readable by the plan identity, and
 both decrypted secret inputs, state and plans remain protected. Discovery-owned
 signing certificates must not acquire a competing writer; see
 [Authentik ownership](authentik-ownership.md).

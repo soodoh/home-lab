@@ -153,8 +153,8 @@
       "additionalProperties": {
         "$ref": "#/$defs/signingCertificatesEntry"
       },
-      "maxProperties": 1,
-      "minProperties": 1,
+      "maxProperties": 2,
+      "minProperties": 2,
       "type": "object"
     },
     "systemSettings": {
@@ -831,7 +831,14 @@
           "type": "string"
         },
         "pk": {
-          "$ref": "#/$defs/uuid"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1443,6 +1450,10 @@
               "type": "null"
             }
           ]
+        },
+        "signing_certificate_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
         },
         "encryption_key": {
           "oneOf": [

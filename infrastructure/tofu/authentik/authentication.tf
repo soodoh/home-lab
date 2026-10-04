@@ -1,16 +1,17 @@
 locals {
-  groups                = var.authentik_enable_management ? local.desired.groups : {}
-  identification_stages = var.authentik_enable_management ? local.desired.identificationStages : {}
-  webauthn_stages       = var.authentik_enable_management ? local.desired.webauthnStages : {}
-  invitation_stages     = var.authentik_enable_management ? local.desired.invitationStages : {}
-  prompt_fields         = var.authentik_enable_management ? local.desired.promptFields : {}
-  prompt_stages         = var.authentik_enable_management ? local.desired.promptStages : {}
-  user_write_stages     = var.authentik_enable_management ? local.desired.userWriteStages : {}
-  user_login_stages     = var.authentik_enable_management ? local.desired.userLoginStages : {}
-  password_policies     = var.authentik_enable_management ? local.desired.passwordPolicies : {}
-  brands                = var.authentik_enable_management ? local.desired.brands : {}
-  system_settings       = var.authentik_enable_management ? local.desired.systemSettings : {}
-  signing_certificates  = var.authentik_enable_management ? local.desired.signingCertificates : {}
+  groups                        = var.authentik_enable_management ? local.desired.groups : {}
+  identification_stages         = var.authentik_enable_management ? local.desired.identificationStages : {}
+  webauthn_stages               = var.authentik_enable_management ? local.desired.webauthnStages : {}
+  invitation_stages             = var.authentik_enable_management ? local.desired.invitationStages : {}
+  prompt_fields                 = var.authentik_enable_management ? local.desired.promptFields : {}
+  prompt_stages                 = var.authentik_enable_management ? local.desired.promptStages : {}
+  user_write_stages             = var.authentik_enable_management ? local.desired.userWriteStages : {}
+  user_login_stages             = var.authentik_enable_management ? local.desired.userLoginStages : {}
+  password_policies             = var.authentik_enable_management ? local.desired.passwordPolicies : {}
+  brands                        = var.authentik_enable_management ? local.desired.brands : {}
+  system_settings               = var.authentik_enable_management ? local.desired.systemSettings : {}
+  signing_certificates          = var.authentik_enable_management ? local.desired.signingCertificates : {}
+  existing_signing_certificates = { for key, certificate in local.signing_certificates : key => certificate if certificate.pk != null }
   signing_keys = var.authentik_enable_management ? jsondecode(file(var.authentik_signing_keys_path)) : {
     schemaVersion = 1
     certificates  = {}
@@ -54,7 +55,7 @@ check "authentication_ownership" {
       length(local.desired.passwordPolicies) == 1 &&
       length(local.desired.brands) == 1 &&
       length(local.desired.systemSettings) == 1 &&
-      length(local.desired.signingCertificates) == 1 &&
+      length(local.desired.signingCertificates) == 2 &&
       alltrue([for group in values(local.desired.groups) :
         !group.is_superuser && length(group.parents) == 0 &&
         contains(keys(local.desired.membershipSets), group.membership_set)

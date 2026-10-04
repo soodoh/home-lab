@@ -50,16 +50,23 @@ Authentik creates a distinct confidential `grimmory` provider and application,
 without inventing an import ID. The existing personal entitlement admits only
 Paul and Sarabeth; no new directory users or administrator group are created.
 The client uses authorization-code/refresh grants, exact HTTPS callbacks and
-stable UUID subjects. It reuses the already managed RSA signing certificate:
-Grimmory requires RSA/EC signatures through JWKS; do not copy CWA's
-provider with a null signing-key selector. Review certificate validity and JWKS during activation.
+stable UUID subjects. A dedicated create-only `grimmory-oidc` RSA signer uses
+the existing SOPS/OpenTofu signing authority; it does not rotate the existing
+signer or inherit its certificate lifetime. The symbolic signing reference
+resolves to the created certificate ID, never a fabricated import ID. Grimmory
+requires RSA/EC signatures through JWKS; do not copy CWA's provider with an
+unresolved signing-key selector. Verify certificate validity, served JWKS and
+actual token/login behavior during activation. Monitor the supplied certificate
+and separately review renewal; managing PEM material does not automate issuance.
 
 - The OIDC secret has one authority:
   `infrastructure/tofu/authentik/client-secrets.sops.json`, under
   `oauthProviders.grimmory`. It is **not** copied into production SOPS or Docker
   environment variables. Apply the independently reviewed Authentik plan first.
   After creation, independently grant the plan identity the new provider's
-  required view/change permissions before another secret-bearing plan.
+  required view/change permissions, plus private-key reads for the new signing
+  certificate, before another secret-bearing plan. Create-only signers are
+  rediscovered by exact name; ambiguous or incomplete inventories refuse.
 - Database and separate `grimmory-admin` bootstrap passwords come from
   `secrets/production.sops.yaml`. MariaDB uses its native password-file inputs;
   Spring Boot imports `/run/secrets/spring.datasource.password` through native

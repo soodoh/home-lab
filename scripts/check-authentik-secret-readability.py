@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import urllib.error
 import urllib.request
+import uuid
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -27,10 +28,21 @@ def read_document(opener, base_url: str, token: str, path: str, label: str):
         raise SystemExit(f"Cannot read Authentik {label}") from None
 
 
+def read_inventory(opener, base_url: str, token: str, path: str, label: str):
+    document = read_document(opener, base_url, token, path, label)
+    if not isinstance(document, dict) or not isinstance(document.get("results"), list):
+        raise SystemExit(f"Cannot read complete Authentik {label}")
+    pagination = document.get("pagination", document)
+    if not isinstance(pagination, dict) or pagination.get("next") or pagination.get("count", len(document["results"])) != len(document["results"]):
+        raise SystemExit(f"Cannot read complete Authentik {label}")
+    return document["results"]
+
+
 def check(
     base_url: str, token: str, certificate_ids: tuple[str, ...] = (),
     login_bindings: tuple[tuple[str, str, str], ...] = (),
     oauth_providers: dict | None = None,
+    signing_certificates: dict | None = None,
 ) -> None:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
     providers = oauth_providers if oauth_providers is not None else {
@@ -42,13 +54,8 @@ def check(
         if pk is None:
             # A create-only declaration has no observed ID. Discover by the
             # reviewed client ID on every plan, including after its first apply.
-            document = read_document(opener, base_url, token, "providers/oauth2/?page_size=1000", "OAuth inventory")
-            if not isinstance(document, dict) or not isinstance(document.get("results"), list):
-                raise SystemExit("Cannot read complete Authentik OAuth inventory")
-            pagination = document.get("pagination", document)
-            if pagination.get("next") or pagination.get("count", len(document["results"])) != len(document["results"]):
-                raise SystemExit("Cannot read complete Authentik OAuth inventory")
-            matches = [item for item in document["results"] if item.get("client_id") == provider["client_id"]]
+            inventory = read_inventory(opener, base_url, token, "providers/oauth2/?page_size=1000", "OAuth inventory")
+            matches = [item for item in inventory if item.get("client_id") == provider["client_id"]]
             if len(matches) > 1:
                 raise SystemExit(f"Ambiguous Authentik OAuth client {key}")
             if not matches:
@@ -57,12 +64,28 @@ def check(
         if not isinstance(pk, int) or isinstance(pk, bool) or pk < 1:
             raise SystemExit(f"Invalid Authentik OAuth provider ID for {key}")
         provider_ids.append(str(pk))
+    managed_certificate_ids = list(certificate_ids)
+    for key, certificate in (signing_certificates or {}).items():
+        pk = certificate["pk"]
+        if pk is None:
+            inventory = read_inventory(opener, base_url, token, "crypto/certificatekeypairs/?page_size=1000", "signing certificate inventory")
+            matches = [item for item in inventory if item.get("name") == certificate["name"]]
+            if len(matches) > 1:
+                raise SystemExit(f"Ambiguous Authentik signing certificate {key}")
+            if not matches:
+                continue
+            pk = matches[0].get("pk")
+        try:
+            uuid.UUID(pk)
+        except (ValueError, TypeError, AttributeError):
+            raise SystemExit(f"Invalid Authentik signing certificate ID for {key}") from None
+        managed_certificate_ids.append(pk)
     reads = [
         (f"providers/oauth2/{provider_id}/", "client_secret", f"OAuth provider {provider_id}")
         for provider_id in provider_ids
     ] + [
         (f"crypto/certificatekeypairs/{certificate_id}/view_private_key/", "data", f"signing certificate {certificate_id}")
-        for certificate_id in certificate_ids
+        for certificate_id in managed_certificate_ids
     ]
     for path, field, label in reads:
         document = read_document(opener, base_url, token, path, label)
@@ -86,7 +109,8 @@ if __name__ == "__main__":
     check(
         os.environ["AUTHENTIK_URL"],
         os.environ["AUTHENTIK_TOKEN"],
-        tuple(certificate["pk"] for certificate in desired["signingCertificates"].values()),
+        (),
         tuple((stage["pk"], stage["network_binding"], stage["geoip_binding"]) for stage in desired["userLoginStages"].values()),
         desired["oauthProviders"],
+        desired["signingCertificates"],
     )

@@ -128,7 +128,7 @@ import {
 }
 
 import {
-  for_each = local.signing_certificates
+  for_each = local.existing_signing_certificates
   to       = authentik_certificate_key_pair.signing[each.key]
   id       = each.value.pk
 }

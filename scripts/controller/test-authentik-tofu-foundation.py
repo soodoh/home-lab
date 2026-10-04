@@ -3,6 +3,7 @@
 import copy
 import json
 from pathlib import Path
+import subprocess
 import unittest
 
 from jsonschema import Draft202012Validator
@@ -363,8 +364,28 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             self.assertIn("-----BEGIN CERTIFICATE-----", certificate)
             self.assertNotIn("PRIVATE KEY", certificate)
         self.assertEqual(DESIRED["oauthProviders"]["15"]["signing_key"], DESIRED["signingCertificates"]["jellyfin-oidc"]["pk"])
+        self.assertIsNone(DESIRED["signingCertificates"]["grimmory-oidc"]["pk"])
+        self.assertIsNone(DESIRED["oauthProviders"]["grimmory"]["signing_key"])
+        self.assertEqual(DESIRED["oauthProviders"]["grimmory"]["signing_certificate_ref"], "grimmory-oidc")
         self.assertNotIn(DESIRED["oauthProviders"]["47"]["signing_key"],
                          {value["pk"] for value in DESIRED["signingCertificates"].values()})
+
+    def test_grimmory_signer_is_current_rsa_material_without_a_live_identity(self) -> None:
+        certificate = ROOT / DESIRED["signingCertificates"]["grimmory-oidc"]["certificate_file"]
+        validity = subprocess.run(
+            ["openssl", "x509", "-in", str(certificate), "-noout", "-checkend", "2592000"],
+            capture_output=True,
+        )
+        self.assertEqual(validity.returncode, 0, "Prepare and review renewal before the dedicated signer expires.")
+        public = subprocess.run(
+            ["openssl", "x509", "-in", str(certificate), "-pubkey", "-noout"],
+            capture_output=True, check=True,
+        ).stdout
+        key = subprocess.run(
+            ["openssl", "rsa", "-pubin", "-text", "-noout"], input=public,
+            capture_output=True, check=True,
+        ).stdout.decode()
+        self.assertRegex(key, r"Public-Key: \(4096 bit\)")
 
     def test_root_is_import_first_and_secret_aware(self) -> None:
         versions = (ROOT / "versions.tf").read_text()
@@ -451,7 +472,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 122)
+        self.assertEqual(len(allow), 123)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()
