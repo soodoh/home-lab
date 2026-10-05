@@ -32,7 +32,7 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Vaultwarden Users | personal | Vaultwarden |
 | App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, Radarr 4K, SABnzbd, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
 
-[Grimmory](grimmory.md) has a create-only provider/application, not an invented
+Grimmory has a create-only provider/application, not an invented
 import ID. It uses the existing personal entitlement without
 auto-provisioning directory users or mapping application access to admin roles.
 Its separate client secret uses the same Authentik SOPS authority; its signed OIDC

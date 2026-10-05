@@ -10,6 +10,9 @@ of completed cutovers. See [architecture](architecture.md),
 
 ## Prepare a disposable controller
 
+Follow the [workspace lifecycle](../AGENTS.md) for disposable controller artifacts
+and retained recovery material.
+
 Use a clean checkout with OpenTofu, Ansible, Docker Compose, Python, SOPS and the
 pinned JavaScript tooling. Establish authenticated Tailscale access and separate
 plan/apply credentials from protected storage. A local mode-0600 gitignored
@@ -41,7 +44,8 @@ at the end of this run. `scripts/configure-local-provider-credentials` refuses
 reused or durable targets. Do not carry its credential files between sessions:
 
 ```sh
-provider_session=$(mktemp -d)
+umask 077
+provider_session=$(mktemp -d "${TMPDIR:-/tmp}/home-lab-provider.XXXXXXXX")
 chmod 0700 "$provider_session"
 trap 'rm -rf "$provider_session"' EXIT
 export HOME_LAB_PROVIDER_SESSION_DIR=$provider_session
@@ -193,13 +197,48 @@ from the same Authentik SOPS client secrets during site convergence. Do not
 assume an Authentik plan or apply makes a consumer switch atomic; verify a fresh
 OIDC login and a no-op plan before declaring rotation complete.
 Grimmory consumes that same encrypted authority through its approval-gated native
-settings API role; see [Grimmory](grimmory.md) for first-user admission,
-`converge-grimmory.yml`, linking and reader/device qualification. A new provider
-has no imported ID: the preflight discovers it by client ID after creation and
+settings API role; see
+[native authentication convergence](#grimmory-native-authentication-and-library-ownership).
+A new provider has no imported ID: the preflight discovers it by client ID after
+creation and
 requires its secret read, rather than continuing to skip a create-only declaration.
 The dedicated Grimmory signing certificate follows the same create-only boundary:
 rediscover it by exact name and independently admit its private-key read before
 subsequent plans. Do not grant provider identities their own permissions.
+
+### Grimmory native authentication and library ownership
+
+[`converge-grimmory.yml`](../ansible/playbooks/converge-grimmory.yml) converges only
+managed authentication settings through the native API over verified HTTPS. Check
+mode authenticates the existing recovery administrator but does not write settings:
+
+```sh
+export ANSIBLE_CONFIG=ansible/ansible.cfg
+ansible-playbook ansible/playbooks/converge-grimmory.yml --check
+# Separate approval after fresh host/Compose/strict-backup observation:
+ansible-playbook ansible/playbooks/converge-grimmory.yml -e grimmory_apply_confirmed=true
+```
+
+OIDC-only mode retains the protected `grimmory-admin` local recovery exception.
+Initialize only an explicitly approved empty instance with
+`grimmory_initialize_confirmed=true`; never expose uninitialized setup, reset
+accounts or promote users during convergence. Native settings writes are sequential,
+not atomic: concurrent-edit guards and exact readback are required, and failures
+retain production ownership for inspection.
+
+Grimmory is the sole catalog/file writer. Use native uploads or BookDrop and
+`BOOK_PER_FOLDER` to group formats as one book. Keep library roots separate:
+`/books/paul` for Paul and `/books/sarabeth` for Paul and Sarabeth. Library
+assignment defines web access; Kobo shelves define device selection only.
+Preserve book/file identities and history when moving books between library roots;
+qualify native moves and rescans before bulk changes. Keep original formats,
+including KEPUB derivatives excluded by the generic scanner. Writable storage does
+not approve metadata write-back, organization or automatic device selections.
+After data/path/schema changes, verify a fresh private restored `books` scope with
+current paths, IDs, covers, library grants, shelves and progress, not just empty
+directories or an older restore. Regular backups preserve native state, not
+discarded legacy records; never fabricate completion dates or catalog entries.
+See [device qualification](migrations.md#physical-kobo-continuity).
 
 ### Omada SMTP and recipients
 

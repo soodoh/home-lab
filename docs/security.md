@@ -34,8 +34,9 @@ entry and Vaultwarden's protected client-secret file. Grimmory uses the same
 encrypted authority through its native admin settings API, with controller-side
 Ansible `no_log` tasks and verified HTTPS; it has no native OIDC secret-file reader.
 Its database/bootstrap credentials remain in production SOPS, and its database
-password uses Spring Boot's native `configtree:` reader. See [Grimmory](grimmory.md)
-for the separate local administrator, account-linking window and cutover gates.
+password uses Spring Boot's native `configtree:` reader. See
+[native authentication convergence](operations.md#grimmory-native-authentication-and-library-ownership)
+for local-administrator recovery and approval-gated settings changes.
 Only the public Vaultwarden client ID
 is added to Compose's interpolation environment, from Authentik's reviewed `desired.json`.
 Jellyfin OIDC's existing signing key has separate authority in
@@ -84,6 +85,23 @@ input; certificate rotation must update the reviewed trust input before the
 old one expires (October 2028). A mismatch must fail closed; do not disable
 backend or client-side TLS verification, substitute a LAN/tailnet address, or
 restore a hostname alias.
+
+## Grimmory account and device access
+
+Authentik entitlement admits login, not administrator privileges or library access.
+Grimmory auto-provisioning creates non-admin accounts with empty default permissions
+and library assignments; grant access separately. Local-account linking and group
+privilege synchronization remain disabled. Offboarding must review existing
+Grimmory accounts, permissions and sessions independently of directory entitlement.
+Do not recycle an OIDC username while its Grimmory account exists: the pinned login
+implementation also falls back to usernames, not only issuer/subject.
+
+Kobo tokens are separate credentials from OIDC; protect tokens and token-bearing
+URLs. Each owner's dedicated `Kobo` shelf controls selection; ordinary/history
+shelves must not expand it or enable automatic addition. Pinned v3.5.0's direct
+Kobo download route does not enforce assigned-library access. This native behavior
+is accepted for this deployment; library grants do not provide complete
+device-route isolation.
 
 ## Mindwtr access
 

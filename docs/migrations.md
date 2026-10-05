@@ -6,15 +6,21 @@ proof of current state.
 
 ## Physical Kobo continuity
 
-[Grimmory](grimmory.md) owns the book catalog and intake workflow. Physical-device
-resume and native annotation continuity remain unqualified; temporary sync
-unavailability and the pinned application's existing authorization behavior are
-accepted independently of catalog operation. Before changing or re-syncing either
-device, take a fresh backup and qualify identities, duplicates/deletions,
-collections, exact resume, annotations and round-trip progress on one device
-before the second. Never infer continuity from stored percentages or archived
-annotations, reset a device automatically, or discard original device evidence.
-Keep qualification executors, mappings and receipts outside Git.
+Physical-device resume and native annotation continuity remain unqualified
+independently of Grimmory catalog operation. The accepted
+[Kobo authorization exception](security.md#grimmory-account-and-device-access) is
+separate from device continuity. Before changing or re-syncing either device, take
+a fresh protected backup of configuration, SQLite/WAL state, downloaded books and
+annotations; inspect a working copy and preserve originals until the owner
+separately approves disposal. Device backups are outside the managed `books`
+Restic scope; verify their existence before relying on them.
+
+Legacy UUID-based entitlements and KEPUB output can differ from Grimmory identities
+and conversion output. Qualify duplicates/deletions, selections, collections,
+statuses, percentages, exact resume passages, annotations and round-trip progress
+on one backed-up device before the second. Stored percentages and archived annotations do not prove exact resume or
+native annotation parity. Never automatically reset or delete device content.
+For disposable qualification work, follow the [workspace lifecycle](../AGENTS.md).
 
 ## AWS recovery-key and separate backup identity
 
