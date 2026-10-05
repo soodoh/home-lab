@@ -856,11 +856,6 @@
         {
           "matching_mode": "strict",
           "redirect_uri_type": "authorization",
-          "url": "https://grimmory.ts.diloreto.com/oauth2-callback"
-        },
-        {
-          "matching_mode": "strict",
-          "redirect_uri_type": "authorization",
           "url": "https://books.diloreto.com/oauth2-callback"
         }
       ],

@@ -339,6 +339,12 @@ else:
         self.assertFalse(books.get("read_only", False))
         self.assertFalse(books["bind"]["create_host_path"])
         self.assertEqual(service["environment"]["DISK_TYPE"], "LOCAL")
+        self.assertEqual(service["environment"]["ALLOWED_ORIGINS"], "https://books.diloreto.com")
+        desired = json.loads((ROOT / "infrastructure/tofu/authentik/desired.json").read_text())
+        self.assertEqual(desired["oauthProviders"]["grimmory"]["allowed_redirect_uris"], [{
+            "matching_mode": "strict", "redirect_uri_type": "authorization",
+            "url": "https://books.diloreto.com/oauth2-callback",
+        }])
         self.assertEqual(service["environment"]["SPRING_CONFIG_IMPORT"], "configtree:/run/secrets/")
         self.assertEqual(service["secrets"], [{"source": "grimmory_datasource_password", "target": "spring.datasource.password"}])
         self.assertEqual({item["source"] for item in database["secrets"]}, {"grimmory_db_password", "grimmory_db_root_password"})

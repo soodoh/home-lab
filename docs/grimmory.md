@@ -9,9 +9,8 @@ Source changes are not proof of a deployed or recovered instance.
 
 [`services/grimmory.yml`](../services/grimmory.yml) pins Grimmory and its dedicated
 MariaDB. Neither publishes a host port; MariaDB has an internal bridge.
-`books.diloreto.com` is the canonical HTTPS entrypoint. The private
-`grimmory.ts.diloreto.com` route remains an alias for existing private clients.
-Both routes use Grimmory's native authentication, not remote-header login.
+`books.diloreto.com` is the sole HTTPS entrypoint and uses Grimmory's native
+authentication, not remote-header login.
 Do not expose an uninitialized first-user setup.
 
 Grimmory is the catalog/file writer. `/srv/home-lab-state/grimmory-books` is
@@ -49,8 +48,8 @@ encrypted legacy/device archives remain recovery evidence, not active writers.
 
 ## Authentication and secret delivery
 
-Authentik owns the confidential `grimmory` OIDC provider/application, exact public
-and private callbacks, authorization-code/refresh grants and stable UUID subjects.
+Authentik owns the confidential `grimmory` OIDC provider/application, the exact
+public callback, authorization-code/refresh grants and stable UUID subjects.
 The existing personal entitlement admits Paul and Sarabeth. Application admission
 is not an administrator role or a library grant. Group-driven in-app privilege
 synchronization and local-account linking are disabled.

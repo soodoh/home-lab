@@ -2,7 +2,7 @@
 - name: Require the reviewed Grimmory HTTPS endpoint and encrypted authorities
   ansible.builtin.assert:
     that:
-      - grimmory_base_url is match('^https://(grimmory\.ts|books)\.diloreto\.com$')
+      - grimmory_base_url == 'https://books.diloreto.com'
       - grimmory_sops_age_keyfile | length > 0
       - grimmory_admin_username not in ['paul', 'sarabeth']
     fail_msg: Grimmory convergence requires its reviewed HTTPS route and separate protected administrator.

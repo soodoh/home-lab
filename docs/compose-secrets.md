@@ -272,8 +272,6 @@ These are not included as additional passwords/API keys in the count:
 - **U2:** [Its pinned `cnfgfile` recursive string-file reader](https://github.com/golift/cnfgfile/blob/a5436d84eb48/filepath.go).
 - **L1:** [LinuxServer `FILE__` documentation](https://docs.linuxserver.io/images/docker-sonarr/#environment-variables-from-files-docker-secrets).
 - **L2:** [LinuxServer Ubuntu noble `init-envfile` implementation](https://github.com/linuxserver/docker-baseimage-ubuntu/blob/noble/root/etc/s6-overlay/s6-rc.d/init-envfile/run).
-- **C1:** [CWA 4.0.6 LinuxServer base image](https://github.com/crocodilestick/Calibre-Web-Automated/blob/v4.0.6/Dockerfile).
-- **C2:** [CWA 4.0.6 Hardcover token consumer](https://github.com/crocodilestick/Calibre-Web-Automated/blob/v4.0.6/cps/metadata_provider/hardcover.py).
 - **R1:** [Recyclarr 8.7.2 native secrets file](https://github.com/recyclarr/recyclarr/blob/v8.7.2/src/Recyclarr.Core/Config/Secrets/SecretsProvider.cs).
 - **R2:** [Recyclarr 8.7.2 `!secret` YAML interface](https://github.com/recyclarr/recyclarr/blob/v8.7.2/src/Recyclarr.Core/Config/Secrets/SecretsYamlBehavior.cs).
 - **M1:** [Mindwtr 1.2.6 image-source native token-file reader](https://github.com/dongdongbh/Mindwtr/blob/2e95e500003bf76b75d61859b3f5c86fc85ae5cb/apps/cloud/src/server-auth.ts#L155-L209).

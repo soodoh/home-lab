@@ -3,14 +3,6 @@
 # the public Traefik instance or expose its entry point on a LAN/WAN address.
 http:
   routers:
-    grimmory:
-      rule: "Host(`grimmory.ts.diloreto.com`)"
-      entryPoints: [tailnet]
-      service: grimmory
-      tls:
-        certResolver: tailnet
-        domains:
-          - main: "*.ts.diloreto.com"
     omada:
       rule: "Host(`omada.ts.diloreto.com`)"
       entryPoints: [tailnet]
@@ -90,10 +82,6 @@ http:
       insecureSkipVerify: true
 
   services:
-    grimmory:
-      loadBalancer:
-        servers:
-          - url: http://grimmory:6060
     omada:
       loadBalancer:
         serversTransport: omada-backend

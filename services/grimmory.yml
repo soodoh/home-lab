@@ -23,7 +23,7 @@ services:
       REMOTE_AUTH_ENABLED: false
       FORCE_DISABLE_OIDC: false
       OIDC_ALLOW_UNSAFE_HOSTS: false
-      ALLOWED_ORIGINS: https://books.diloreto.com,https://grimmory.ts.diloreto.com
+      ALLOWED_ORIGINS: https://books.diloreto.com
       DISK_TYPE: LOCAL
     secrets:
       - source: grimmory_datasource_password

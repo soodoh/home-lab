@@ -38,9 +38,7 @@ password uses Spring Boot's native `configtree:` reader. See [Grimmory](grimmory
 for the separate local administrator, account-linking window and cutover gates.
 Only the public Vaultwarden client ID
 is added to Compose's interpolation environment, from Authentik's reviewed `desired.json`.
-Calibre-Web-Automated's OIDC setting remains an explicitly manual admin step;
-do not treat an Authentik secret update as its completed rotation. Jellyfin OIDC's
-existing signing key has separate authority in
+Jellyfin OIDC's existing signing key has separate authority in
 `infrastructure/tofu/authentik/signing-keys.sops.json`; Grimmory's dedicated RSA
 key uses that same authority without rotating existing material. Public
 certificates are not secret. Its private-key export must be readable by the plan identity, and
