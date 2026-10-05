@@ -145,18 +145,6 @@
       "timeout": 30,
       "user": null
     },
-    "48004f36-36ef-45ac-9048-7cb2a67538bc": {
-      "application_slug": "calibre",
-      "enabled": true,
-      "failure_result": false,
-      "group": "f35bcdf3-597b-4c26-bca5-dc0fe6268e5a",
-      "negate": false,
-      "order": 0,
-      "pk": "48004f36-36ef-45ac-9048-7cb2a67538bc",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "51edd5fa-d699-4811-b67e-6d85356fc452": {
       "application_slug": "openfit",
       "enabled": true,
@@ -205,18 +193,6 @@
       "timeout": 30,
       "user": null
     },
-    "c3c48745-5dd7-4325-a288-745b058442e8": {
-      "application_slug": "calibre-web-automated",
-      "enabled": true,
-      "failure_result": false,
-      "group": "f35bcdf3-597b-4c26-bca5-dc0fe6268e5a",
-      "negate": false,
-      "order": 0,
-      "pk": "c3c48745-5dd7-4325-a288-745b058442e8",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "d10e3ec4-1aae-4df9-901b-807cc08eb100": {
       "application_slug": "sabnzbd",
       "enabled": true,
@@ -253,18 +229,6 @@
       "timeout": 30,
       "user": null
     },
-    "e7747d8a-8153-49f0-948a-140bee74c6d1": {
-      "application_slug": "readarr",
-      "enabled": true,
-      "failure_result": false,
-      "group": "f35bcdf3-597b-4c26-bca5-dc0fe6268e5a",
-      "negate": false,
-      "order": 0,
-      "pk": "e7747d8a-8153-49f0-948a-140bee74c6d1",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "b3104c79-adca-4847-b398-aaa7130cf25a": {
       "application_slug": "karaoke-eternal",
       "enabled": true,
@@ -282,18 +246,6 @@
       "enabled": true,
       "failure_result": false,
       "group": "87b271e2-bab4-4a92-83d5-9ee1820d8d85",
-      "negate": false,
-      "order": 1,
-      "pk": null,
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
-    "cbbb8d4b-444e-4897-b915-2507a85334d4": {
-      "application_slug": "calibre-web-automated",
-      "enabled": true,
-      "failure_result": false,
-      "group": "49b212c7-85d7-4ae7-b5f7-cbcc3df51fc2",
       "negate": false,
       "order": 1,
       "pk": null,
@@ -335,7 +287,7 @@
       "provider_id": "grimmory",
       "provider_type": "oauth2",
       "backchannel_provider_ids": [],
-      "meta_launch_url": "https://grimmory.ts.diloreto.com/",
+      "meta_launch_url": "https://books.diloreto.com/",
       "meta_icon": "",
       "meta_description": "",
       "meta_publisher": "",
@@ -343,40 +295,6 @@
       "open_in_new_tab": false,
       "meta_hide": false,
       "import_existing": false
-    },
-    "calibre": {
-      "backchannel_provider_ids": [],
-      "group": "Media",
-      "import_existing": true,
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "application-icons/calibre.png",
-      "meta_launch_url": "https://calibre.diloreto.com/",
-      "meta_publisher": "",
-      "name": "Calibre",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 14,
-      "provider_type": "proxy",
-      "slug": "calibre",
-      "uuid": "a1a2c823-5a4c-4d18-862e-b66113f49a4a"
-    },
-    "calibre-web-automated": {
-      "backchannel_provider_ids": [],
-      "group": "Media",
-      "import_existing": true,
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "application-icons/calibre-web.png",
-      "meta_launch_url": "https://books.diloreto.com/",
-      "meta_publisher": "",
-      "name": "Calibre Web Automated",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 37,
-      "provider_type": "oauth2",
-      "slug": "calibre-web-automated",
-      "uuid": "3fdf1e04-cf88-454b-809c-03f86999fbdc"
     },
     "caro-tachidesk": {
       "backchannel_provider_ids": [],
@@ -564,23 +482,6 @@
       "provider_type": "proxy",
       "slug": "radarr-4k",
       "uuid": "2350ba5d-49b8-4873-8731-4dec10064af8"
-    },
-    "readarr": {
-      "backchannel_provider_ids": [],
-      "group": "Arr",
-      "import_existing": true,
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "application-icons/Readarr_icon.svg",
-      "meta_launch_url": "https://readarr.diloreto.com/",
-      "meta_publisher": "",
-      "name": "Readarr",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 3,
-      "provider_type": "proxy",
-      "slug": "readarr",
-      "uuid": "8bc5be09-8bed-41da-8cd1-aaaf1b51dd52"
     },
     "sabnzbd": {
       "backchannel_provider_ids": [],
@@ -983,7 +884,7 @@
         "refresh_token"
       ],
       "logout_method": "backchannel",
-      "logout_uri": "https://grimmory.ts.diloreto.com/api/v1/auth/oidc/backchannel-logout",
+      "logout_uri": "https://books.diloreto.com/api/v1/auth/oidc/backchannel-logout",
       "jwt_federation_sources": [],
       "jwt_federation_providers": []
     },
@@ -1078,49 +979,6 @@
       "signing_key": null,
       "sub_mode": "hashed_user_id"
     },
-    "37": {
-      "access_code_validity": "minutes=1",
-      "access_token_validity": "minutes=5",
-      "allowed_redirect_uris": [
-        {
-          "matching_mode": "strict",
-          "redirect_uri_type": "authorization",
-          "url": "https://books.diloreto.com/login/generic/authorized"
-        }
-      ],
-      "authentication_flow": null,
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "client_id": "tMxvn7CMhsBisN6KdrUO33X6qDUe5qGVNkJ4ijBn",
-      "client_type": "confidential",
-      "encryption_key": null,
-      "grant_types": [
-        "authorization_code",
-        "hybrid",
-        "implicit",
-        "client_credentials",
-        "password",
-        "urn:ietf:params:oauth:grant-type:device_code",
-        "refresh_token"
-      ],
-      "include_claims_in_id_token": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "issuer_mode": "per_provider",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "logout_method": "backchannel",
-      "logout_uri": "",
-      "name": "Calibre Web Automated OIDC",
-      "pk": 37,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_threshold": "seconds=0",
-      "refresh_token_validity": "days=30",
-      "signing_key": null,
-      "sub_mode": "user_username"
-    },
     "47": {
       "access_code_validity": "minutes=1",
       "access_token_validity": "minutes=5",
@@ -1197,13 +1055,11 @@
         "2",
         "7",
         "39",
-        "14",
         "17",
         "5",
         "19",
         "43",
         "13",
-        "3",
         "41",
         "20",
         "8",
@@ -1303,35 +1159,6 @@
       "mode": "proxy",
       "name": "qBittorrent",
       "pk": 13,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
-    "14": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://calibre.diloreto.com/",
-      "import_existing": true,
-      "intercept_header_auth": true,
-      "internal_host": "http://calibre:8080",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Calibre",
-      "pk": 14,
       "property_mappings": [
         "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
         "e72b12d8-ef3e-4b73-b172-0df830d666d7",
@@ -1506,35 +1333,6 @@
       "mode": "proxy",
       "name": "Karaoke Eternal",
       "pk": 29,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
-    "3": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://readarr.diloreto.com",
-      "import_existing": true,
-      "intercept_header_auth": true,
-      "internal_host": "http://gluetun:8787",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Readarr",
-      "pk": 3,
       "property_mappings": [
         "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
         "e72b12d8-ef3e-4b73-b172-0df830d666d7",
@@ -1866,7 +1664,7 @@
       "attributes": {},
       "is_superuser": false,
       "membership_set": "personal",
-      "name": "CWA Users",
+      "name": "Books Users",
       "parents": [],
       "pk": "49b212c7-85d7-4ae7-b5f7-cbcc3df51fc2",
       "roles": []

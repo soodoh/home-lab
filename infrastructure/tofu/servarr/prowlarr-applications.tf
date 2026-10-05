@@ -1,6 +1,4 @@
 # Prowlarr remains sole writer of the indexers it synchronizes into Arr.
-# Bookshelf is excluded from provider ownership; its Readarr-compatible
-# integration is an existing Prowlarr-owned resource.
 resource "prowlarr_application_radarr" "standard" {
   name            = "Radarr"
   sync_level      = "fullSync"
@@ -21,16 +19,6 @@ resource "prowlarr_application_radarr" "uhd" {
   tags            = [3]
 }
 
-resource "prowlarr_application_readarr" "bookshelf" {
-  name            = "Readarr"
-  sync_level      = "fullSync"
-  base_url        = "http://localhost:8787"
-  prowlarr_url    = "http://localhost:9696"
-  api_key         = var.readarr_api_key
-  sync_categories = [3030, 7000, 7010, 7020, 7030, 7040, 7050, 7060]
-  tags            = [5]
-}
-
 resource "prowlarr_application_sonarr" "existing" {
   name                  = "Sonarr"
   sync_level            = "fullSync"
@@ -49,10 +37,6 @@ import {
 import {
   to = prowlarr_application_radarr.uhd
   id = "4"
-}
-import {
-  to = prowlarr_application_readarr.bookshelf
-  id = "7"
 }
 import {
   to = prowlarr_application_sonarr.existing

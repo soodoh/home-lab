@@ -259,34 +259,6 @@ services:
       - /srv/home-lab-state/radarr-4k-data:/config
       - ${MEDIA_PATH}:/data
 
-  # Readarr replacement
-  bookshelf:
-    image: ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.21.182@sha256:67498dd5ece516867d72ee642abd6c1a66b36a135c8f7da0127109564372beb1
-    container_name: bookshelf
-    restart: unless-stopped
-    logging: *default-logging
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
-    environment:
-      TZ: $TZ
-      PUID: 1000
-      PGID: 1000
-      FILE__READARR__AUTH__APIKEY: /run/secrets/readarr_api_key
-      READARR__SERVER__PORT: 8787
-    secrets:
-      - readarr_api_key
-    volumes:
-      - /srv/home-lab-state/bookshelf-data:/config
-      - ${MEDIA_PATH}:/data
-      - type: bind
-        source: /srv/home-lab-state/calibre-data/books
-        target: /books
-        bind:
-          create_host_path: false
-
   unpackerr:
     image: golift/unpackerr:0.16.1@sha256:244fc45cb207308f60e8f52dd703c2b3463385752de0f9517c58ff9d331ed15e
     container_name: unpackerr
@@ -303,14 +275,10 @@ services:
       UN_RADARR_1_URL: $RADARR_4K_URL
       UN_RADARR_1_API_KEY: filepath:/run/secrets/radarr_4k_api_key
       UN_RADARR_1_PATHS_0: /data/downloads/complete
-      UN_READARR_0_URL: $READARR_URL
-      UN_READARR_0_API_KEY: filepath:/run/secrets/readarr_api_key
-      UN_READARR_0_PATHS_0: /data/downloads/complete
     secrets:
       - sonarr_api_key
       - radarr_api_key
       - radarr_4k_api_key
-      - readarr_api_key
     volumes:
       - ${MEDIA_PATH}/downloads:/data/downloads
     networks:
@@ -367,8 +335,6 @@ secrets:
     file: /etc/docker-compose/credentials/radarr-4k-api-key
   prowlarr_api_key:
     file: /etc/docker-compose/credentials/prowlarr-api-key
-  readarr_api_key:
-    file: /etc/docker-compose/credentials/readarr-api-key
   recyclarr_credentials:
     file: /etc/docker-compose/credentials/recyclarr-secrets.yml
 

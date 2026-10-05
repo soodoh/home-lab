@@ -15,7 +15,7 @@ import sys
 import time
 
 
-KEYS = ("SONARR", "RADARR", "RADARR_4K", "PROWLARR", "READARR")
+KEYS = ("SONARR", "RADARR", "RADARR_4K", "PROWLARR")
 
 
 def require_private_session(path: Path) -> None:

@@ -10,20 +10,13 @@ only credential names, source compatibility and protected file metadata before
 activation. Never print resolved Compose, container environment values or
 application configuration containing credentials.
 
-The pre-migration environment-based design declared **30 distinct credential
-inputs, used in 42 environment assignments across 21 services**. These include the OpenVPN username and AWS
-access-key ID as credential-pair components, and `ZWAVE_SECRET` as a declared
-secret that the pinned application does not consume. Other usernames, OAuth
-client IDs and camera addresses are cataloged separately below. Shared Arr keys
-are counted once per source, but each consumer needs its own delivery change.
-
-**27 of these 30 inputs have established file-delivery mechanisms in the pinned
-applications/images; Openfit's other two have supported Bun dotenv-file
-candidates.** Thus all 29 remaining declared inputs have file-delivery options
-without a custom entrypoint, although runtime-value and permission tests remain
-necessary.
-Openfit's admin password is bootstrap-only. The remaining input, `ZWAVE_SECRET`,
-should be removed from injection after independent consumer checks, not migrated.
+The pinned applications use native file readers or supported image startup
+adapters, except Openfit's intentionally deferred dotenv-file candidates. The
+OpenVPN username and AWS access-key ID are credential-pair components. Other
+usernames, OAuth client IDs and camera addresses are cataloged separately below.
+Shared Arr keys have one authority but separately scoped consumer delivery.
+Openfit's admin password is bootstrap-only. `ZWAVE_SECRET` is not consumed by the
+pinned application; its encrypted source is not a declaration of runtime use.
 
 Credential-file inputs other than Vaultwarden's OIDC secret originate in
 [`production.sops.yaml`](../secrets/production.sops.yaml). Its OIDC secret comes
@@ -87,7 +80,7 @@ values from the same authoritative encrypted sources.
 | `nextcloud`, `nextcloud-cron` | `NEXTCLOUD_SMTP_PASSWORD` → `SMTP_PASSWORD` | `SMTP_PASSWORD_FILE=/run/secrets/nextcloud_smtp_password` | Native PHP SMTP config reads the file on configuration load. Both containers need the mount; cron overrides the image entrypoint, so do not rely on an entrypoint export. The PHP/cron service user must be able to read the file. [N1] |
 | `frigate` | `FRIGATE_MQTT_PASSWORD` | File `/run/secrets/FRIGATE_MQTT_PASSWORD`; remove the value from `environment` | Frigate discovers files by their **exact uppercase names**, populating its substitution dictionary. Retain `{FRIGATE_MQTT_PASSWORD}` in app config. It does not require `FRIGATE_MQTT_PASSWORD_FILE`. [F1] |
 | `frigate` | `FRIGATE_BACKYARD_PW`, `FRIGATE_DOORBELL_PW`, `FRIGATE_DRIVEWAY_PW`, `FRIGATE_BACK_STUDIO_PW`, `FRIGATE_FRONTYARD_PW`, `FRIGATE_STUDIO_PW`, `FRIGATE_BACK_HOUSE_PW` | One `/run/secrets/<exact variable name>` file each | Supported by Frigate and the go2rtc config generator. This only helps if camera config actually uses those placeholders; migrate inline URL credentials separately and investigate unused supplied vars before adding more files. [F1, F2] |
-| `unpackerr` | `SONARR_API_KEY` → `UN_SONARR_0_API_KEY`; `RADARR_API_KEY` → `UN_RADARR_0_API_KEY`; `RADARR_4K_API_KEY` → `UN_RADARR_1_API_KEY`; `READARR_API_KEY` → `UN_READARR_0_API_KEY` | Keep each container variable; replace the value with `filepath:/run/secrets/<corresponding key>` | Version 0.16.1 recursively resolves `filepath:` strings **after** environment parsing. No custom wrapper or plaintext TOML file is necessary. Do not invent `UN_*_API_KEY_FILE`. [U1, U2] |
+| `unpackerr` | `SONARR_API_KEY` → `UN_SONARR_0_API_KEY`; `RADARR_API_KEY` → `UN_RADARR_0_API_KEY`; `RADARR_4K_API_KEY` → `UN_RADARR_1_API_KEY` | Keep each container variable; replace the value with `filepath:/run/secrets/<corresponding key>` | Version 0.16.1 recursively resolves `filepath:` strings **after** environment parsing. No custom wrapper or plaintext TOML file is necessary. Do not invent `UN_*_API_KEY_FILE`. [U1, U2] |
 | `mindwtr-cloud` | `MINDWTR_CLOUD_AUTH_TOKENS` | `MINDWTR_CLOUD_AUTH_TOKENS_FILE=/run/secrets/mindwtr_cloud_tokens`, with `user: "0:0"` | Version 1.2.6 already supports this. Its official entrypoint requires root for file input, copies to a protected runtime file and drops to `bun:bun`. The server reads that file directly. Inline and file tokens are **unioned**, not overridden: remove the old inline input. Preserve token bytes and data namespaces. [M1, M2] |
 | `zwave` | `SESSION_SECRET` | Preserve the existing secret in `/usr/src/app/store/.session-secret`; remove the environment input | Version 11.24.1 reads this fixed file after checking the environment. Render into the existing backed-up store, or mount a protected file at that exact location. There is **no** `SESSION_SECRET_FILE` setting. Do not merely unset the variable: a different persisted value or newly generated key would change sessions/JWTs. [Z3] |
 
@@ -112,14 +105,9 @@ without an extra trailing newline. [L1, L2]
 | `radarr` | `RADARR_API_KEY` → `RADARR__AUTH__APIKEY` | `FILE__RADARR__AUTH__APIKEY=/run/secrets/radarr_api_key` |
 | `radarr-4k` | `RADARR_4K_API_KEY` → `RADARR__AUTH__APIKEY` | `FILE__RADARR__AUTH__APIKEY=/run/secrets/radarr_4k_api_key` |
 | `prowlarr` | `PROWLARR_API_KEY` → `PROWLARR__AUTH__APIKEY` | `FILE__PROWLARR__AUTH__APIKEY=/run/secrets/prowlarr_api_key` |
-| `bookshelf` | `READARR_API_KEY` → `READARR__AUTH__APIKEY` | `FILE__READARR__AUTH__APIKEY=/run/secrets/readarr_api_key` |
-| `calibre-web-automated` | `HARDCOVER_TOKEN` | `FILE__HARDCOVER_TOKEN=/run/secrets/hardcover_token` |
 
 Do not infer support solely from an image family. Verify `init-envfile` exists
-in each pinned image. CWA 4.0.6 inherits LinuxServer's Ubuntu base image and its
-Hardcover consumer reads `HARDCOVER_TOKEN`; the startup adapter bridges those
-interfaces. A manually configured token in CWA's database is an alternative
-application owner, not declarative secret-file delivery. [C1, C2, L2]
+in each pinned image and test the actual application consumer. [L1, L2]
 
 ## Native protected configuration file
 

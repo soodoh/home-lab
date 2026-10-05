@@ -6,10 +6,6 @@ http:
       rule: "Host(`auth.diloreto.com`)"
       entryPoints: [websecure]
       service: authentik
-    calibre:
-      rule: "Host(`calibre.diloreto.com`)"
-      entryPoints: [websecure]
-      service: authentik
     caromanga:
       rule: "Host(`caromanga.diloreto.com`)"
       entryPoints: [websecure]
@@ -44,10 +40,6 @@ http:
       service: authentik
     radarr:
       rule: "Host(`radarr.diloreto.com`)"
-      entryPoints: [websecure]
-      service: authentik
-    readarr:
-      rule: "Host(`readarr.diloreto.com`)"
       entryPoints: [websecure]
       service: authentik
     sabnzbd:
@@ -140,7 +132,7 @@ http:
     books:
       loadBalancer:
         servers:
-          - url: http://calibre-web-automated:8083
+          - url: http://grimmory:6060
     nextcloud:
       loadBalancer:
         servers:

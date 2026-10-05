@@ -191,16 +191,16 @@
     },
     "applications": {
       "type": "object",
-      "minProperties": 23,
-      "maxProperties": 23,
+      "minProperties": 20,
+      "maxProperties": 20,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
     },
     "proxyProviders": {
       "type": "object",
-      "minProperties": 18,
-      "maxProperties": 18,
+      "minProperties": 16,
+      "maxProperties": 16,
       "propertyNames": {
         "pattern": "^(?:[1-9][0-9]*|[a-z0-9]+(?:-[a-z0-9]+)*)$"
       },
@@ -210,14 +210,14 @@
     },
     "oauthProviders": {
       "type": "object",
-      "maxProperties": 5,
+      "maxProperties": 4,
       "propertyNames": {
         "pattern": "^([1-9][0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/oauthProvider"
       },
-      "minProperties": 5
+      "minProperties": 4
     },
     "customBlueprints": {
       "type": "object",
@@ -231,8 +231,8 @@
     },
     "applicationPolicyBindings": {
       "type": "object",
-      "minProperties": 27,
-      "maxProperties": 27,
+      "minProperties": 23,
+      "maxProperties": 23,
       "propertyNames": {
         "$ref": "#/$defs/uuid"
       },

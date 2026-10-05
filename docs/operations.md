@@ -189,12 +189,9 @@ It prepares both encrypted authorities; use the same SOPS revision for the saved
 plan and any consumer update. [Authentik ownership](authentik-ownership.md) defines
 membership, shared stages, system defaults and the certificate-discovery boundary. The apply token remains separate. Vaultwarden's
 protected client-secret file and Home Assistant's existing `!secret` entry derive
-from the same Authentik SOPS client secrets during site convergence; CWA's
-generic OAuth setting remains a manually verified admin UI step because its
-only observed HTTP writer is a bulk, CSRF-protected settings form. Do not assume an
-Authentik plan or apply makes a consumer switch atomic; verify a fresh OIDC login
-and a no-op plan before declaring rotation complete. Do not count the CWA step
-as complete until its admin setting and fresh login have been checked.
+from the same Authentik SOPS client secrets during site convergence. Do not
+assume an Authentik plan or apply makes a consumer switch atomic; verify a fresh
+OIDC login and a no-op plan before declaring rotation complete.
 Grimmory consumes that same encrypted authority through its approval-gated native
 settings API role; see [Grimmory](grimmory.md) for first-user admission,
 `converge-grimmory.yml`, linking and reader/device qualification. A new provider

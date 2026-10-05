@@ -5,10 +5,7 @@
     follow: false
     get_checksum: false
     get_mime: false
-  loop:
-    - {path: /srv/home-lab-state/grimmory-data, uid: 1000}
-    - {path: /srv/home-lab-state/grimmory-bookdrop, uid: 1000}
-    - {path: /srv/home-lab-state/grimmory-db-data, uid: 999}
+  loop: "{{ grimmory_state_directories }}"
   become: true
   register: grimmory_directory_stats
 
@@ -25,15 +22,12 @@
   loop_control:
     label: "{{ item.item.path }}"
 
-- name: Create protected Grimmory directories before extending backup scope
+- name: Create protected Grimmory state and library directories
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: directory
     owner: "{{ item.uid }}"
     group: "{{ item.uid }}"
     mode: "0700"
-  loop:
-    - {path: /srv/home-lab-state/grimmory-data, uid: 1000}
-    - {path: /srv/home-lab-state/grimmory-bookdrop, uid: 1000}
-    - {path: /srv/home-lab-state/grimmory-db-data, uid: 999}
+  loop: "{{ grimmory_state_directories }}"
   become: true

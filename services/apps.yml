@@ -44,59 +44,6 @@ services:
       - proxy
       - jellyfin-auth
 
-  calibre:
-    image: ghcr.io/linuxserver/calibre:9.15.0@sha256:8c7b77ada7133cbac1519791035ac7e305e37adae5cd06038270a90f99f4b4d6
-    container_name: calibre
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      TZ: $TZ
-      PUID: 1000
-      PGID: 1000
-    volumes:
-      - type: bind
-        source: /srv/home-lab-state/calibre-data/config
-        target: /config
-      - type: bind
-        source: /srv/home-lab-state/calibre-data/plugins
-        target: /plugins
-      - type: bind
-        source: /srv/home-lab-state/calibre-data/books
-        target: /books
-        bind:
-          create_host_path: false
-      - ${MEDIA_PATH}/downloads:/downloads
-    networks:
-      proxy:
-        ipv4_address: 172.23.0.99
-
-  calibre-web-automated:
-    image: ghcr.io/crocodilestick/calibre-web-automated:v4.0.6@sha256:c31a738b6d5ec6982c050063dd3f063b6943eb1051fc81144789f840d9093a8d
-    container_name: calibre-web-automated
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      TZ: $TZ
-      PUID: 1000
-      PGID: 1000
-      FILE__HARDCOVER_TOKEN: /run/secrets/hardcover_token
-      # If your library is on a network share (e.g., NFS/SMB), disable WAL to reduce locking issues
-      # Accepts: true/false (default: false)
-      NETWORK_SHARE_MODE: false
-      CWA_PORT_OVERRIDE: 8083
-    secrets:
-      - hardcover_token
-    volumes:
-      - /srv/home-lab-state/calibre-web-data:/config
-      - type: bind
-        source: /srv/home-lab-state/calibre-data/books
-        target: /calibre-library
-        bind:
-          create_host_path: false
-      - /srv/home-lab-state/calibre-web-ingest:/cwa-book-ingest
-    networks:
-      - proxy
-
   karaoke-eternal:
     image: radrootllc/karaoke-eternal:latest@sha256:96a4ff5f14657aaa0e7308f1455fedab7065756e1e3e163522619ee3aa9f5c5f
     container_name: karaoke-eternal
@@ -176,8 +123,6 @@ services:
       - proxy
 
 secrets:
-  hardcover_token:
-    file: /etc/docker-compose/credentials/hardcover-token
   vaultwarden_smtp_password:
     file: /etc/docker-compose/credentials/vaultwarden-smtp-password
   vaultwarden_sso_client_secret:

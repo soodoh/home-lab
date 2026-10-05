@@ -23,7 +23,7 @@ class ProviderInputTest(unittest.TestCase):
         self.assertEqual(result["indexer_secrets"]["5"]["cookie"], "protected")
         self.assertNotIn("MEDIA_PATH", result)
         self.assertEqual(result["radarr_internal_url"], "http://gluetun:7878")
-        self.assertEqual(len(result), 11)
+        self.assertEqual(len(result), 10)
 
     def test_refuses_missing_values(self):
         with self.assertRaises(KeyError):

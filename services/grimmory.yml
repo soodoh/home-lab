@@ -23,9 +23,8 @@ services:
       REMOTE_AUTH_ENABLED: false
       FORCE_DISABLE_OIDC: false
       OIDC_ALLOW_UNSAFE_HOSTS: false
-      ALLOWED_ORIGINS: https://grimmory.ts.diloreto.com
-      # Overlap admission: disable file operations until the writer cutover.
-      DISK_TYPE: NETWORK
+      ALLOWED_ORIGINS: https://books.diloreto.com,https://grimmory.ts.diloreto.com
+      DISK_TYPE: LOCAL
     secrets:
       - source: grimmory_datasource_password
         target: spring.datasource.password
@@ -39,9 +38,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: /srv/home-lab-state/calibre-data/books
+        source: /srv/home-lab-state/grimmory-books
         target: /books
-        read_only: true
         bind:
           create_host_path: false
       - type: bind

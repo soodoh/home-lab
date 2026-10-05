@@ -21,13 +21,6 @@ variable "prowlarr_api_key" {
   type      = string
   sensitive = true
 }
-# Bookshelf is excluded from provider ownership, but Prowlarr owns its
-# existing Readarr-compatible application integration.
-variable "readarr_api_key" {
-  type      = string
-  sensitive = true
-}
-
 # Download-client resource attributes can enter remote state even if marked
 # sensitive. Use only the values from secrets/download-clients.sops.yaml.
 variable "qbittorrent_username" {

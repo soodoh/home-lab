@@ -11,8 +11,8 @@ const forwards = JSON.parse(fs.readFileSync('infrastructure/tofu/omada/desired.j
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.infrastructure;
 
 const authentikHosts = [
-  'auth', 'calibre', 'caromanga', 'comics', 'ddns', 'frigate', 'openfit',
-  'prowlarr', 'qb', 'radarr-4k', 'radarr', 'readarr', 'sabnzbd',
+  'auth', 'caromanga', 'comics', 'ddns', 'frigate', 'openfit',
+  'prowlarr', 'qb', 'radarr-4k', 'radarr', 'sabnzbd',
   'seerr', 'sonarr', 'gost',
 ];
 const directHosts = {
@@ -40,6 +40,7 @@ test('the public host allowlist routes to the intended private backends', () => 
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.23.0.1:8123');
+  assert.equal(dynamic.services.books.loadBalancer.servers[0].url, 'http://grimmory:6060');
 });
 
 test('Mindwtr web requires Authentik; sync API and calendar feeds keep native credentials', () => {

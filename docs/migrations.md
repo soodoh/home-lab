@@ -4,15 +4,17 @@ This lists unresolved **decisions**, not migration receipts. Reobserve the host,
 remote state, provider and backup repositories before acting; Git history is not
 proof of current state.
 
-## CWA and Calibre retirement
+## Physical Kobo continuity
 
-[Grimmory](grimmory.md) defines the proposed read-only overlap and authentication
-interface. No cutover is implied by these declarations. Reconcile Paul/Sarabeth
-accounts, shelves and Kobo progress on private copied data; qualify one backed-up
-Kobo before the second. Admit Bookshelf's Calibre-dependent import workflow before
-removing Calibre. Writer ownership, writable access, public route switching,
-provider destroys and source-state cleanup require separate approval after
-validation. Keep one-off migration tools/data/receipts outside Git.
+[Grimmory](grimmory.md) owns the book catalog and intake workflow. Physical-device
+resume and native annotation continuity remain unqualified; temporary sync
+unavailability and the pinned application's existing authorization behavior are
+accepted independently of catalog operation. Before changing or re-syncing either
+device, take a fresh backup and qualify identities, duplicates/deletions,
+collections, exact resume, annotations and round-trip progress on one device
+before the second. Never infer continuity from stored percentages or archived
+annotations, reset a device automatically, or discard original device evidence.
+Keep qualification executors, mappings and receipts outside Git.
 
 ## AWS recovery-key and separate backup identity
 

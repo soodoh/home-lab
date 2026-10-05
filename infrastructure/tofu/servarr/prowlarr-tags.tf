@@ -3,7 +3,7 @@ locals {
     "2" = "lidarr"
     "3" = "radarr"
     "4" = "sonarr"
-    "5" = "readarr"
+    "5" = "books"
   }
 }
 

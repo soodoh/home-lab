@@ -1,251 +1,137 @@
-# Grimmory operation and CWA transition
+# Grimmory
 
 Follow [operations](operations.md), [security](security.md) and
-[recovery](../recovery/README.md). Source approval is not deployment approval.
-The committed configuration is the **read-only overlap phase**, not a completed
-migration. Calibre and CWA remain declared until Grimmory and one Kobo have been
-qualified. No application data is OpenTofu-owned.
+[recovery](../recovery/README.md). Git owns runtime configuration, authentication
+policy and recovery scope; Grimmory owns its catalog and individual user data.
+Source changes are not proof of a deployed or recovered instance.
 
-## Runtime and ownership
+## Runtime and library ownership
 
 [`services/grimmory.yml`](../services/grimmory.yml) pins Grimmory and its dedicated
-MariaDB. Neither publishes a host port; the database has an internal bridge.
-Grimmory's private HTTPS route is `grimmory.ts.diloreto.com`, using the existing
-tailnet Traefik and wildcard certificate. `books.diloreto.com` still reaches CWA.
-Do not expose a pending first-user setup through public ingress.
+MariaDB. Neither publishes a host port; MariaDB has an internal bridge.
+`books.diloreto.com` is the canonical HTTPS entrypoint. The private
+`grimmory.ts.diloreto.com` route remains an alias for existing private clients.
+Both routes use Grimmory's native authentication, not remote-header login.
+Do not expose an uninitialized first-user setup.
 
-The existing `/srv/home-lab-state/calibre-data/books` directory is mounted at
-`/books`, initially **read-only**, with `DISK_TYPE=NETWORK` disabling file
-operations. Choose **BOOK_PER_FOLDER** when creating the library: Calibre stores
-multiple formats of one book in each folder. Disable metadata write-back and
-file organization during the overlap. BookDrop uses a separate protected
-`grimmory-bookdrop` directory, not CWA's active ingest queue.
+Grimmory is the catalog/file writer. `/srv/home-lab-state/grimmory-books` is
+mounted writable at `/books`, with `DISK_TYPE=LOCAL`. Each library has one root:
 
-The app, database and BookDrop state are in the managed Restic scope and `books`
-recovery group. Backups stop Grimmory before MariaDB. A matching fresh backup
-and private restore of the changed scope are required before claiming coverage.
-Initial activation needs a separately reviewed backup-scope transition: strict
-observation binds the reviewed policy to the installed policy, so the existing
-chain does not qualify a not-yet-installed scope. Admit protected directory
-creation and native backup-policy convergence, then obtain a fresh complete chain
-under that scope before site convergence. The prepared runner selects stop-group
-members from the active Compose declarations: undeployed candidates are not
-queried, but a declared service without its container still refuses the backup
-before any stop or journal write. Install the reviewed runner with the new policy;
-this behavior is only synthetically qualified until separately approved host
-execution. Never bypass the observer or count empty-directory coverage as
-migrated-data coverage. Compose-only deployment does not extend backup policy.
+| Library | Scan root | Access |
+| --- | --- | --- |
+| Paul | `/books/paul` | Paul |
+| Sarabeth | `/books/sarabeth` | Paul and Sarabeth |
 
-Bookshelf also mounts `/books`, and its native root-folder settings can use the
-Calibre integration. Before retiring Calibre, privately observe and separately
-review those settings, outstanding downloads and import consumers. Do not infer
-that a Docker mount grants safe simultaneous writing. Prefer one catalog/file
-writer: either direct Bookshelf imports with Grimmory scanning and file-moving
-features constrained, or a reviewed download-to-BookDrop workflow. Grimmory is
-not a replacement Calibre content-server API.
+Use `BOOK_PER_FOLDER` to group multiple formats into one catalog book. Library
+assignment, not Kobo shelf membership, defines web access. Changing a device
+selection does not change library access. Preserve book/file identities when
+moving an existing book between roots; replacing scan paths can remove catalog
+records and their associated history. Qualify native move behavior before bulk
+changes, including a rescan and exact identity/history readback.
+
+New books enter through Grimmory uploads or its native BookDrop workflow.
+BookDrop has a separate protected `/srv/home-lab-state/grimmory-bookdrop`
+directory mounted at `/bookdrop`; select the destination library during import.
+Do not restore a second catalog/file writer against `/books`.
+Metadata write-back, organization and automatic device selections are separate
+native settings; a writable mount does not approve arbitrary settings changes.
+Keep original formats, including KEPUB derivatives that the generic scanner does
+not ingest directly. Avoid duplicate catalog entries for formats of one book.
+
+The app, database, books and BookDrop state belong to the `books` recovery group
+and managed Restic scope. Directory roots are UID/GID 1000, mode `0700`, except
+MariaDB's UID/GID 999 data directory. Backups stop Grimmory before MariaDB.
+After data/path/schema changes, obtain a fresh complete chain and verify a
+private restored application/database with its current library paths, covers,
+identities, assignments, shelves and progress. Empty-directory coverage and an
+older restore do not qualify a changed catalog. Historical source backups and
+encrypted legacy/device archives remain recovery evidence, not active writers.
 
 ## Authentication and secret delivery
 
-Authentik creates a distinct confidential `grimmory` provider and application,
-without inventing an import ID. The existing personal entitlement admits only
-Paul and Sarabeth; no new directory users or administrator group are created.
-The client uses authorization-code/refresh grants, exact HTTPS callbacks and
-stable UUID subjects. A dedicated create-only `grimmory-oidc` RSA signer uses
-the existing SOPS/OpenTofu signing authority; it does not rotate the existing
-signer or inherit its certificate lifetime. The symbolic signing reference
-resolves to the created certificate ID, never a fabricated import ID. Grimmory
-requires RSA/EC signatures through JWKS; do not copy CWA's provider with an
-unresolved signing-key selector. Verify certificate validity, served JWKS and
-actual token/login behavior during activation. Monitor the supplied certificate
-and separately review renewal; managing PEM material does not automate issuance.
+Authentik owns the confidential `grimmory` OIDC provider/application, exact public
+and private callbacks, authorization-code/refresh grants and stable UUID subjects.
+The existing personal entitlement admits Paul and Sarabeth. Application admission
+is not an administrator role or a library grant. Group-driven in-app privilege
+synchronization and local-account linking are disabled.
 
-- The OIDC secret has one authority:
-  `infrastructure/tofu/authentik/client-secrets.sops.json`, under
-  `oauthProviders.grimmory`. It is **not** copied into production SOPS or Docker
-  environment variables. Apply the independently reviewed Authentik plan first.
-  After creation, independently grant the plan identity the new provider's
-  required view/change permissions, plus private-key reads for the new signing
-  certificate, before another secret-bearing plan. Create-only signers are
-  rediscovered by exact name; ambiguous or incomplete inventories refuse.
-- Database and separate `grimmory-admin` bootstrap passwords come from
-  `secrets/production.sops.yaml`. MariaDB uses its native password-file inputs;
-  Spring Boot imports `/run/secrets/spring.datasource.password` through native
-  `configtree:`. The pinned UBI MariaDB runs as UID 999 and must read its
-  files directly. All delivery files remain root-owned, mode `0440`: database
-  readers use group 999, while Spring uses a separate group-1000 delivery of the
-  same `GRIMMORY_DB_PASSWORD` authority. The app receives no database root password.
-  These files initialize MariaDB users; changing their contents does not alter an
-  existing database account. Database-password rotation requires a separately
-  admitted native account change and Spring restart, not just new SOPS ciphertext.
-- Grimmory has no native OIDC secret-file setting. The `grimmory` Ansible role
-  uses its admin settings API with controller-side SOPS lookup, verified HTTPS,
-  no redirects and `no_log`. It compares and writes only managed authentication
-  settings, then checks secret persistence and unchanged unrelated settings.
-  This is not an atomic provider/consumer rotation.
-- Automatic OIDC provisioning is enabled for users admitted by Authentik's
-  application policy. Native first-login provisioning creates an issuer/subject-
-  linked, non-admin account without a local-password change requirement. Default
-  permissions and library assignments are empty: grant library access separately
-  in Grimmory. Group-driven in-app privilege changes and local-account linking
-  remain disabled. OIDC-only mode retains Grimmory's native local-admin exception
-  for protected recovery/convergence. The role does not reset existing passwords,
-  create directory users, or write shelves/progress.
-
-Authentik entitlement does not synchronize Grimmory library permissions or
-remove target accounts. Review sessions and target access when offboarding.
+Automatic provisioning creates issuer/subject-linked non-admin accounts with
+empty default permissions and library assignments. Grant access separately in
+Grimmory. Entitlement does not remove existing accounts or synchronize their
+permissions; review sessions and target access when offboarding.
 Do not recycle an OIDC username while its Grimmory account exists: the pinned
-login implementation also falls back to existing OIDC usernames, not only the
-issuer/subject pair.
+login implementation also falls back to usernames, not only issuer/subject.
 
-The first approved site apply also needs
-`grimmory_initialize_confirmed=true`. It initializes only an empty instance with
-its separate protected administrator. An existing instance must accept that
-administrator's stored password; a mismatch refuses rather than resetting it.
-Treat bootstrap-password rotation as a separate native account change.
+The client secret has one authority:
+`infrastructure/tofu/authentik/client-secrets.sops.json`, under
+`oauthProviders.grimmory`. It is not copied to production SOPS or Docker
+interpolation. The Ansible `grimmory` role reads it on the controller and
+converges only managed native authentication settings over verified HTTPS,
+without redirects or secret logging. This is not an atomic provider/consumer
+rotation. Use a fresh remote-backed provider plan and separate apply approval;
+verify discovery, JWKS and real login after authentication changes.
 
-For an existing admitted instance:
+A dedicated create-only RSA signer uses
+`infrastructure/tofu/authentik/signing-keys.sops.json`. Preserve its native PEM
+representation and existing signing authorities. Exact-name discovery, private-key
+reads, certificate validity and a fresh no-op plan are required for provider
+management. Monitor expiry and review renewal separately; managing supplied PEM
+does not automate issuance. Never self-enlarge a provider identity's grants.
+See [Authentik ownership](authentik-ownership.md).
+
+Database and separate `grimmory-admin` bootstrap passwords come from
+`secrets/production.sops.yaml`. OIDC-only mode retains the native local-admin
+exception for protected recovery. Do not reset accounts or promote users during
+convergence. Initialization requires `grimmory_initialize_confirmed=true` on an
+explicitly approved empty instance.
+
+MariaDB uses native password-file inputs; Spring imports
+`/run/secrets/spring.datasource.password` through `configtree:`. Delivery files
+are root-owned mode `0440`: database readers use group 999 and Spring uses its
+separate group-1000 file. The app never receives the DB root password. Changing
+initialization files does not rotate existing DB accounts; rotation requires a
+separately admitted native account change and Spring restart.
+
+For an admitted instance:
 
 ```sh
 export ANSIBLE_CONFIG=ansible/ansible.cfg
 ansible-playbook ansible/playbooks/converge-grimmory.yml --check
-# Separate owner approval after fresh host/Compose/strict-backup observation:
+# Separate approval after fresh host/Compose/strict-backup observation:
 ansible-playbook ansible/playbooks/converge-grimmory.yml -e grimmory_apply_confirmed=true
 ```
 
-Check mode reads settings through a short-lived admin login, which creates a
-native login/session record; it does not initialize an instance or write
-settings. Failures retain production ownership for inspection. Settings updates
-are sequential: do not clear a failed lock or silently restore an old secret.
-Always verify real fresh OIDC login, account identity, unauthorized-user denial
-and a fresh Authentik no-op plan before declaring activation/rotation complete.
+Check mode creates a short-lived native admin session but does not write settings.
+Failures retain production ownership for inspection. Sequential native writes
+require concurrent-edit guards and exact readback; never blindly clear a failed
+lock or restore a secret from historical notes.
 
-## Migration admission and data mapping
+## Reading history and Kobo
 
-Keep execution tools, exports, account tokens, mapping files, approvals and
-receipts in a **new private per-run directory outside Git**. Reobserve rather
-than replaying an earlier export. Before final extraction, take consistent
-protected before-images of the library and CWA configuration, including
-`app.db`, `cwa.db` and Calibre `metadata.db`. Quiesce CWA, Calibre, Bookshelf and
-other observed library writers under production/backup ownership. Do not copy
-a live SQLite database without accounting for WAL; use native SQLite backup or
-copy the complete stopped state. Preserve unknown locks/journals.
+Check personalized statuses through `/api/v1/books`, not the unpersonalized
+library endpoint. Preserve unknown completion dates as unknown; status-modification
+and start timestamps are not completion dates. Native reading-session and
+completion charts cannot reconstruct events absent from the source.
+Keep unsupported historical fields and removed-book references in independently
+verified encrypted archives, never phantom catalog entries or fabricated dates.
+Preservation is not proof of native UI parity.
 
-Rehearse on isolated copied data before loading the production candidate. Map
-books using exact relative file paths/formats and verified content hashes,
-never title matching or coincidental numeric IDs. Compare the filesystem inventory
-as well as Calibre's catalog: a generic scan can include unindexed ebook files.
-Classify each extra file explicitly, without deleting it or guessing its identity
-from a directory's numeric suffix. All catalog files must map unambiguously;
-group formats into one target book. Preserve the original files,
-including KEPUB derivatives and OPF metadata that Grimmory's generic scanner does
-not directly consume. Transfer Calibre metadata through native metadata APIs;
-classify custom columns explicitly instead of silently dropping them.
+Kobo selection uses each owner's dedicated `Kobo` shelf. Device tokens are
+separate credentials from OIDC: keep tokens and token-bearing URLs private.
+Ordinary/history shelves must not expand selection or enable automatic addition.
+Pinned v3.5.0's direct Kobo download route does not enforce assigned-library
+access; this native behavior is accepted for this deployment. Do not describe
+library grants as complete device-route isolation.
 
-| CWA state | Grimmory handling |
-| --- | --- |
-| Paul/Sarabeth identity | Create distinct target accounts; map actual target IDs by username, preserve permissions/library access, then link to the correct issuer/subject. Never copy password hashes or assume user IDs match. |
-| Private shelves and membership | Native shelf APIs preserve owner/privacy and exact book sets. Use supported native sorting; retain exact source member order and shelf/membership dates in the protected legacy archive. This disposition does not claim full shelf-schema/UI parity. |
-| System magic shelves | Recreate equivalent rules/native views; do not import caches or assume rule JSON compatibility. |
-| Unread/in-progress/finished | Map `0/2/1` to `UNREAD/READING/READ` on `user_book_progress`. Preserve status-modification/start timestamps separately. CWA has no dedicated completion-date field: do not label a generic modification date as completion, or use the bulk-status API's import-time completion date. |
-| Kobo progress/location | Map percentage, source percentage, location type/source/value and timestamps to target per-book state and Kobo reading-state JSON. Preserve statistics where representable. Validate exact resume location against the actual served KEPUB. |
-| Browser/KOReader/annotations | Inventory afresh and migrate only observed data with compatible locators/checksums. Server absence does not prove a device has no annotations. |
-| Historic activity/preferences | Preserve compatible preferences. Represent historic CWA downloads as a separate private `Previous CWA Downloads` shelf per user, using native title sorting and identity-qualified current catalog books. Archive original download records, including removed-book references; do not invent activity timestamps or catalog entries. Classify other unsupported preferences separately. |
-| Records for removed books | Account for them in the private reconciliation; do not recreate phantom catalog entries or silently count them as migrated. |
-
-Use native APIs where they preserve ownership and history. The API cannot
-express every historic Kobo field/date; any necessary target-DB import is a
-version/schema-qualified **one-off**, with Grimmory stopped, a target before-image,
-transactional writes, foreign-key checks and restart/read-back validation. Do not
-add a recurring database writer or custom application entrypoint to the repo.
-
-The pinned progress tables have second-precision `TIMESTAMP` columns; preserve
-full source timestamps in compatible Kobo JSON and reconcile the native precision
-explicitly. Kobo's response timestamps are second-precision in both applications.
-Native metadata and cover-upload APIs support catalog transfer, but the pinned
-author update DTO does not expose its stored `sort_name`: qualify any necessary
-supplement with the same stopped-schema transaction. Check personal read status
-through `/api/v1/books`, not the library's unpersonalized catalog endpoint.
-Custom text columns, untimestamped download history, UI preferences and unsupported
-shelf fields need a meaningful native mapping or separately approved protected
-retention. Merely retaining the original OPF/SQLite files is not target UI parity.
-An empty custom-column definition has no per-book values to transfer: retain its
-schema in the archive, but recheck both value and link tables during final
-extraction rather than assuming it stays empty.
-
-Keep the legacy archive outside Git, encrypted to the existing SOPS age
-recipients. Include source field definitions, exact values and identity mappings;
-verify native decryption and byte-identical read-back in a fresh private working
-directory without logging its content. An observation-time archive is not the
-final quiesced extraction or a full source backup. Obtain verified independent
-retention and refresh/reconcile the final archive before retiring source state;
-one local ciphertext copy is not a durable multi-copy backup. Keep the device
-before-images untouched and classify annotation retention separately from
-native annotation access. Remove disposable exports and execution tools after
-verification; retain the protected recovery payload and receipt, not those tools.
-
-Create each history shelf through its owner's native API session, with
-`publicShelf=false`, and reconcile exact UUID/path-qualified membership after
-restart. Never merge it into the dedicated Kobo selection shelf or enable
-`autoAddToShelf`: download history is not a device download request. Pinned
-Grimmory emits ordinary shelves as Kobo collections, with membership intersected
-against its dedicated Kobo shelf. Expect an additional history collection for
-already-selected books during separately approved device testing; verify that
-it neither expands the entitlement set nor leaks between users. Native sorting
-and these shelves still need isolated runtime qualification before admission.
-
-Local-account linking is disabled by default. Open only the reviewed two-account
-linking window with `grimmory_allow_local_account_linking=true`. Automatic OIDC
-provisioning is not a substitute for identity-qualified migration linking; verify
-existing usernames and issuer/subject ownership before opening that window.
-Have both people authenticate through Authentik, verify the **same** Grimmory user
-IDs still own their imported data, then converge the default again.
-Do not promote Paul to administrator merely because he is an App Operator.
-
-## Kobo and final cutover gates
-
-CWA uses Calibre UUIDs for Kobo entitlements; Grimmory uses its own numeric book
-IDs and `/api/kobo/{token}` URLs. A URL-only replacement is not a transparent
-migration. Back up each device's configuration, SQLite database and annotations
-privately before changing it. Test one device first; never automatically factory
-reset or delete its existing books. Keep the verified raw device copy untouched;
-run SQLite integrity/backup and inspection on a separate working copy, accounting
-for any WAL. Inventory native `Bookmark` rows (including highlights and dogears),
-volume/chapter identities, container paths and offsets. Preserve them alongside
-reading-state history even when CWA has no annotation-sync records.
-
-Match the current per-user download selections using Grimmory's dedicated Kobo
-shelf: populate the full admitted catalog for whole-library sync, and the exact
-selected shelf set for shelf-only sync. Do not accidentally expand Sarabeth's
-selection. Keep Kobo tokens private and avoid logging token-bearing URLs. OIDC
-protects the web UI; device tokens remain separate native credentials.
-
-Require on the first device: correct book identities without unexpected
-duplicates/deletions, collections, finished/in-progress status, percentages,
-representative exact resume locations, annotations and a round-trip progress
-update. Different KEPUB conversion/identities can invalidate old span locators;
-percentage preservation is not proof of exact-location preservation. Compare the
-resolved chapter, span ID and span text in the old and actually served new KEPUB,
-not just the stored location string. A locator absent from the current CWA file
-may still resolve in an older device copy: inspect the backed-up device ebook
-before assuming it is lost or replacing it with an approximate percentage.
-Check download state and percentage as well: devices can retain reading-state
-records for ebooks no longer downloaded, and a zero-percent image-only opening
-page can carry a synthetic text-span locator absent from the archive. Preserve
-the original state and distinguish this from a missing mid-book passage; do not
-reset status or substitute an approximate location without approval. Qualification
-still needs a real device round trip, not just database/ZIP inspection.
-Resolve that discrepancy before migrating the second device or retiring CWA.
-
-After both user-data reconciliation and device qualification, review a final
-cutover change: stop all source writers, import the final delta, retire Calibre
-and CWA, admit the Bookshelf workflow, switch `/books` to writable/local mode and
-route `books.diloreto.com` to Grimmory. Retire the candidate route/callback if it
-is no longer needed. Removing old Authentik applications/providers/outpost
-references must produce a complete reviewed destroy plan, not state removal.
-Verify both OIDC accounts, device sync, catalog/shelf/progress parity, unrelated
-services and a fresh backed-up private restore before cleaning up old state.
-Remove transition-only declarations, allowances and this migration section
-once verified; Git history preserves the explanation, not the recovery data.
+Before changing or re-syncing a physical device, take a fresh protected backup
+of its configuration, SQLite/WAL state, downloaded books and annotations. Keep
+original evidence untouched and inspect a working copy. Never automatically reset
+or delete device content. Numeric Grimmory identities and conversion output can
+differ from legacy UUID-based entitlements/KEPUBs. Verify duplicates/deletions,
+selection, collections, statuses, percentages, exact resume passages, annotations
+and round-trip progress on one backed-up device before the second. A preserved
+percentage or encrypted annotation archive is not exact resume/native annotation
+qualification. See [outstanding work](migrations.md).
 
 ## Behavior validation
 
@@ -253,13 +139,13 @@ once verified; Git history preserves the explanation, not the recovery data.
 python3 scripts/controller/test-grimmory.py
 scripts/test-authentik-tofu
 python3 scripts/controller/test-authentik-secret-readability.py
-# Explicit local Docker only; synthetic accounts, data and disposable volumes:
 GRIMMORY_RUNTIME_TEST=1 python3 scripts/controller/test-grimmory-runtime.py
 ```
 
-The pinned-image test qualifies Spring's secret reader, declared credential modes,
-the MariaDB identity and
-the real settings API/idempotency/rotation. Discovery is synthetic; it does not
-prove a real OIDC login, migration parity or Kobo interoperability. Run the
-native Compose/SOPS, Ansible, image-pin, ingress and recovery validators described
-in operations/CI as well.
+Pinned-image tests qualify native secret readers, permission boundaries and
+settings behavior using disposable synthetic data. They do not prove real OIDC
+login or physical Kobo interoperability. Run the relevant Compose/SOPS, Ansible,
+image-pin, ingress, recovery and OpenTofu validators from operations/CI as well.
+Keep one-off executors, mappings, credentials, archives and receipts outside Git;
+remove completed plaintext/tooling after verification while preserving necessary
+protected recovery evidence and unresolved journals.

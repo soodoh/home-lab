@@ -145,7 +145,7 @@ run "authentication_and_onboarding_preserve_behavior" {
     condition = alltrue([for group_key, binding_key in {
       "karaoke-users"      = "b3104c79-adca-4847-b398-aaa7130cf25a"
       "caro-library-users" = "2cde7ad7-35ee-4ff2-8c90-1edcc83f3e89"
-      "cwa-users"          = "cbbb8d4b-444e-4897-b915-2507a85334d4"
+      "cwa-users"          = "96719d44-e9d4-468b-8bc6-350014c4f846"
       "camera-viewers"     = "9fcefd65-0127-45d3-8d48-31e7e0804683"
       "vaultwarden-users"  = "182dbb79-78ab-4144-9625-8b042e985eaa"
     } : authentik_policy_binding.application_access[binding_key].group == authentik_group.managed[group_key].id && authentik_policy_binding.application_access[binding_key].user == null && !authentik_policy_binding.application_access[binding_key].negate])
@@ -158,7 +158,7 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = alltrue([for key in ["01d9c9fd-76de-4dc9-a0bf-01601f45fd40", "1176cdca-c642-4ab2-8fbb-b6eac0c6747b", "1997e1fe-2984-44b9-9bfe-db909b7f3460", "22bba89f-b249-414e-930a-a134dc186e32", "279dc5f4-217e-4e8b-a133-6574658c1c6d", "2d15e29a-fcae-4d1d-92ce-5a91ec3cd729", "34040ade-1660-472a-b829-b5312fafea04", "3907558a-efb8-4763-a976-6f2ebf335f81", "3fd79f0a-54bc-4e79-8f2d-1199d52319b9", "48004f36-36ef-45ac-9048-7cb2a67538bc", "51edd5fa-d699-4811-b67e-6d85356fc452", "55c6d390-dc40-49cf-b2a2-3a869a23b298", "7a201cfb-c8c5-422e-9804-9771e4827999", "a6a50029-e999-4bfa-8ece-737ed5ec8ebc", "c3c48745-5dd7-4325-a288-745b058442e8", "d10e3ec4-1aae-4df9-901b-807cc08eb100", "dd1bfef2-fc1c-4ada-adee-f7f0d242f0de", "e1f79e5c-85e3-47f1-b94c-c49cb4442f05", "e7747d8a-8153-49f0-948a-140bee74c6d1"] : authentik_policy_binding.application_access[key].group == authentik_group.managed["app-operators"].id])
+    condition     = alltrue([for key in ["01d9c9fd-76de-4dc9-a0bf-01601f45fd40", "1176cdca-c642-4ab2-8fbb-b6eac0c6747b", "1997e1fe-2984-44b9-9bfe-db909b7f3460", "22bba89f-b249-414e-930a-a134dc186e32", "279dc5f4-217e-4e8b-a133-6574658c1c6d", "2d15e29a-fcae-4d1d-92ce-5a91ec3cd729", "34040ade-1660-472a-b829-b5312fafea04", "3907558a-efb8-4763-a976-6f2ebf335f81", "3fd79f0a-54bc-4e79-8f2d-1199d52319b9", "51edd5fa-d699-4811-b67e-6d85356fc452", "55c6d390-dc40-49cf-b2a2-3a869a23b298", "7a201cfb-c8c5-422e-9804-9771e4827999", "a6a50029-e999-4bfa-8ece-737ed5ec8ebc", "d10e3ec4-1aae-4df9-901b-807cc08eb100", "dd1bfef2-fc1c-4ada-adee-f7f0d242f0de", "e1f79e5c-85e3-47f1-b94c-c49cb4442f05"] : authentik_policy_binding.application_access[key].group == authentik_group.managed["app-operators"].id])
     error_message = "Every reviewed operator application must use the Paul-only group without depending on Authentik administration."
   }
 

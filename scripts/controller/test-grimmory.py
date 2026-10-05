@@ -324,7 +324,7 @@ else:
                         if phase == 'missing':
                             self.assertEqual((work / 'checked').read_text(), '')
 
-    def test_library_writer_exclusion_secret_readers_and_backup_scope(self):
+    def test_library_writer_secret_readers_and_backup_scope(self):
         result = subprocess.run(["docker", "compose", "config", "--no-interpolate", "--no-env-resolution", "--format", "json"],
                                 cwd=ROOT, capture_output=True, text=True, check=True)
         model = json.loads(result.stdout)
@@ -335,10 +335,10 @@ else:
         self.assertEqual(set(database["networks"]), {"grimmory-db"})
         self.assertTrue(model["networks"]["grimmory-db"]["internal"])
         books = next(v for v in service["volumes"] if v["target"] == "/books")
-        self.assertEqual(books["source"], "/srv/home-lab-state/calibre-data/books")
-        self.assertTrue(books["read_only"])
+        self.assertEqual(books["source"], "/srv/home-lab-state/grimmory-books")
+        self.assertFalse(books.get("read_only", False))
         self.assertFalse(books["bind"]["create_host_path"])
-        self.assertEqual(service["environment"]["DISK_TYPE"], "NETWORK")
+        self.assertEqual(service["environment"]["DISK_TYPE"], "LOCAL")
         self.assertEqual(service["environment"]["SPRING_CONFIG_IMPORT"], "configtree:/run/secrets/")
         self.assertEqual(service["secrets"], [{"source": "grimmory_datasource_password", "target": "spring.datasource.password"}])
         self.assertEqual({item["source"] for item in database["secrets"]}, {"grimmory_db_password", "grimmory_db_root_password"})
@@ -360,7 +360,7 @@ else:
         recovery = json.loads((ROOT / "recovery/groups.json").read_text())["groups"]["books"]
         for name in ("grimmory", "grimmory-db"):
             self.assertIn(name, recovery["services"])
-        for name in ("grimmory-data", "grimmory-db-data", "grimmory-bookdrop"):
+        for name in ("grimmory-data", "grimmory-db-data", "grimmory-bookdrop", "grimmory-books"):
             path = "/srv/home-lab-state/" + name
             self.assertIn(path, scope)
             self.assertIn(path, recovery["paths"])

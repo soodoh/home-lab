@@ -4,17 +4,6 @@
 /srv/home-lab-state/tachidesk-data/downloads/**
 /srv/home-lab-state/hass-data/.cache/**
 /srv/home-lab-state/qbittorrent-data/.cache/**
-/srv/home-lab-state/calibre-data/config/.cache/**
-/srv/home-lab-state/calibre-web-data/.cwa_conversion_tmp/**
-/srv/home-lab-state/calibre-web-data/.cwa_db_debug/**
-/srv/home-lab-state/calibre-web-data/app.db.bak.*
-/srv/home-lab-state/calibre-web-data/calibre-web.log*
-/srv/home-lab-state/calibre-web-data/log_archive/**
-/srv/home-lab-state/calibre-web-data/epub-fixer.log
-/srv/home-lab-state/calibre-web-data/cwa_ingest_retry_queue/**
-/srv/home-lab-state/calibre-web-data/cwa_ingest_status/**
-/srv/home-lab-state/calibre-web-data/processed_books/**
-/srv/home-lab-state/calibre-web-data/thumbnails/**
 /srv/home-lab-state/caro-tachidesk-data/backups/**
 /srv/home-lab-state/caro-tachidesk-data/bin/**
 /srv/home-lab-state/caro-tachidesk-data/database*.trace.db

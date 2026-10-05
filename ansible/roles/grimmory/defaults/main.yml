@@ -1,8 +1,15 @@
 ---
 grimmory_controller_root: "{{ playbook_dir }}/../.."
-grimmory_base_url: https://grimmory.ts.diloreto.com
+grimmory_base_url: https://books.diloreto.com
 grimmory_admin_username: grimmory-admin
 grimmory_admin_email: grimmory-admin@diloreto.com
+grimmory_state_directories:
+  - {path: /srv/home-lab-state/grimmory-data, uid: 1000}
+  - {path: /srv/home-lab-state/grimmory-bookdrop, uid: 1000}
+  - {path: /srv/home-lab-state/grimmory-db-data, uid: 999}
+  - {path: /srv/home-lab-state/grimmory-books, uid: 1000}
+  - {path: /srv/home-lab-state/grimmory-books/paul, uid: 1000}
+  - {path: /srv/home-lab-state/grimmory-books/sarabeth, uid: 1000}
 grimmory_initialize_confirmed: false
 # Opt in only for the two-account linking window, then converge the default again.
 grimmory_allow_local_account_linking: false

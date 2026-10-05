@@ -12,18 +12,18 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "37", "47", "grimmory"}
+OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 6)
         self.assertNotIn("sourceInventory", DESIRED)
-        self.assertEqual(len(DESIRED["applications"]), 23)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 18)
+        self.assertEqual(len(DESIRED["applications"]), 20)
+        self.assertEqual(len(DESIRED["proxyProviders"]), 16)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 27)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 23)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {
             "passwordless-webauthn", "default-authentication-mfa-validation",
         })
@@ -142,7 +142,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         expected = {
             "jellyfin": family, "seerr": family, "karaoke-eternal": family,
             "caro-tachidesk": {"carodilo", "eabbado"},
-            "calibre-web-automated": {"paul", "sarabeth"},
             "grimmory": {"paul", "sarabeth"},
             "frigate": {"paul", "sarabeth"}, "vaultwarden": {"paul", "sarabeth"},
         }
@@ -176,7 +175,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(group["parents"], [])
         self.assertEqual(group["roles"], [])
         self.assertEqual({binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()
-                          if binding["group"] == group["pk"]}, {"calibre","calibre-web-automated","caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","radarr-4k","readarr","sabnzbd","sonarr","tachidesk","vaultwarden","zwave"})
+                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","radarr-4k","sabnzbd","sonarr","tachidesk","vaultwarden","zwave"})
         owned_groups = {value["pk"] for value in DESIRED["groups"].values()}
         self.assertTrue(all(binding["group"] in owned_groups and binding["user"] is None
                             for binding in DESIRED["applicationPolicyBindings"].values()))
@@ -307,7 +306,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("  jellyfin-auth:\n    internal: true", authentik)
 
         apps = (REPO / "services" / "apps.yml").read_text()
-        jellyfin = apps.split("  jellyfin:", 1)[1].split("\n  calibre:", 1)[0]
+        jellyfin = apps.split("  jellyfin:", 1)[1].split("\n  karaoke-eternal:", 1)[0]
         self.assertIn("source: ./data/authentik-ldap-ca.pem", jellyfin)
         self.assertIn("target: /etc/ssl/certs/authentik-ldap.pem", jellyfin)
         self.assertIn("      - jellyfin-auth", jellyfin)
@@ -417,7 +416,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(main.count("import {"), 22)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
-        self.assertIn("length(local.desired.applicationPolicyBindings) == 27", main)
         self.assertIn("for_each = local.existing_application_policy_bindings", main)
         self.assertIn("for_each = local.existing_proxy_providers", main)
         self.assertIn("for_each = local.existing_applications", main)
@@ -472,7 +470,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 123)
+        self.assertEqual(len(allow), 113)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()
