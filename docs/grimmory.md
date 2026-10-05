@@ -43,8 +43,9 @@ MariaDB's UID/GID 999 data directory. Backups stop Grimmory before MariaDB.
 After data/path/schema changes, obtain a fresh complete chain and verify a
 private restored application/database with its current library paths, covers,
 identities, assignments, shelves and progress. Empty-directory coverage and an
-older restore do not qualify a changed catalog. Historical source backups and
-encrypted legacy/device archives remain recovery evidence, not active writers.
+older restore do not qualify a changed catalog. Verify the existence and coverage
+of historical backups and device evidence before relying on them; they are not
+active writers.
 
 ## Authentication and secret delivery
 
