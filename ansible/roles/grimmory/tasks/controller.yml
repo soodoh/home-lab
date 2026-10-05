@@ -81,7 +81,7 @@
       - name: OIDC_AUTO_PROVISION_DETAILS
         response: oidcAutoProvisionDetails
         value:
-          enableAutoProvisioning: false
+          enableAutoProvisioning: true
           allowLocalAccountLinking: "{{ grimmory_allow_local_account_linking | bool }}"
           defaultPermissions: []
           defaultLibraryIds: []

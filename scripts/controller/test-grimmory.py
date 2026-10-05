@@ -120,7 +120,8 @@ def api_server(mode="normal", initialized=True):
 
 
 class NativeAuthenticationTests(unittest.TestCase):
-    def run_native(self, url, *, check=False, initialize=False, secret=SECRET, linking=False, discovery_url=None):
+    def run_native(self, url, *, check=False, initialize=False, secret=SECRET, linking=False, discovery_url=None,
+                   preflight=False):
         with tempfile.TemporaryDirectory(prefix="grimmory-native-test-") as directory:
             work = Path(directory)
             tasks = yaml.safe_load((ROLE / "controller.yml").read_text())
@@ -149,6 +150,28 @@ class NativeAuthenticationTests(unittest.TestCase):
                     },
                 }],
             }]
+            if preflight:
+                role_tasks = work / "roles/grimmory/tasks"
+                role_tasks.mkdir(parents=True)
+                for name in ("controller.yml", "apply.yml"):
+                    shutil.copyfile(work / name, role_tasks / name)
+                entrypoint = yaml.safe_load((ROOT / "ansible/playbooks/converge-grimmory.yml").read_text())[-1]
+                convergence = next(task for task in entrypoint["tasks"]
+                                   if task.get("ansible.builtin.import_role", {}).get("name") == "grimmory")
+                actual = {"ansible.builtin.import_role": {"name": "grimmory", "tasks_from": "controller"}}
+                if "check_mode" in convergence:
+                    actual["check_mode"] = convergence["check_mode"]
+                preflight_tasks = []
+                for task in entrypoint["pre_tasks"]:
+                    if task.get("ansible.builtin.import_role", {}).get("name") == "grimmory":
+                        invocation = {"ansible.builtin.import_role": {"name": "grimmory", "tasks_from": "controller"}}
+                        if "check_mode" in task:
+                            invocation["check_mode"] = task["check_mode"]
+                        preflight_tasks.append(invocation)
+                play[0]["tasks"] = preflight_tasks + [actual]
+                play[0]["module_defaults"] = {"ansible.builtin.uri": {
+                    "follow_redirects": "none", "use_proxy": False, "timeout": 5}}
+                play[0]["no_log"] = True
             path = work / "playbook.json"
             path.write_text(json.dumps(play))
             command = ["ansible-playbook", "-i", "localhost,", "-c", "local", str(path)]
@@ -168,7 +191,7 @@ class NativeAuthenticationTests(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
             self.assertEqual(len(state["writes"]), 1)
             self.assertEqual(state["settings"]["oidcProviderClientSecret"], SECRET)
-            self.assertEqual(state["settings"]["oidcAutoProvisionDetails"]["enableAutoProvisioning"], False)
+            self.assertEqual(state["settings"]["oidcAutoProvisionDetails"]["enableAutoProvisioning"], True)
             self.assertEqual(state["settings"]["oidcAutoProvisionDetails"]["allowLocalAccountLinking"], False)
             self.assertEqual(state["settings"]["unrelatedSetting"], {"preserve": True})
             self.assertEqual(state["setups"], 0)
@@ -179,6 +202,33 @@ class NativeAuthenticationTests(unittest.TestCase):
             third = self.run_native(url, secret="synthetic-rotated-secret")
             self.assertEqual(third.returncode, 0, third.stdout + third.stderr)
             self.assertEqual(state["writes"][-1], [{"name": "OIDC_PROVIDER_CLIENT_SECRET", "value": "synthetic-rotated-secret"}])
+
+    def test_enabling_provisioning_changes_only_onboarding_policy(self):
+        with api_server() as (url, state):
+            configured = self.run_native(url)
+            self.assertEqual(configured.returncode, 0, configured.stdout + configured.stderr)
+            before = copy.deepcopy(state["settings"])
+            state["settings"]["oidcAutoProvisionDetails"]["enableAutoProvisioning"] = False
+            state["writes"].clear()
+            enabled = self.run_native(url)
+            self.assertEqual(enabled.returncode, 0, enabled.stdout + enabled.stderr)
+            self.assertEqual(state["writes"], [[{"name": "OIDC_AUTO_PROVISION_DETAILS", "value": {
+                "enableAutoProvisioning": True, "allowLocalAccountLinking": False,
+                "defaultPermissions": [], "defaultLibraryIds": []}}]])
+            self.assertEqual(state["settings"], before)
+            self.assertEqual(state["settings"]["oidcGroupSyncMode"], "DISABLED")
+            repeated = self.run_native(url)
+            self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+            self.assertRegex(repeated.stdout, r"changed=0\s")
+            self.assertEqual(len(state["writes"]), 1)
+
+    def test_authentication_entrypoint_applies_but_cli_check_remains_read_only(self):
+        for check in (False, True):
+            with self.subTest(check=check), api_server() as (url, state):
+                result = self.run_native(url, check=check, preflight=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(len(state["writes"]), 0 if check else 1)
+                self.assertEqual(state["setups"], 0)
 
     def test_check_mode_does_not_write_settings(self):
         with api_server() as (url, state):

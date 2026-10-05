@@ -10,6 +10,8 @@
   gather_facts: true
   gather_subset: ["!all", min]
   any_errors_fatal: true
+  vars:
+    compose_native_apply_operation: grimmory-authentication
   pre_tasks:
     - name: Require explicit approval for authentication changes
       ansible.builtin.assert:
@@ -22,12 +24,6 @@
         name: compose_native
         tasks_from: observe
 
-    - name: Admit existing Grimmory settings before acquiring ownership
-      ansible.builtin.import_role:
-        name: grimmory
-      check_mode: true
-      when: not (grimmory_initialize_confirmed | default(false) | bool)
-
     - name: Acquire production ownership
       ansible.builtin.import_role:
         name: apply_lock
@@ -37,6 +33,11 @@
         apply_lock_operation: grimmory-authentication
 
   tasks:
+    - name: Revalidate backup admission under exact production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: admission
+
     - name: Reobserve active Compose under production ownership
       ansible.builtin.import_role:
         name: compose_native

@@ -82,10 +82,20 @@ and separately review renewal; managing PEM material does not automate issuance.
   no redirects and `no_log`. It compares and writes only managed authentication
   settings, then checks secret persistence and unchanged unrelated settings.
   This is not an atomic provider/consumer rotation.
-- Automatic user provisioning and group-driven in-app privilege changes are
-  disabled. OIDC-only mode retains Grimmory's native local-admin exception for
-  protected recovery/convergence. The role does not reset existing passwords,
-  create Paul/Sarabeth, or write their shelves/progress.
+- Automatic OIDC provisioning is enabled for users admitted by Authentik's
+  application policy. Native first-login provisioning creates an issuer/subject-
+  linked, non-admin account without a local-password change requirement. Default
+  permissions and library assignments are empty: grant library access separately
+  in Grimmory. Group-driven in-app privilege changes and local-account linking
+  remain disabled. OIDC-only mode retains Grimmory's native local-admin exception
+  for protected recovery/convergence. The role does not reset existing passwords,
+  create directory users, or write shelves/progress.
+
+Authentik entitlement does not synchronize Grimmory library permissions or
+remove target accounts. Review sessions and target access when offboarding.
+Do not recycle an OIDC username while its Grimmory account exists: the pinned
+login implementation also falls back to existing OIDC usernames, not only the
+issuer/subject pair.
 
 The first approved site apply also needs
 `grimmory_initialize_confirmed=true`. It initializes only an empty instance with
@@ -184,9 +194,11 @@ it neither expands the entitlement set nor leaks between users. Native sorting
 and these shelves still need isolated runtime qualification before admission.
 
 Local-account linking is disabled by default. Open only the reviewed two-account
-linking window with `grimmory_allow_local_account_linking=true`; auto-provisioning
-remains off. Have both people authenticate through Authentik, verify the **same**
-Grimmory user IDs still own their imported data, then converge the default again.
+linking window with `grimmory_allow_local_account_linking=true`. Automatic OIDC
+provisioning is not a substitute for identity-qualified migration linking; verify
+existing usernames and issuer/subject ownership before opening that window.
+Have both people authenticate through Authentik, verify the **same** Grimmory user
+IDs still own their imported data, then converge the default again.
 Do not promote Paul to administrator merely because he is an App Operator.
 
 ## Kobo and final cutover gates
