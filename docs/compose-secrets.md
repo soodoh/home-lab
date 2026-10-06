@@ -164,6 +164,30 @@ name. Remove the obsolete Compose injection after independent consumer checks;
 do not rename it to a radio key, revoke its source blindly, or claim that removal
 rotates an actual network key. [Z1, Z2, Z4]
 
+## Shelfmark native connection settings
+
+Shelfmark v1.4.0 has no per-secret `_FILE` reader. Ansible merges only managed
+fields into its native `/config/plugins/prowlarr_config.json` and
+`prowlarr_clients.json`, preserving unrelated settings. Files belong to UID/GID
+1000 with mode 0600 under the private, backed-up config directory. Prowlarr uses
+the existing production SOPS key; qBittorrent login and SABnzbd use the existing
+download-client SOPS authority. No secret is supplied through Compose environment.
+The native reader gives environment values precedence, so connection qualification
+checks exact effective values as well as authentication.
+
+Native settings are cached, and startup synchronizes environment values back to
+files. Stop only Shelfmark for changed settings, guard against concurrent edits,
+merge atomically, verify full readback and require healthy startup. Run native
+connection qualification against ephemeral private copies, not by importing its
+startup reader against live settings. See [operations](operations.md#shelfmark-acquisition-and-seeding).
+The reusable tests exercise the actual Ansible merge seam and the pinned native
+reader with synthetic secrets, including escaping, field preservation, idempotency
+and unsafe/concurrent-file refusals.
+
+Pinned source: [settings-file loading and environment precedence](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/core/settings_registry.py),
+[download-client settings](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/download/clients/settings.py)
+and [Prowlarr settings](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/release_sources/prowlarr/settings.py).
+
 ## Credential-adjacent inputs
 
 These are not included as additional passwords/API keys in the count:

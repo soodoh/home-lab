@@ -538,6 +538,10 @@
         fail_msg: Native Compose convergence did not return the expected service count.
       no_log: true
 
+    - name: Sync Shelfmark consumers from the existing encrypted credential authorities
+      ansible.builtin.include_role:
+        name: shelfmark
+
     - name: Publish the converged Compose artifact identity
       ansible.builtin.copy:
         content: "{{ compose_native_source_archives.results[1].stat.checksum }}\n"

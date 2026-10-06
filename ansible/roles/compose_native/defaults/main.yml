@@ -31,6 +31,7 @@ compose_native_source_paths:
   - docker-compose.yml
   - services
   - secrets/production.sops.yaml
+  - secrets/download-clients.sops.yaml
   - secrets/cli-proxy-api.sops.yaml
   - infrastructure/tofu/authentik/client-secrets.sops.json
   - infrastructure/tofu/authentik/desired.json

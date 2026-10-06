@@ -82,6 +82,8 @@ jobs:
           ANSIBLE_CONFIG: ansible/ansible.cfg
         run: |
           ansible-playbook -i 'localhost,' -c local \
+            ansible/tests/shelfmark-settings.yml -e ansible_become=false -e shelfmark_runtime_test=true
+          ansible-playbook -i 'localhost,' -c local \
             ansible/tests/wolf-admission.yml -e ansible_become=false
           ansible-playbook -i 'docker-host,' -c local \
             ansible/tests/wolf-image-pins.yml -e ansible_become=false

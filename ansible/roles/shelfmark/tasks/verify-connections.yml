@@ -1,0 +1,51 @@
+---
+- name: Qualify connection settings using isolated native readers and read-only connection tests
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -i
+      - --user=1000:1000
+      - shelfmark
+      - python
+      - -c
+      - |
+        import json, os, pathlib, sys, tempfile
+        try:
+            payload = json.load(sys.stdin)
+            # Native startup writes environment defaults back to settings.
+            # Use a private copy, never import the reader against live state.
+            with tempfile.TemporaryDirectory(prefix='shelfmark-verify-') as directory:
+                root = pathlib.Path(directory)
+                (root / 'plugins').mkdir()
+                for tab, values in payload['documents'].items():
+                    target = root / 'plugins' / (tab + '.json')
+                    if payload['persisted']:
+                        source = pathlib.Path('/config/plugins') / (tab + '.json')
+                        target.write_bytes(source.read_bytes())
+                    else:
+                        target.write_text(json.dumps(values))
+                    target.chmod(0o600)
+                os.environ['CONFIG_DIR'] = directory
+                os.environ['LOG_ROOT'] = directory
+                from shelfmark.core.config import config
+                from shelfmark.download.clients.settings import _test_qbittorrent_connection, _test_sabnzbd_connection
+                from shelfmark.release_sources.prowlarr.settings import _test_prowlarr_connection
+                for fields in payload['expected'].values():
+                    for key, value in fields.items():
+                        if config.get(key) != value:
+                            raise ValueError('effective setting differs')
+                for test in (_test_qbittorrent_connection, _test_sabnzbd_connection, _test_prowlarr_connection):
+                    if not test().get('success'):
+                        raise ValueError('native connection test failed')
+            print('shelfmark_connections=verified')
+        except Exception:
+            print('shelfmark_connections=failed', file=sys.stderr)
+            sys.exit(1)
+    stdin: >-
+      {{ {'expected': shelfmark_settings, 'documents': shelfmark_settings_merged,
+          'persisted': shelfmark_verify_persisted} | to_json }}
+  become: true
+  changed_when: false
+  check_mode: false
+  no_log: true

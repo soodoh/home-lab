@@ -1,0 +1,8 @@
+---
+shelfmark_controller_root: "{{ playbook_dir }}/../.."
+shelfmark_config_root: /srv/home-lab-state/shelfmark-data
+shelfmark_uid: 1000
+shelfmark_gid: 1000
+shelfmark_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
+shelfmark_production_sops_file: "{{ shelfmark_controller_root }}/secrets/production.sops.yaml"
+shelfmark_download_clients_sops_file: "{{ shelfmark_controller_root }}/secrets/download-clients.sops.yaml"

@@ -1,0 +1,120 @@
+---
+# Caller owns the production lock and backup admission. Secrets never enter
+# Compose interpolation, Docker environment/arguments or OpenTofu state.
+- name: Require the adopted Shelfmark identity and encrypted authorities
+  ansible.builtin.assert:
+    that:
+      - shelfmark_config_root == '/srv/home-lab-state/shelfmark-data'
+      - shelfmark_sops_age_keyfile | length > 0
+      - shelfmark_uid == 1000
+      - shelfmark_gid == 1000
+    fail_msg: Shelfmark convergence requires the adopted instance and protected SOPS identity.
+
+- name: Converge native Shelfmark connection settings
+  block:
+    - name: Read existing credential authorities on the controller
+      ansible.builtin.set_fact:
+        shelfmark_production_secrets: >-
+          {{ lookup('community.sops.sops', shelfmark_production_sops_file,
+             input_type='yaml', output_type='yaml', age_keyfile=shelfmark_sops_age_keyfile) | from_yaml }}
+        shelfmark_client_secrets: >-
+          {{ lookup('community.sops.sops', shelfmark_download_clients_sops_file,
+             input_type='yaml', output_type='yaml', age_keyfile=shelfmark_sops_age_keyfile) | from_yaml }}
+        cacheable: false
+      no_log: true
+
+    - name: Require complete existing credentials without rotating them
+      ansible.builtin.assert:
+        that:
+          - shelfmark_production_secrets.PROWLARR_API_KEY is string
+          - shelfmark_production_secrets.PROWLARR_API_KEY | length >= 32
+          - shelfmark_client_secrets.qbittorrent_username is string
+          - shelfmark_client_secrets.qbittorrent_username | length > 0
+          - shelfmark_client_secrets.qbittorrent_password is string
+          - shelfmark_client_secrets.qbittorrent_password | length >= 32
+          - shelfmark_client_secrets.sabnzbd_api_key is string
+          - shelfmark_client_secrets.sabnzbd_api_key | length >= 32
+        fail_msg: Shelfmark must consume the existing production and download-client authorities.
+      no_log: true
+
+    - name: Bind only the managed native connection fields
+      ansible.builtin.set_fact:
+        shelfmark_settings:
+          prowlarr_config:
+            PROWLARR_URL: http://localhost:9696
+            PROWLARR_API_KEY: "{{ shelfmark_production_secrets.PROWLARR_API_KEY }}"
+          prowlarr_clients:
+            PROWLARR_TORRENT_CLIENT: qbittorrent
+            QBITTORRENT_URL: http://localhost:8081
+            QBITTORRENT_USERNAME: "{{ shelfmark_client_secrets.qbittorrent_username }}"
+            QBITTORRENT_PASSWORD: "{{ shelfmark_client_secrets.qbittorrent_password }}"
+            # A stale API key would take precedence over the selected login.
+            QBITTORRENT_API_KEY: ''
+            PROWLARR_USENET_CLIENT: sabnzbd
+            SABNZBD_URL: http://localhost:8080
+            SABNZBD_API_KEY: "{{ shelfmark_client_secrets.sabnzbd_api_key }}"
+        cacheable: false
+      no_log: true
+
+    - name: Read the persisted qBittorrent login without exposing it
+      ansible.builtin.slurp:
+        src: /srv/home-lab-state/qbittorrent-data/qBittorrent/qBittorrent.conf
+      become: true
+      register: shelfmark_qbit_config
+      no_log: true
+
+    - name: Verify the source qBittorrent login matches its encrypted authority
+      ansible.builtin.command:
+        argv: [python3, "{{ shelfmark_controller_root }}/scripts/check-qbittorrent-password.py"]
+        stdin: >-
+          {{ {'config': shelfmark_qbit_config.content | b64decode,
+              'username': shelfmark_client_secrets.qbittorrent_username,
+              'password': shelfmark_client_secrets.qbittorrent_password} | to_json }}
+      delegate_to: localhost
+      become: false
+      register: shelfmark_qbit_match
+      changed_when: false
+      check_mode: false
+      failed_when: shelfmark_qbit_match.rc != 0 or shelfmark_qbit_match.stdout != 'in_sync'
+      no_log: true
+
+    - name: Inspect native settings and calculate a selective merge
+      ansible.builtin.include_tasks: read-settings.yml
+
+    - name: Test desired connections before changing native settings
+      ansible.builtin.include_tasks: verify-connections.yml
+      vars:
+        shelfmark_verify_persisted: false
+
+    - name: Report the bounded native settings plan
+      ansible.builtin.debug:
+        msg:
+          settings_change: "{{ shelfmark_settings_changed }}"
+          restart_on_change: shelfmark
+          upstream_credentials_rotated: false
+      changed_when: ansible_check_mode and shelfmark_settings_changed
+
+    - name: Apply only changed native settings with the writer stopped
+      ansible.builtin.include_tasks: apply.yml
+      when: not ansible_check_mode and shelfmark_settings_changed
+
+    - name: Verify persisted settings with the native reader and connection tests
+      ansible.builtin.include_tasks: verify-connections.yml
+      vars:
+        shelfmark_verify_persisted: true
+      when: not ansible_check_mode
+  always:
+    - name: Clear nonpersistent Shelfmark credential and settings facts
+      ansible.builtin.set_fact:
+        shelfmark_production_secrets: {}
+        shelfmark_client_secrets: {}
+        shelfmark_settings: {}
+        shelfmark_settings_current: {}
+        shelfmark_settings_merged: {}
+        shelfmark_settings_content: {}
+        shelfmark_settings_reread: {}
+        shelfmark_settings_verified: {}
+        shelfmark_settings_written: {}
+        shelfmark_qbit_config: {}
+        cacheable: false
+      no_log: true

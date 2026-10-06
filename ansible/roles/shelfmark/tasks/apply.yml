@@ -1,0 +1,40 @@
+---
+- name: Stop only Shelfmark before merging application-owned settings
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files: ["{{ compose_native_runtime_env_path }}"]
+    services: [shelfmark]
+    dependencies: false
+    state: stopped
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  no_log: true
+
+- name: Refuse settings changed by another writer after observation
+  ansible.builtin.include_tasks: guard-settings.yml
+
+- name: Write only changed settings through native atomic file replacement
+  ansible.builtin.include_tasks: write-settings.yml
+
+- name: Start only Shelfmark and require native healthy startup
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files: ["{{ compose_native_runtime_env_path }}"]
+    services: [shelfmark]
+    dependencies: false
+    state: present
+    pull: never
+    build: never
+    recreate: never
+    remove_orphans: false
+    wait: true
+    wait_timeout: "{{ compose_native_wait_timeout }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  no_log: true

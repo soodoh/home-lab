@@ -1,0 +1,218 @@
+---
+# Exercises the real native file merge seam with synthetic secrets only.
+- name: Test selective Shelfmark settings convergence
+  hosts: "{{ shelfmark_test_host | default('localhost') }}"
+  gather_facts: false
+  vars:
+    shelfmark_settings:
+      prowlarr_config:
+        PROWLARR_API_KEY: 'synthetic-prowlarr'
+        PROWLARR_URL: http://localhost:9696
+      prowlarr_clients:
+        QBITTORRENT_USERNAME: synthetic
+        QBITTORRENT_PASSWORD: |
+          synthetic "quotes" $dollar \backslash
+          next line
+        QBITTORRENT_API_KEY: ''
+        SABNZBD_API_KEY: synthetic-sab
+        PROWLARR_TORRENT_CLIENT: qbittorrent
+        PROWLARR_USENET_CLIENT: sabnzbd
+    shelfmark_fixture:
+      prowlarr_config:
+        PROWLARR_API_KEY: stale
+        PROWLARR_INDEXERS: [3, 7]
+        PROWLARR_ENABLED: true
+      prowlarr_clients:
+        QBITTORRENT_PASSWORD: stale
+        QBITTORRENT_API_KEY: stale-priority-key
+        QBITTORRENT_CATEGORY: preserve-category
+        PROWLARR_TORRENT_ACTION: keep
+        PROWLARR_USENET_ACTION: keep
+  tasks:
+    - name: Allocate synthetic settings under the task workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: shelfmark-settings-test.
+      register: shelfmark_fixture_root
+
+    - name: Inspect the fixture identity
+      ansible.builtin.stat:
+        path: "{{ shelfmark_fixture_root.path }}"
+        get_checksum: false
+      register: shelfmark_fixture_metadata
+
+    - name: Bind the real merge seam to the synthetic fixture
+      ansible.builtin.set_fact:
+        shelfmark_config_root: "{{ shelfmark_fixture_root.path }}"
+        shelfmark_uid: "{{ shelfmark_fixture_metadata.stat.uid }}"
+        shelfmark_gid: "{{ shelfmark_fixture_metadata.stat.gid }}"
+
+    - name: Exercise selective changes preservation idempotency and refusals
+      block:
+        - name: Create the native plugin directory
+          ansible.builtin.file:
+            path: "{{ shelfmark_config_root }}/plugins"
+            state: directory
+            mode: '0755'
+
+        - name: Write synthetic existing settings in native startup permissions
+          ansible.builtin.copy:
+            dest: "{{ shelfmark_config_root }}/plugins/{{ item.key }}.json"
+            content: "{{ item.value | to_json }}"
+            mode: '0644'
+          loop: "{{ shelfmark_fixture | dict2items }}"
+
+        - name: Exercise the production read and merge seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: read-settings
+
+        - name: Require a credential and permission change
+          ansible.builtin.assert:
+            that: shelfmark_settings_changed
+
+        - name: Exercise the production concurrent-writer guard
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: guard-settings
+
+        - name: Exercise the production atomic write and full readback seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: write-settings
+
+        - name: Require exact synthetic credentials and unrelated settings preservation
+          ansible.builtin.assert:
+            that:
+              - shelfmark_settings_written.changed
+              - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_PASSWORD == shelfmark_settings.prowlarr_clients.QBITTORRENT_PASSWORD
+              - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_API_KEY == ''
+              - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY == 'preserve-category'
+              - shelfmark_settings_merged.prowlarr_clients.PROWLARR_TORRENT_ACTION == 'keep'
+              - shelfmark_settings_merged.prowlarr_config.PROWLARR_INDEXERS == [3, 7]
+
+        - name: Repeat production observation after the native merge
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: read-settings
+
+        - name: Require semantic idempotency and private credential-file permissions
+          ansible.builtin.assert:
+            that: not shelfmark_settings_changed
+
+        - name: Repeat production writes
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: write-settings
+
+        - name: Require no repeated file replacements
+          ansible.builtin.assert:
+            that: not shelfmark_settings_written.changed
+
+        - name: Qualify the pinned native readers with isolated synthetic settings
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - -i
+              - --network=none
+              - --read-only
+              - --tmpfs=/tmp:rw,size=128m,mode=1777
+              - --user=1000:1000
+              - --env=CONFIG_DIR=/tmp/config
+              - --env=LOG_ROOT=/tmp/logs
+              - --entrypoint=python
+              - "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../../services/servarr.yml') | from_yaml).services.shelfmark.image }}"
+              - -c
+              - |
+                import json, pathlib, sys
+                expected = json.load(sys.stdin)
+                root = pathlib.Path('/tmp/config/plugins')
+                root.mkdir(parents=True)
+                for tab, values in expected.items():
+                    (root / (tab + '.json')).write_text(json.dumps(values))
+                from shelfmark.core.config import config
+                for values in expected.values():
+                    for key, value in values.items():
+                        assert config.get(key) == value, key
+                        assert not config.is_from_env(key), key
+                print('pinned_shelfmark_native_readers=verified')
+            stdin: "{{ shelfmark_settings_merged | to_json }}"
+          changed_when: false
+          when: shelfmark_runtime_test | default(false) | bool
+
+        - name: Simulate an unrelated concurrent settings edit
+          ansible.builtin.copy:
+            dest: "{{ shelfmark_config_root }}/plugins/prowlarr_clients.json"
+            content: "{{ shelfmark_settings_merged.prowlarr_clients | combine({'QBITTORRENT_CATEGORY': 'concurrent-edit'}) | to_json }}"
+            mode: '0600'
+
+        - name: Require concurrent settings changes to refuse convergence
+          block:
+            - name: Exercise the production concurrent-edit guard
+              ansible.builtin.import_role:
+                name: shelfmark
+                tasks_from: guard-settings
+
+            - name: Fail if the concurrent edit was admitted
+              ansible.builtin.fail:
+                msg: Concurrent settings changes were accepted.
+          rescue:
+            - name: Require the actual guard refusal
+              ansible.builtin.assert:
+                that: >-
+                  ansible_failed_task.name in ['Refuse native settings path replacements after observation',
+                    'Refuse concurrent native settings edits rather than overwriting them']
+
+        - name: Simulate an invalid native JSON document
+          ansible.builtin.copy:
+            dest: "{{ shelfmark_config_root }}/plugins/prowlarr_clients.json"
+            content: '[]'
+            mode: '0600'
+
+        - name: Require non-object native settings to refuse convergence
+          block:
+            - name: Exercise the production native-format refusal
+              ansible.builtin.import_role:
+                name: shelfmark
+                tasks_from: read-settings
+
+            - name: Fail if the invalid native document was admitted
+              ansible.builtin.fail:
+                msg: Invalid native settings were accepted.
+          rescue:
+            - name: Require the actual native document admission refusal
+              ansible.builtin.assert:
+                that: ansible_failed_task.name == 'Require native JSON objects rather than replacing unknown documents'
+
+        - name: Remove one synthetic file before testing a symlink
+          ansible.builtin.file:
+            path: "{{ shelfmark_config_root }}/plugins/prowlarr_clients.json"
+            state: absent
+
+        - name: Simulate a retargeted native credential file
+          ansible.builtin.file:
+            path: "{{ shelfmark_config_root }}/plugins/prowlarr_clients.json"
+            src: "{{ shelfmark_config_root }}/plugins/prowlarr_config.json"
+            state: link
+
+        - name: Require retargeted credential files to refuse convergence
+          block:
+            - name: Exercise the production symlink refusal
+              ansible.builtin.import_role:
+                name: shelfmark
+                tasks_from: read-settings
+
+            - name: Fail if the retargeted native document was admitted
+              ansible.builtin.fail:
+                msg: A retargeted credential file was accepted.
+          rescue:
+            - name: Require the actual path admission refusal
+              ansible.builtin.assert:
+                that: ansible_failed_task.name == 'Refuse unsafe or uninitialized native settings paths'
+      always:
+        - name: Remove only the synthetic fixture
+          ansible.builtin.file:
+            path: "{{ shelfmark_fixture_root.path }}"
+            state: absent

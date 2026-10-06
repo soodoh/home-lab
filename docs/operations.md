@@ -244,9 +244,30 @@ See [device qualification](migrations.md#physical-kobo-continuity).
 
 Shelfmark at `shelfmark.diloreto.com` uses Authentik's operator-only embedded
 proxy and trusted username/group headers; `App Operators` maps to Shelfmark admin.
-It shares Gluetun's VPN namespace and publishes no host port. Configure source
-API keys and download-client credentials through Shelfmark's native settings;
-these mutable settings are protected in its backed-up `/config` directory.
+It shares Gluetun's VPN namespace and publishes no host port. Ansible merges
+Prowlarr's key from `production.sops.yaml` and qBittorrent's login/SABnzbd's key
+from `download-clients.sops.yaml` into native protected JSON settings. No new
+credential authority or OpenTofu resource is introduced. Compose/site deployment
+and native download-client credential convergence run the same consumer role.
+A narrow resync is available after fresh host/Compose/strict-backup admission:
+
+```sh
+ansible-playbook ansible/playbooks/converge-shelfmark.yml --check
+# Review the check and obtain separate approval:
+ansible-playbook ansible/playbooks/converge-shelfmark.yml -e shelfmark_apply_confirmed=true
+```
+
+Only the managed connection fields and client selectors are owned; indexers,
+source enablement, categories and import/seeding settings are preserved. Clear
+Shelfmark's qBittorrent API-key field so it cannot override the managed login.
+Check mode compares native files and tests desired credentials using isolated
+private copies, without writing live settings or restarting. Apply stops only Shelfmark when credentials or file permissions differ, guards against
+concurrent edits, atomically merges files as UID/GID 1000 mode 0600, starts it
+and verifies effective values with the pinned native connection tests. No downloads
+are submitted. Failure retains production ownership for inspection; do not
+blindly restart or reset settings. Settings remain in the backed-up `/config`
+directory, not Compose environment or OpenTofu state. Treat edits to managed
+fields in the UI as drift; other fields remain application-owned.
 Use qBittorrent categories `shelfmark` and `shelfmark-audiobooks`, without changing
 other applications' categories or existing torrents.
 
@@ -299,7 +320,8 @@ On an explicitly approved credential change, plan the Arr resources **before**
 rotating qBittorrent/SABnzbd. Then run
 `ansible-playbook ansible/playbooks/converge-download-clients.yml -e download_client_apply_confirmed=true`
 under the observed host/backup admission: it takes the production host lock,
-changes only credentials that differ, and verifies persistence/authentication.
+changes only credentials that differ, verifies persistence/authentication and
+syncs Shelfmark from those same authorities before releasing ownership.
 Immediately apply the reviewed saved Arr plan using the separate apply
 confirmation, then test every Sonarr, Radarr, Radarr-4k and Prowlarr download
 client and require a fresh no-op plan. These cross-application changes are **not
@@ -308,7 +330,8 @@ old credential when an apply fails. Preserve the lock and private evidence
 until live ownership and connectivity are resolved. An Arr application's
 **own** API key has a different order: `production.sops.yaml` is its single
 desired source for Compose and provider inputs. On an approved key rotation,
-converge Compose first so the application accepts the new key, then prepare a
+converge Compose first so the application accepts the new key and Shelfmark
+consumes it, then prepare a
 **new** private provider session and saved plan using that same SOPS revision;
 a saved plan made with the old provider key is not reusable. Prowlarr's
 application integration may briefly have the old key until its OpenTofu update.

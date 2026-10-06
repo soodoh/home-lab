@@ -1,0 +1,32 @@
+---
+- name: Atomically merge managed native settings without disclosing credentials
+  ansible.builtin.copy:
+    content: "{{ shelfmark_settings_merged[item] | to_nice_json }}\n"
+    dest: "{{ shelfmark_config_root }}/plugins/{{ item }}.json"
+    owner: "{{ shelfmark_uid }}"
+    group: "{{ shelfmark_gid }}"
+    mode: '0600'
+  loop: "{{ shelfmark_settings.keys() | list }}"
+  when: >-
+    shelfmark_settings_current[item] != shelfmark_settings_merged[item] or
+    (shelfmark_settings_metadata.results | selectattr('item', 'equalto', shelfmark_config_root ~ '/plugins/' ~ item ~ '.json') |
+     first).stat.mode != '0600'
+  become: true
+  register: shelfmark_settings_written
+  diff: false
+  no_log: true
+
+- name: Read back the protected settings after native replacement
+  ansible.builtin.slurp:
+    src: "{{ shelfmark_config_root }}/plugins/{{ item }}.json"
+  loop: "{{ shelfmark_settings.keys() | list }}"
+  become: true
+  register: shelfmark_settings_verified
+  no_log: true
+
+- name: Verify exact managed values and preservation of all unrelated native settings
+  ansible.builtin.assert:
+    that: (item.content | b64decode | from_json) == shelfmark_settings_merged[item.item]
+    fail_msg: Native Shelfmark settings readback differs; preserve production ownership for inspection.
+  loop: "{{ shelfmark_settings_verified.results }}"
+  no_log: true

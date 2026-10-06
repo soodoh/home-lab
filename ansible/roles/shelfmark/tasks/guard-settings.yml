@@ -1,0 +1,41 @@
+---
+- name: Reinspect managed settings paths while their application writer is stopped
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  loop: "{{ shelfmark_settings_metadata.results | map(attribute='item') | list }}"
+  become: true
+  register: shelfmark_settings_metadata_reread
+
+- name: Refuse native settings path replacements after observation
+  ansible.builtin.assert:
+    that:
+      - item.stat.inode == shelfmark_settings_metadata.results[index].stat.inode
+      - item.stat.dev == shelfmark_settings_metadata.results[index].stat.dev
+      - item.stat.uid == shelfmark_settings_metadata.results[index].stat.uid
+      - item.stat.gid == shelfmark_settings_metadata.results[index].stat.gid
+      - item.stat.mode == shelfmark_settings_metadata.results[index].stat.mode
+      - not (item.stat.islnk | default(false))
+      - not (item.stat.isreg | default(false)) or item.stat.nlink == 1
+    fail_msg: Shelfmark settings path metadata changed after observation; inspect the retained production owner.
+  loop: "{{ shelfmark_settings_metadata_reread.results }}"
+  loop_control:
+    index_var: index
+  no_log: true
+
+- name: Reread native settings while their application writer is stopped
+  ansible.builtin.slurp:
+    src: "{{ shelfmark_config_root }}/plugins/{{ item }}.json"
+  loop: "{{ shelfmark_settings.keys() | list }}"
+  become: true
+  register: shelfmark_settings_reread
+  no_log: true
+
+- name: Refuse concurrent native settings edits rather than overwriting them
+  ansible.builtin.assert:
+    that: (item.content | b64decode | from_json) == shelfmark_settings_current[item.item]
+    fail_msg: Shelfmark settings changed after observation; inspect the retained production owner.
+  loop: "{{ shelfmark_settings_reread.results }}"
+  no_log: true

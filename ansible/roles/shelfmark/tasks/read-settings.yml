@@ -1,0 +1,72 @@
+---
+- name: Inspect native settings paths without following links
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  loop: >-
+    {{ [shelfmark_config_root, shelfmark_config_root ~ '/plugins'] +
+       (shelfmark_settings.keys() | map('regex_replace', '^', shelfmark_config_root ~ '/plugins/') |
+        map('regex_replace', '$', '.json') | list) }}
+  become: true
+  register: shelfmark_settings_metadata
+
+- name: Refuse unsafe or uninitialized native settings paths
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid == shelfmark_uid
+      - item.stat.gid == shelfmark_gid
+      - >-
+        (item.stat.isdir | default(false) and item.stat.mode in ['0700', '0755']) or
+        (item.stat.isreg | default(false) and item.stat.nlink == 1 and item.stat.mode in ['0600', '0644'])
+      - item.item != shelfmark_config_root or item.stat.mode == '0700'
+    fail_msg: Inspect unsafe or uninitialized Shelfmark settings before convergence.
+  loop: "{{ shelfmark_settings_metadata.results }}"
+  no_log: true
+
+- name: Read only the managed native settings tabs
+  ansible.builtin.slurp:
+    src: "{{ shelfmark_config_root }}/plugins/{{ item }}.json"
+  loop: "{{ shelfmark_settings.keys() | list }}"
+  become: true
+  register: shelfmark_settings_content
+  no_log: true
+
+- name: Initialize the selective native settings merge
+  ansible.builtin.set_fact:
+    shelfmark_settings_current: {}
+    shelfmark_settings_merged: {}
+    shelfmark_settings_changed: false
+    cacheable: false
+  no_log: true
+
+- name: Require native JSON objects rather than replacing unknown documents
+  ansible.builtin.assert:
+    that: (item.content | b64decode | from_json) is mapping
+    fail_msg: Shelfmark settings must be valid native JSON objects.
+  loop: "{{ shelfmark_settings_content.results }}"
+  no_log: true
+
+- name: Merge only explicitly managed fields while retaining unrelated native settings
+  ansible.builtin.set_fact:
+    shelfmark_settings_current: >-
+      {{ shelfmark_settings_current | combine({item.item: item.content | b64decode | from_json}) }}
+    shelfmark_settings_merged: >-
+      {{ shelfmark_settings_merged | combine({item.item:
+         (item.content | b64decode | from_json) | combine(shelfmark_settings[item.item])}) }}
+    cacheable: false
+  loop: "{{ shelfmark_settings_content.results }}"
+  no_log: true
+
+- name: Detect semantic setting changes or credential-file permission changes
+  ansible.builtin.set_fact:
+    shelfmark_settings_changed: true
+  loop: "{{ shelfmark_settings.keys() | list }}"
+  when: >-
+    shelfmark_settings_current[item] != shelfmark_settings_merged[item] or
+    (shelfmark_settings_metadata.results | selectattr('item', 'equalto', shelfmark_config_root ~ '/plugins/' ~ item ~ '.json') |
+     first).stat.mode != '0600'
+  no_log: true
