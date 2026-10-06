@@ -16,13 +16,12 @@
       ]
     },
     "books": {
-      "services": ["grimmory", "grimmory-db", "tachidesk", "caro-tachidesk", "shelfmark"],
+      "services": ["grimmory", "grimmory-db", "tachidesk", "caro-tachidesk"],
       "paths": [
         "/srv/home-lab-state/grimmory-books",
         "/srv/home-lab-state/grimmory-data",
         "/srv/home-lab-state/grimmory-db-data",
         "/srv/home-lab-state/grimmory-bookdrop",
-        "/srv/home-lab-state/shelfmark-data",
         "/srv/home-lab-state/caro-tachidesk-data",
         "/srv/home-lab-state/tachidesk-data"
       ]
