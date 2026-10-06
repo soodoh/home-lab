@@ -19,18 +19,20 @@
 - name: Write only changed settings through native atomic file replacement
   ansible.builtin.include_tasks: write-settings.yml
 
-- name: Start only Shelfmark and require native healthy startup
+- name: Start Shelfmark with its complete native dependency model and require healthy startup
   community.docker.docker_compose_v2:
     project_src: "{{ compose_native_current_dir }}"
     project_name: "{{ compose_native_project_name }}"
     files: "{{ compose_native_files }}"
     env_files: ["{{ compose_native_runtime_env_path }}"]
     services: [shelfmark]
-    dependencies: false
+    # --no-deps drops dependency fields from the model/hash in Compose 2.26.
+    # Native auto preserves unchanged Gluetun while retaining the full model.
+    dependencies: true
     state: present
     pull: never
     build: never
-    recreate: never
+    recreate: auto
     remove_orphans: false
     wait: true
     wait_timeout: "{{ compose_native_wait_timeout }}"
