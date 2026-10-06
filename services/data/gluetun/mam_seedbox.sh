@@ -8,7 +8,7 @@ RESPONSE_FILE=/tmp/MAM.output
 # Use a small buffer before retrying.
 COOLDOWN_RETRY_MINS=${MAM_COOLDOWN_RETRY_MINS:-65}
 MAX_COOLDOWN_RETRIES=${MAM_MAX_COOLDOWN_RETRIES:-3}
-COOLDOWN_RETRY_LOCK_DIR=/tmp/MAM.cooldown-retry.lock
+COOLDOWN_RETRY_LOCK_FILE=/tmp/MAM.cooldown-retry.flock
 # Should persist between container restarts
 COOKIE_FILE=/gluetun/MAM.cookies
 TEMP_COOKIE_FILE=/tmp/MAM.cookies
@@ -74,19 +74,24 @@ schedule_cooldown_retry() {
     return 0
   fi
 
-  if ! mkdir "$COOLDOWN_RETRY_LOCK_DIR" 2>/dev/null; then
-    echo "$LOG_PREFIX A MAM cooldown retry is already scheduled; not scheduling another."
-    return 0
-  fi
-
-  echo "$LOG_PREFIX MAM cooldown active; scheduling retry attempt $next_attempt/$MAX_COOLDOWN_RETRIES in $sleep_seconds seconds."
   (
-    trap 'rmdir "$COOLDOWN_RETRY_LOCK_DIR" 2>/dev/null' EXIT INT TERM
-    sleep "$sleep_seconds"
-    rmdir "$COOLDOWN_RETRY_LOCK_DIR" 2>/dev/null
-    trap - EXIT INT TERM
-    MAM_RETRY_ATTEMPT=$next_attempt /bin/sh "$0"
-  ) &
+    # Kernel ownership survives for the worker's lifetime, not the file's.
+    # A killed hook/container cannot leave a stale lock after its processes exit.
+    exec 9>"$COOLDOWN_RETRY_LOCK_FILE" || exit 1
+    if ! flock -n 9; then
+      echo "$LOG_PREFIX A MAM cooldown retry is already scheduled; not scheduling another."
+      exit 0
+    fi
+
+    echo "$LOG_PREFIX MAM cooldown active; scheduling retry attempt $next_attempt/$MAX_COOLDOWN_RETRIES in $sleep_seconds seconds."
+    (
+      sleep "$sleep_seconds" || exit 1
+      # Release before re-entering so another cooldown can schedule its retry.
+      flock -u 9
+      exec 9>&-
+      MAM_RETRY_ATTEMPT=$next_attempt /bin/sh "$0"
+    ) &
+  )
 }
 
 # On first run, we need to create a new MAM_ID from myanonamouse's Security section

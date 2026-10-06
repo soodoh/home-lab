@@ -52,6 +52,7 @@ jobs:
           python scripts/test-wolf-security.py
           python scripts/test-compose-mounts.py
           python scripts/test-qbittorrent-password.py
+          python scripts/test-mam-seedbox.py
           python scripts/test-servarr-variables.py
           scripts/test-recovery-tools
 
