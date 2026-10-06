@@ -20,6 +20,7 @@ compose_native_apply_operation: compose-native-deploy
 compose_native_sops_file: "{{ compose_native_controller_root }}/secrets/production.sops.yaml"
 compose_native_authentik_sops_file: "{{ compose_native_controller_root }}/infrastructure/tofu/authentik/client-secrets.sops.json"
 compose_native_authentik_desired_file: "{{ compose_native_controller_root }}/infrastructure/tofu/authentik/desired.json"
+compose_native_servarr_sops_file: "{{ compose_native_controller_root }}/secrets/servarr.sops.yaml"
 compose_native_cli_proxy_sops_file: "{{ compose_native_controller_root }}/secrets/cli-proxy-api.sops.yaml"
 compose_native_cli_proxy_config_path: /etc/docker-compose/credentials/cli-proxy-api-config.yaml
 compose_native_sops_binary: sops
@@ -32,6 +33,7 @@ compose_native_source_paths:
   - services
   - secrets/production.sops.yaml
   - secrets/download-clients.sops.yaml
+  - secrets/servarr.sops.yaml
   - secrets/cli-proxy-api.sops.yaml
   - infrastructure/tofu/authentik/client-secrets.sops.json
   - infrastructure/tofu/authentik/desired.json

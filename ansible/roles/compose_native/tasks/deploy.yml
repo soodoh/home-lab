@@ -583,6 +583,7 @@
         compose_native_production_secrets: {}
         compose_native_production_dotenv: ''
         compose_native_oidc_secrets: {}
+        compose_native_servarr_secrets: {}
         compose_native_cli_proxy_secrets: {}
         compose_native_raw_credentials: {}
         compose_native_structured_credentials: {}

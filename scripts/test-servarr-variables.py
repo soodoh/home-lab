@@ -17,10 +17,11 @@ class ProviderInputTest(unittest.TestCase):
         production = {f"{name}_API_KEY": name for name in inputs.KEYS}
         production["RADARR_URL"] = "http://gluetun:7878"
         clients = {"qbittorrent_username": "admin", "qbittorrent_password": "long secret", "sabnzbd_api_key": "key"}
-        additional = {"root_folders": {"sonarr": {"7": "/data/media/tv"}}, "indexers": {"5": {"cookie": "protected"}}}
+        additional = {"root_folders": {"sonarr": {"7": "/data/media/tv"}}, "indexers": {"5": {"cookie": "protected"}, "8": {"mamId": "synthetic-mam-id"}}}
         result = inputs.build_inputs(production, clients, additional)
         self.assertEqual(result["radarr_4k_api_key"], "RADARR_4K")
         self.assertEqual(result["indexer_secrets"]["5"]["cookie"], "protected")
+        self.assertEqual(result["indexer_secrets"]["8"]["mamId"], "synthetic-mam-id")
         self.assertNotIn("MEDIA_PATH", result)
         self.assertEqual(result["radarr_internal_url"], "http://gluetun:7878")
         self.assertEqual(len(result), 10)

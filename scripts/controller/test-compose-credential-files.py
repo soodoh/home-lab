@@ -86,6 +86,11 @@ class ComposeDelivery(unittest.TestCase):
         self.assertNotIn("AWS_ACCESS_KEY_ID", private["environment"])
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", private["environment"])
         self.assertNotIn("secrets", services["traefik"])
+        gluetun = services["gluetun"]
+        self.assertEqual(gluetun["environment"]["MAM_ID_FILE"], "/run/secrets/mam_initial_id")
+        self.assertNotIn("MAM_ID", gluetun["environment"])
+        self.assertEqual([name for name, service in services.items()
+                          if any(s["source"] == "mam_initial_id" for s in service.get("secrets", []))], ["gluetun"])
 
     def test_recyclarr_uses_read_only_configuration_and_writable_native_state(self):
         service = self.model["services"]["recyclarr"]
@@ -151,7 +156,7 @@ class NativeFileRendering(unittest.TestCase):
             for item in credentials["files"]:
                 item.update(path=str(work / Path(item["path"]).name), owner=uid, group=gid)
             production = {key: "synthetic-" + key for key in credentials["environment_keys"]}
-            production.update({item["key"]: 'synthetic-$value-"quoted"-\\tail' for item in credentials["files"] if "key" in item and item["key"] != "VAULTWARDEN_SSO_CLIENT_SECRET"})
+            production.update({item["key"]: 'synthetic-$value-"quoted"-\\tail' for item in credentials["files"] if "key" in item and item["key"] not in {"VAULTWARDEN_SSO_CLIENT_SECRET", "MAM_INITIAL_ID"}})
             production["TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID"] = "ASYNTHETICKEY12345678"
             production["TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY"] = "SyntheticKey/With+Base64=Characters12345678"
             tasks = yaml.safe_load((ROOT / "ansible/roles/compose_native/tasks/credentials.yml").read_text())[1:]
@@ -176,7 +181,8 @@ class NativeFileRendering(unittest.TestCase):
                 "tasks": [
                     {"name": "Provide only synthetic authority input", "ansible.builtin.set_fact": {
                         "compose_native_production_secrets": "{{ test_source_values }}",
-                        "compose_native_production_dotenv": "{{ test_source_dotenv }}"}, "no_log": True},
+                        "compose_native_production_dotenv": "{{ test_source_dotenv }}",
+                        "compose_native_servarr_secrets": "{{ test_servarr_values }}"}, "no_log": True},
                     {"name": "Run native file tasks", "ansible.builtin.include_tasks": str(tasks_path)},
                 ],
             }]
@@ -184,9 +190,10 @@ class NativeFileRendering(unittest.TestCase):
             playbook_path.write_text(yaml.safe_dump(playbook, sort_keys=False))
             variable_path = work / "input.json"
 
-            def render(values):
+            def render(values, mam_id="synthetic-mam-id", expected_status=0):
                 variable_path.write_text(json.dumps({
                     "test_source_values": values,
+                    "test_servarr_values": {"indexers": {"8": {"mamId": mam_id}}},
                     "test_source_dotenv": "".join(key + "=" + json.dumps(value) + "\n" for key, value in values.items()),
                 }))
                 environment = os.environ.copy()
@@ -195,7 +202,7 @@ class NativeFileRendering(unittest.TestCase):
                     ["ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook_path), "-e", "@" + str(variable_path)],
                     cwd=ROOT, env=environment, capture_output=True, text=True,
                 )
-                self.assertEqual(result.returncode, 0, "Synthetic native Ansible rendering failed: " + result.stdout + result.stderr)
+                self.assertEqual(result.returncode, expected_status, "Synthetic native Ansible rendering failed: " + result.stdout + result.stderr)
                 return result.stdout
 
             first = render(production)
@@ -204,7 +211,8 @@ class NativeFileRendering(unittest.TestCase):
                 path = Path(item["path"])
                 self.assertEqual(path.stat().st_mode & 0o777, int(item["mode"], 8))
                 if "key" in item:
-                    expected = "s" * 64 if item["key"] == "VAULTWARDEN_SSO_CLIENT_SECRET" else production[item["key"]]
+                    expected = {"VAULTWARDEN_SSO_CLIENT_SECRET": "s" * 64,
+                                "MAM_INITIAL_ID": "synthetic-mam-id"}.get(item["key"], production.get(item["key"]))
                     self.assertEqual(path.read_bytes(), expected.encode())
             aws = configparser.ConfigParser()
             aws.read(work / "traefik-tailnet-aws-credentials")
@@ -229,9 +237,22 @@ class NativeFileRendering(unittest.TestCase):
             self.assertIn("credential_files_changed=True", third)
             self.assertEqual(raw_path.read_text(), "synthetic-replacement")
             self.assertNotEqual(raw_path.stat().st_ino, inode)
+            mam_path = work / "mam-initial-id"
+            inode = mam_path.stat().st_ino
+            rotated = render(production, mam_id="replacement-mam-id")
+            self.assertIn("credential_files_changed=True", rotated)
+            self.assertEqual(mam_path.read_text(), "replacement-mam-id")
+            self.assertNotEqual(mam_path.stat().st_ino, inode)
+            for invalid in ["", "bad\nid", "bad\tid", "mam_id=wrong-format"]:
+                render(production, mam_id=invalid, expected_status=2)
+                self.assertEqual(mam_path.read_text(), "replacement-mam-id")
+            for duplicate in ["MAM_ID", "MAM_INITIAL_ID"]:
+                render({**production, duplicate: "duplicate-id"}, expected_status=2)
+                self.assertEqual(mam_path.read_text(), "replacement-mam-id")
             # Unsafe existing file metadata must be refused before any rewriting.
             raw_path.chmod(0o644)
             variable_path.write_text(json.dumps({"test_source_values": production,
+                "test_servarr_values": {"indexers": {"8": {"mamId": "replacement-mam-id"}}},
                 "test_source_dotenv": "".join(k + "=" + json.dumps(v) + "\n" for k, v in production.items())}))
             refused = subprocess.run(["ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook_path), "-e", "@" + str(variable_path)],
                 cwd=ROOT, env={**os.environ, "ANSIBLE_CONFIG": str(ROOT / "ansible/ansible.cfg"), "ANSIBLE_NOCOLOR": "1"}, capture_output=True)

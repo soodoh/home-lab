@@ -104,6 +104,7 @@ services:
     environment:
       TZ: $TZ
       VPN_PORT_FORWARDING_UP_COMMAND: /bin/sh /scripts/gluetun_up.sh
+      MAM_ID_FILE: /run/secrets/mam_initial_id
       VPN_TYPE: openvpn
       OPENVPN_USER_SECRETFILE: /run/secrets/openvpn_user
       OPENVPN_PASSWORD_SECRETFILE: /run/secrets/openvpn_password
@@ -117,6 +118,7 @@ services:
     secrets:
       - openvpn_user
       - openvpn_password
+      - mam_initial_id
     networks:
       - proxy
       - arr_network
@@ -383,6 +385,8 @@ secrets:
     file: /etc/docker-compose/credentials/openvpn-user
   openvpn_password:
     file: /etc/docker-compose/credentials/openvpn-password
+  mam_initial_id:
+    file: /etc/docker-compose/credentials/mam-initial-id
   sonarr_api_key:
     file: /etc/docker-compose/credentials/sonarr-api-key
   radarr_api_key:

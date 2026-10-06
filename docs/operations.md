@@ -348,6 +348,31 @@ must preserve the top-level root and must not treat the empty field list as
 permission to change it. Disabled metadata providers remain application
 defaults, not managed resources.
 
+### MAM session bootstrap and rotation
+
+`secrets/servarr.sops.yaml` owns the initial MAM session ID at
+`indexers["8"].mamId` for both consumers. Create a replacement session under
+MAM Preferences → Security for the current VPN exit IP/ASN, permitting dynamic
+seedbox IP updates, then edit only this field with SOPS. Store the raw ID, not
+`mam_id=...`. Never put it in shell history or print decrypted content.
+
+After reviewed committed source and fresh host/Compose/backup admission, prepare
+a private Servarr saved plan using this SOPS revision. Review the complete plan,
+including the enabled MAM indexer. Separately approve Compose convergence to
+install Gluetun's protected bootstrap file, and separately approve the reviewed
+Servarr apply to update Prowlarr. These are sequential, not atomic. Verify the MAM
+hook succeeds without printing cookies, run Prowlarr's native indexer test, and
+require a fresh no-op Servarr plan before declaring rotation complete.
+
+Gluetun bootstraps a missing jar or changed initial ID on its next port-forward
+hook, atomically publishing only a successful response with a session cookie.
+Unchanged initial IDs preserve refreshed cookies across restarts. An explicit
+session rejection permits one retry with the initial ID; network errors and
+cooldowns do not. Persistent rejection requires replacing the SOPS ID, not
+clearing the jar or retrying an expired credential indefinitely. Prowlarr retains
+its native cookie refresh behavior; no runtime cookie synchronization or SOPS
+write-back is performed. Bootstrap delivery is not proof of live MAM validity.
+
 ### Independently owned AWS identities
 
 The normal inspector refuses managed IAM/Roles Anywhere changes and drift. A

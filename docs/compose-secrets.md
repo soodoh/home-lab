@@ -215,8 +215,17 @@ These are not included as additional passwords/API keys in the count:
 - Home Assistant OIDC `!secret`, qBittorrent/SABnzbd credentials, DDNS provider
   credentials, Mosquitto password files and application database secrets are
   separate owners. This inventory does not imply those systems are secret-free.
-- Gluetun's MAM session uses a cookie file. `MAM_ID` is an optional manual
-  bootstrap input to its hook, not a declared Compose credential.
+- Gluetun and Prowlarr share the initial MAM ID at
+  `indexers["8"].mamId` in `secrets/servarr.sops.yaml`. OpenTofu supplies
+  Prowlarr's `mamId`; Ansible derives the root-only `mam-initial-id` file and
+  Compose grants only Gluetun the `mam_initial_id` secret, read through
+  `MAM_ID_FILE`. No duplicate SOPS value or secret environment variable is used.
+  Each consumer maintains its own refreshed cookies. Gluetun's protected jar
+  retains a bootstrap-generation comment so unchanged inputs preserve refreshed
+  cookies, while missing jars or deliberate SOPS changes bootstrap anew. An
+  explicit session rejection permits one bootstrap retry; failed requests never
+  replace the existing jar. An expired/revoked initial ID still requires a new
+  MAM session and convergence of both consumers; see [rotation](operations.md#mam-session-bootstrap-and-rotation).
 - The previous whole-source dotenv export also included SOPS keys **not injected by Compose**:
   `LIDARR_API_KEY`, `NEXTCLOUD_DB_PASSWORD`, `NEXTCLOUD_DB_ROOT_PASSWORD`,
   `RESTIC_LOCAL_PASSWORD`, `RESTIC_PROTON_PASSWORD`, `PROTON_BACKUP_PASSWORD`

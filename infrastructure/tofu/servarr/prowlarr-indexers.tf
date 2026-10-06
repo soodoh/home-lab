@@ -27,7 +27,7 @@ resource "prowlarr_indexer" "myanonamouse" {
   config_contract = "MyAnonamouseSettings"
   protocol        = "torrent"
   app_profile_id  = 1
-  enable          = false
+  enable          = true
   priority        = 3
   redirect        = false
   tags            = [5]
