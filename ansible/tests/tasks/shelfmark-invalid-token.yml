@@ -1,0 +1,21 @@
+---
+- name: Bind an invalid synthetic token without altering other credentials
+  ansible.builtin.set_fact:
+    shelfmark_production_secrets: >-
+      {{ (shelfmark_valid_production_secrets | dict2items |
+          rejectattr('key', 'equalto', 'HARDCOVER_API_KEY') | items2dict) | combine(shelfmark_invalid_token) }}
+
+- name: Require invalid Hardcover credentials to fail before settings are bound
+  block:
+    - name: Exercise the production token validation seam
+      ansible.builtin.include_role:
+        name: shelfmark
+        tasks_from: bind-settings
+
+    - name: Fail if the invalid token was admitted
+      ansible.builtin.fail:
+        msg: An invalid Hardcover token was accepted.
+  rescue:
+    - name: Require the actual credential admission refusal
+      ansible.builtin.assert:
+        that: ansible_failed_task.name == 'Require complete existing credentials without rotating them'

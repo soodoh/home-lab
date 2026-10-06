@@ -23,38 +23,8 @@
         cacheable: false
       no_log: true
 
-    - name: Require complete existing credentials without rotating them
-      ansible.builtin.assert:
-        that:
-          - shelfmark_production_secrets.PROWLARR_API_KEY is string
-          - shelfmark_production_secrets.PROWLARR_API_KEY | length >= 32
-          - shelfmark_client_secrets.qbittorrent_username is string
-          - shelfmark_client_secrets.qbittorrent_username | length > 0
-          - shelfmark_client_secrets.qbittorrent_password is string
-          - shelfmark_client_secrets.qbittorrent_password | length >= 32
-          - shelfmark_client_secrets.sabnzbd_api_key is string
-          - shelfmark_client_secrets.sabnzbd_api_key | length >= 32
-        fail_msg: Shelfmark must consume the existing production and download-client authorities.
-      no_log: true
-
-    - name: Bind only the managed native connection fields
-      ansible.builtin.set_fact:
-        shelfmark_settings:
-          prowlarr_config:
-            PROWLARR_URL: http://localhost:9696
-            PROWLARR_API_KEY: "{{ shelfmark_production_secrets.PROWLARR_API_KEY }}"
-          prowlarr_clients:
-            PROWLARR_TORRENT_CLIENT: qbittorrent
-            QBITTORRENT_URL: http://localhost:8081
-            QBITTORRENT_USERNAME: "{{ shelfmark_client_secrets.qbittorrent_username }}"
-            QBITTORRENT_PASSWORD: "{{ shelfmark_client_secrets.qbittorrent_password }}"
-            # A stale API key would take precedence over the selected login.
-            QBITTORRENT_API_KEY: ''
-            PROWLARR_USENET_CLIENT: sabnzbd
-            SABNZBD_URL: http://localhost:8080
-            SABNZBD_API_KEY: "{{ shelfmark_client_secrets.sabnzbd_api_key }}"
-        cacheable: false
-      no_log: true
+    - name: Validate credentials and bind only managed native connection fields
+      ansible.builtin.include_tasks: bind-settings.yml
 
     - name: Read the persisted qBittorrent login without exposing it
       ansible.builtin.slurp:

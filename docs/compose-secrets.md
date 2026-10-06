@@ -167,11 +167,14 @@ rotates an actual network key. [Z1, Z2, Z4]
 ## Shelfmark native connection settings
 
 Shelfmark v1.4.0 has no per-secret `_FILE` reader. Ansible merges only managed
-fields into its native `/config/plugins/prowlarr_config.json` and
-`prowlarr_clients.json`, preserving unrelated settings. Files belong to UID/GID
-1000 with mode 0600 under the private, backed-up config directory. Prowlarr uses
-the existing production SOPS key; qBittorrent login and SABnzbd use the existing
-download-client SOPS authority. No secret is supplied through Compose environment.
+fields into its native `/config/plugins/prowlarr_config.json`,
+`prowlarr_clients.json` and `hardcover.json`, preserving unrelated settings.
+Files belong to UID/GID 1000 with mode 0600 under the private, backed-up config
+directory. Prowlarr uses the existing production SOPS key; Hardcover uses the
+raw production SOPS `HARDCOVER_API_KEY` without an authorization-header prefix
+or whitespace. qBittorrent login and SABnzbd use the existing download-client
+SOPS authority. Hardcover enablement and sort/list settings remain
+application-owned. No secret is supplied through Compose environment.
 The native reader gives environment values precedence, so connection qualification
 checks exact effective values as well as authentication.
 
@@ -185,8 +188,9 @@ reader with synthetic secrets, including escaping, field preservation, idempoten
 and unsafe/concurrent-file refusals.
 
 Pinned source: [settings-file loading and environment precedence](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/core/settings_registry.py),
-[download-client settings](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/download/clients/settings.py)
-and [Prowlarr settings](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/release_sources/prowlarr/settings.py).
+[download-client settings](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/download/clients/settings.py),
+[Prowlarr settings](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/release_sources/prowlarr/settings.py)
+and [Hardcover settings and account test](https://github.com/calibrain/shelfmark/blob/v1.4.0/shelfmark/metadata_providers/hardcover.py).
 
 ## Credential-adjacent inputs
 

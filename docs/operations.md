@@ -245,8 +245,11 @@ See [device qualification](migrations.md#physical-kobo-continuity).
 Shelfmark at `shelfmark.diloreto.com` uses Authentik's operator-only embedded
 proxy and trusted username/group headers; `App Operators` maps to Shelfmark admin.
 It shares Gluetun's VPN namespace and publishes no host port. Ansible merges
-Prowlarr's key from `production.sops.yaml` and qBittorrent's login/SABnzbd's key
-from `download-clients.sops.yaml` into native protected JSON settings. No new
+Prowlarr's key and Hardcover's `HARDCOVER_API_KEY` from `production.sops.yaml`
+and qBittorrent's login/SABnzbd's key from `download-clients.sops.yaml` into
+native protected JSON settings. Store the raw Hardcover token from
+`https://hardcover.app/account/api`, without `Bearer ` or whitespace; edit it
+with `sops edit secrets/production.sops.yaml` for subsequent rotations. No new
 credential authority or OpenTofu resource is introduced. Compose/site deployment
 and native download-client credential convergence run the same consumer role.
 A narrow resync is available after fresh host/Compose/strict-backup admission:
@@ -258,13 +261,16 @@ ansible-playbook ansible/playbooks/converge-shelfmark.yml -e shelfmark_apply_con
 ```
 
 Only the managed connection fields and client selectors are owned; indexers,
-source enablement, categories and import/seeding settings are preserved. Clear
+source enablement (including `HARDCOVER_ENABLED`), Hardcover sort/list settings,
+categories and import/seeding settings are preserved. Clear
 Shelfmark's qBittorrent API-key field so it cannot override the managed login.
 Check mode compares native files and tests desired credentials using isolated
 private copies, without writing live settings or restarting. Apply stops only Shelfmark when credentials or file permissions differ, guards against
 concurrent edits, atomically merges files as UID/GID 1000 mode 0600, starts it
-and verifies effective values with the pinned native connection tests. No downloads
-are submitted. Failure retains production ownership for inspection; do not
+and verifies effective values with the pinned native connection tests, including
+Hardcover's read-only `me` query. Its connection test updates user metadata only
+in the isolated verification copy, never live settings. No downloads are
+submitted. Failure retains production ownership for inspection; do not
 blindly restart or reset settings. Settings remain in the backed-up `/config`
 directory, not Compose environment or OpenTofu state. Treat edits to managed
 fields in the UI as drift; other fields remain application-owned.

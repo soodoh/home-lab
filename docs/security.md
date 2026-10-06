@@ -46,13 +46,16 @@ certificates are not secret. Its private-key export must be readable by the plan
 both decrypted secret inputs, state and plans remain protected. Discovery-owned
 signing certificates must not acquire a competing writer; see
 [Authentik ownership](authentik-ownership.md).
-Shelfmark consumes the existing Prowlarr key and download-client credentials
+Shelfmark consumes the existing Prowlarr key, Hardcover token
+(`HARDCOVER_API_KEY` in production SOPS) and download-client credentials
 through Ansible-managed fields in its native settings JSON, protected as
 UID/GID 1000 mode 0600 inside its backed-up private config directory. The role
 preserves unrelated fields, stops only Shelfmark for changed files and tests
 the native reader against an ephemeral private copy: importing that reader
-otherwise writes environment defaults back into live settings. No new credential
-authority, secret environment variables or OpenTofu state fields are added.
+otherwise writes environment defaults back into live settings. Hardcover's
+read-only account test also updates connection metadata only in that private
+copy; source enablement and unrelated settings remain application-owned.
+No new credential authority, secret environment variables or OpenTofu state fields are added.
 
 Compose deployment decrypts SOPS inputs through `community.sops` on the controller; provide
 the age identity through `SOPS_AGE_KEY_FILE`. The identity is never copied into Git

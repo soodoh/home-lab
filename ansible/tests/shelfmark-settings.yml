@@ -4,20 +4,23 @@
   hosts: "{{ shelfmark_test_host | default('localhost') }}"
   gather_facts: false
   vars:
-    shelfmark_settings:
-      prowlarr_config:
-        PROWLARR_API_KEY: 'synthetic-prowlarr'
-        PROWLARR_URL: http://localhost:9696
-      prowlarr_clients:
-        QBITTORRENT_USERNAME: synthetic
-        QBITTORRENT_PASSWORD: |
-          synthetic "quotes" $dollar \backslash
-          next line
-        QBITTORRENT_API_KEY: ''
-        SABNZBD_API_KEY: synthetic-sab
-        PROWLARR_TORRENT_CLIENT: qbittorrent
-        PROWLARR_USENET_CLIENT: sabnzbd
+    shelfmark_production_secrets:
+      PROWLARR_API_KEY: synthetic-prowlarr-key-long-enough
+      HARDCOVER_API_KEY: 'hc_pat_synthetic"quotes"$dollar\backslash'
+    shelfmark_client_secrets:
+      qbittorrent_username: synthetic
+      qbittorrent_password: |
+        synthetic "quotes" $dollar \backslash
+        next line
+      sabnzbd_api_key: synthetic-sabnzbd-key-long-enough-32
     shelfmark_fixture:
+      hardcover:
+        HARDCOVER_API_KEY: stale
+        HARDCOVER_ENABLED: false
+        HARDCOVER_DEFAULT_SORT: newest
+        HARDCOVER_AUTO_REMOVE_ON_DOWNLOAD: false
+        _connected_user_id: '42'
+        _connected_username: preserve-user
       prowlarr_config:
         PROWLARR_API_KEY: stale
         PROWLARR_INDEXERS: [3, 7]
@@ -33,6 +36,7 @@
       ansible.builtin.tempfile:
         state: directory
         prefix: shelfmark-settings-test.
+        path: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}"
       register: shelfmark_fixture_root
 
     - name: Inspect the fixture identity
@@ -62,6 +66,17 @@
             mode: '0644'
           loop: "{{ shelfmark_fixture | dict2items }}"
 
+        - name: Exercise the production credential validation and binding seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: bind-settings
+
+        - name: Require the production token binding
+          ansible.builtin.assert:
+            that:
+              - shelfmark_settings.hardcover.HARDCOVER_API_KEY == shelfmark_production_secrets.HARDCOVER_API_KEY
+              - shelfmark_settings.hardcover.keys() | list == ['HARDCOVER_API_KEY']
+
         - name: Exercise the production read and merge seam
           ansible.builtin.import_role:
             name: shelfmark
@@ -85,6 +100,8 @@
           ansible.builtin.assert:
             that:
               - shelfmark_settings_written.changed
+              - shelfmark_settings_merged.hardcover.HARDCOVER_API_KEY == shelfmark_production_secrets.HARDCOVER_API_KEY
+              - shelfmark_settings_merged.hardcover == shelfmark_fixture.hardcover | combine(shelfmark_settings.hardcover)
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_PASSWORD == shelfmark_settings.prowlarr_clients.QBITTORRENT_PASSWORD
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_API_KEY == ''
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY == 'preserve-category'
@@ -109,6 +126,52 @@
           ansible.builtin.assert:
             that: not shelfmark_settings_written.changed
 
+        - name: Rotate only the synthetic Hardcover token
+          ansible.builtin.set_fact:
+            shelfmark_production_secrets: "{{ shelfmark_production_secrets | combine({'HARDCOVER_API_KEY': 'hc_pat_rotated-synthetic-token'}) }}"
+
+        - name: Bind the rotated synthetic token using the production seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: bind-settings
+
+        - name: Observe the token-only rotation using the production seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: read-settings
+
+        - name: Require token-only drift detection
+          ansible.builtin.assert:
+            that:
+              - shelfmark_settings_changed
+              - shelfmark_settings_current.prowlarr_config == shelfmark_settings_merged.prowlarr_config
+              - shelfmark_settings_current.prowlarr_clients == shelfmark_settings_merged.prowlarr_clients
+
+        - name: Guard the token-only rotation using the production seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: guard-settings
+
+        - name: Write the rotated token using the production seam
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: write-settings
+
+        - name: Require only the token file to change and preserve application-owned fields
+          ansible.builtin.assert:
+            that:
+              - shelfmark_settings_written.results | selectattr('changed') | map(attribute='item') | list == ['hardcover']
+              - shelfmark_settings_merged.hardcover == shelfmark_fixture.hardcover | combine(shelfmark_settings.hardcover)
+
+        - name: Observe again after token rotation
+          ansible.builtin.import_role:
+            name: shelfmark
+            tasks_from: read-settings
+
+        - name: Require token rotation idempotency
+          ansible.builtin.assert:
+            that: not shelfmark_settings_changed
+
         - name: Qualify the pinned native readers with isolated synthetic settings
           ansible.builtin.command:
             argv:
@@ -127,6 +190,7 @@
               - -c
               - |
                 import json, pathlib, sys
+                from unittest.mock import patch
                 expected = json.load(sys.stdin)
                 root = pathlib.Path('/tmp/config/plugins')
                 root.mkdir(parents=True)
@@ -135,17 +199,51 @@
                 from shelfmark.core.config import config
                 for values in expected.values():
                     for key, value in values.items():
-                        assert config.get(key) == value, key
-                        assert not config.is_from_env(key), key
+                        # Connection metadata is not a registered config setting.
+                        if not key.startswith('_'):
+                            assert config.get(key) == value, key
+                            assert not config.is_from_env(key), key
+                assert json.loads((root / 'hardcover.json').read_text()) == expected['hardcover']
+                from shelfmark.metadata_providers.hardcover import HardcoverProvider, _test_hardcover_connection
+                # Qualify the native read-only API probe without external requests.
+                with patch.object(HardcoverProvider, '_execute_query', return_value={'me': [{'id': 99, 'username': 'synthetic-user'}]}) as query:
+                    assert _test_hardcover_connection()['success']
+                    query.assert_called_once_with('query { me { id, username } }', {})
+                persisted = json.loads((root / 'hardcover.json').read_text())
+                assert persisted['HARDCOVER_API_KEY'] == expected['hardcover']['HARDCOVER_API_KEY']
+                assert persisted['_connected_user_id'] == '99'
+                assert persisted['_connected_username'] == 'synthetic-user'
+                for key in ('HARDCOVER_ENABLED', 'HARDCOVER_DEFAULT_SORT', 'HARDCOVER_AUTO_REMOVE_ON_DOWNLOAD'):
+                    assert persisted[key] == expected['hardcover'][key], key
                 print('pinned_shelfmark_native_readers=verified')
             stdin: "{{ shelfmark_settings_merged | to_json }}"
           changed_when: false
           when: shelfmark_runtime_test | default(false) | bool
 
-        - name: Simulate an unrelated concurrent settings edit
+        - name: Preserve valid synthetic production credentials
+          ansible.builtin.set_fact:
+            shelfmark_valid_production_secrets: "{{ shelfmark_production_secrets }}"
+
+        - name: Require missing malformed and header-prefixed tokens to refuse binding
+          ansible.builtin.include_tasks: tasks/shelfmark-invalid-token.yml
+          loop:
+            - {}
+            - {HARDCOVER_API_KEY: null}
+            - {HARDCOVER_API_KEY: ''}
+            - {HARDCOVER_API_KEY: "hc_pat_token\nnext-line"}
+            - {HARDCOVER_API_KEY: 'hc_pat_token '}
+            - {HARDCOVER_API_KEY: 'Bearer hc_pat_token'}
+          loop_control:
+            loop_var: shelfmark_invalid_token
+
+        - name: Restore valid synthetic production credentials
+          ansible.builtin.set_fact:
+            shelfmark_production_secrets: "{{ shelfmark_valid_production_secrets }}"
+
+        - name: Simulate an unrelated concurrent Hardcover settings edit
           ansible.builtin.copy:
-            dest: "{{ shelfmark_config_root }}/plugins/prowlarr_clients.json"
-            content: "{{ shelfmark_settings_merged.prowlarr_clients | combine({'QBITTORRENT_CATEGORY': 'concurrent-edit'}) | to_json }}"
+            dest: "{{ shelfmark_config_root }}/plugins/hardcover.json"
+            content: "{{ shelfmark_settings_merged.hardcover | combine({'HARDCOVER_DEFAULT_SORT': 'rating'}) | to_json }}"
             mode: '0600'
 
         - name: Require concurrent settings changes to refuse convergence

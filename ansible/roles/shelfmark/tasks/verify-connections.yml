@@ -31,11 +31,15 @@
                 from shelfmark.core.config import config
                 from shelfmark.download.clients.settings import _test_qbittorrent_connection, _test_sabnzbd_connection
                 from shelfmark.release_sources.prowlarr.settings import _test_prowlarr_connection
+                from shelfmark.metadata_providers.hardcover import _test_hardcover_connection
                 for fields in payload['expected'].values():
                     for key, value in fields.items():
                         if config.get(key) != value:
                             raise ValueError('effective setting differs')
-                for test in (_test_qbittorrent_connection, _test_sabnzbd_connection, _test_prowlarr_connection):
+                # Hardcover also saves connection metadata, but only in this private copy.
+                tests = (_test_qbittorrent_connection, _test_sabnzbd_connection,
+                         _test_prowlarr_connection, _test_hardcover_connection)
+                for test in tests:
                     if not test().get('success'):
                         raise ValueError('native connection test failed')
             print('shelfmark_connections=verified')
