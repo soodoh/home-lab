@@ -1,0 +1,107 @@
+---
+# Native regression for dependency-aware startup after credential-file updates.
+# Uses an isolated project, no SOPS, production mounts or published ports.
+- name: Qualify native Shelfmark dependency-scoped startup
+  hosts: "{{ shelfmark_test_host | default('localhost') }}"
+  gather_facts: false
+  tasks:
+    - name: Allocate an isolated Compose regression fixture
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: shelfmark-compose-test.
+      register: shelfmark_compose_fixture
+
+    - name: Exercise actual Compose restart and full-project no-op behavior
+      vars:
+        shelfmark_fixture_project: "shelfmark-test-{{ shelfmark_compose_fixture.path | basename | hash('sha1') | truncate(10, true, '') }}"
+      block:
+        - name: Write the synthetic dependency-aware model
+          ansible.builtin.copy:
+            dest: "{{ shelfmark_compose_fixture.path }}/compose.json"
+            mode: '0600'
+            content: >-
+              {{ {'services': {
+                'gluetun': {
+                  'image': (lookup('ansible.builtin.file', playbook_dir ~ '/../../services/servarr.yml') | from_yaml).services.gluetun.image,
+                  'entrypoint': ['/bin/sh', '-c', 'sleep 600'],
+                  'healthcheck': {'test': ['CMD', 'true'], 'interval': '1s'}},
+                'shelfmark': {
+                  'image': (lookup('ansible.builtin.file', playbook_dir ~ '/../../services/servarr.yml') | from_yaml).services.gluetun.image,
+                  'entrypoint': ['/bin/sh', '-c', 'sleep 600'],
+                  'healthcheck': {'test': ['CMD', 'true'], 'interval': '1s'},
+                  'network_mode': 'service:gluetun',
+                  'depends_on': {'gluetun': {'condition': 'service_healthy', 'restart': true}}}}} | to_json }}
+
+        - name: Create the complete isolated project
+          community.docker.docker_compose_v2:
+            project_src: "{{ shelfmark_compose_fixture.path }}"
+            project_name: "{{ shelfmark_fixture_project }}"
+            files: [compose.json]
+            pull: missing
+            build: never
+            wait: true
+            wait_timeout: 60
+
+        - name: Inspect the dependency container identity before scoped startup
+          community.docker.docker_container_info:
+            name: "{{ shelfmark_fixture_project }}-gluetun-1"
+          register: shelfmark_fixture_dependency_before
+
+        - name: Stop only the synthetic settings consumer
+          community.docker.docker_compose_v2:
+            project_src: "{{ shelfmark_compose_fixture.path }}"
+            project_name: "{{ shelfmark_fixture_project }}"
+            files: [compose.json]
+            services: [shelfmark]
+            dependencies: false
+            state: stopped
+
+        - name: Start the consumer retaining the full dependency model
+          community.docker.docker_compose_v2:
+            project_src: "{{ shelfmark_compose_fixture.path }}"
+            project_name: "{{ shelfmark_fixture_project }}"
+            files: [compose.json]
+            services: [shelfmark]
+            dependencies: true
+            pull: never
+            build: never
+            recreate: auto
+            wait: true
+            wait_timeout: 60
+
+        - name: Preview the complete project after scoped startup
+          community.docker.docker_compose_v2:
+            project_src: "{{ shelfmark_compose_fixture.path }}"
+            project_name: "{{ shelfmark_fixture_project }}"
+            files: [compose.json]
+            pull: never
+            build: never
+            recreate: auto
+          check_mode: true
+          register: shelfmark_fixture_full_preview
+
+        - name: Inspect the dependency identity after scoped startup
+          community.docker.docker_container_info:
+            name: "{{ shelfmark_fixture_project }}-gluetun-1"
+          register: shelfmark_fixture_dependency_after
+
+        - name: Require full-project idempotency and no unchanged dependency restart
+          ansible.builtin.assert:
+            that:
+              - not shelfmark_fixture_full_preview.changed
+              - shelfmark_fixture_dependency_before.container.Id == shelfmark_fixture_dependency_after.container.Id
+              - shelfmark_fixture_dependency_before.container.State.StartedAt == shelfmark_fixture_dependency_after.container.State.StartedAt
+      always:
+        - name: Remove only the isolated synthetic project
+          community.docker.docker_compose_v2:
+            project_src: "{{ shelfmark_compose_fixture.path }}"
+            project_name: "{{ shelfmark_fixture_project }}"
+            files: [compose.json]
+            state: absent
+            remove_volumes: true
+          when: shelfmark_compose_fixture.path is defined
+
+        - name: Remove only the synthetic Compose fixture
+          ansible.builtin.file:
+            path: "{{ shelfmark_compose_fixture.path }}"
+            state: absent
