@@ -13,7 +13,7 @@ const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).gro
 const authentikHosts = [
   'auth', 'caromanga', 'comics', 'ddns', 'frigate', 'openfit',
   'prowlarr', 'qb', 'radarr-4k', 'radarr', 'sabnzbd',
-  'seerr', 'sonarr', 'gost',
+  'seerr', 'shelfmark', 'sonarr', 'gost',
 ];
 const directHosts = {
   hass: 'hass', vaultwarden: 'vaultwarden', watch: 'jellyfin', books: 'books',

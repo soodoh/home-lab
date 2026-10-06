@@ -19,11 +19,11 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 6)
         self.assertNotIn("sourceInventory", DESIRED)
-        self.assertEqual(len(DESIRED["applications"]), 20)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 16)
+        self.assertEqual(len(DESIRED["applications"]), 21)
+        self.assertEqual(len(DESIRED["proxyProviders"]), 17)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 23)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 24)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {
             "passwordless-webauthn", "default-authentication-mfa-validation",
         })
@@ -175,7 +175,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(group["parents"], [])
         self.assertEqual(group["roles"], [])
         self.assertEqual({binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()
-                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","radarr-4k","sabnzbd","sonarr","tachidesk","vaultwarden","zwave"})
+                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","radarr-4k","sabnzbd","shelfmark","sonarr","tachidesk","vaultwarden","zwave"})
         owned_groups = {value["pk"] for value in DESIRED["groups"].values()}
         self.assertTrue(all(binding["group"] in owned_groups and binding["user"] is None
                             for binding in DESIRED["applicationPolicyBindings"].values()))
@@ -470,7 +470,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 113)
+        self.assertEqual(len(allow), 116)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

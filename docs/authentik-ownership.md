@@ -30,7 +30,7 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Books Users | personal | Grimmory |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
-| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, Radarr 4K, SABnzbd, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
+| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, Radarr 4K, SABnzbd, Shelfmark, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
 
 Grimmory has a create-only provider/application, not an invented
 import ID. It uses the existing personal entitlement without
@@ -41,7 +41,9 @@ SOPS/OpenTofu signing authority, not a competing discovery-owned key writer.
 Removing any managed application/provider requires explicit reviewed destroy
 actions, never orphaned state entries.
 
-`App Operators` grants application access, not in-application administrator roles.
+`App Operators` grants application access, not in-application administrator roles,
+except Shelfmark explicitly maps its trusted proxy group header to its native admin
+role. Shelfmark is operator-only; no unauthenticated host port is published.
 `authentik Admins` and its independently administered membership grant Authentik
 administration only; application bindings do not reference that group. Shared
 applications combine their specific access group and `App Operators` using `any`

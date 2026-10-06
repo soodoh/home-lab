@@ -158,8 +158,13 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = alltrue([for key in ["01d9c9fd-76de-4dc9-a0bf-01601f45fd40", "1176cdca-c642-4ab2-8fbb-b6eac0c6747b", "1997e1fe-2984-44b9-9bfe-db909b7f3460", "22bba89f-b249-414e-930a-a134dc186e32", "279dc5f4-217e-4e8b-a133-6574658c1c6d", "2d15e29a-fcae-4d1d-92ce-5a91ec3cd729", "34040ade-1660-472a-b829-b5312fafea04", "3907558a-efb8-4763-a976-6f2ebf335f81", "3fd79f0a-54bc-4e79-8f2d-1199d52319b9", "51edd5fa-d699-4811-b67e-6d85356fc452", "55c6d390-dc40-49cf-b2a2-3a869a23b298", "7a201cfb-c8c5-422e-9804-9771e4827999", "a6a50029-e999-4bfa-8ece-737ed5ec8ebc", "d10e3ec4-1aae-4df9-901b-807cc08eb100", "dd1bfef2-fc1c-4ada-adee-f7f0d242f0de", "e1f79e5c-85e3-47f1-b94c-c49cb4442f05"] : authentik_policy_binding.application_access[key].group == authentik_group.managed["app-operators"].id])
+    condition     = alltrue([for key in ["01d9c9fd-76de-4dc9-a0bf-01601f45fd40", "1176cdca-c642-4ab2-8fbb-b6eac0c6747b", "1997e1fe-2984-44b9-9bfe-db909b7f3460", "22bba89f-b249-414e-930a-a134dc186e32", "279dc5f4-217e-4e8b-a133-6574658c1c6d", "2d15e29a-fcae-4d1d-92ce-5a91ec3cd729", "34040ade-1660-472a-b829-b5312fafea04", "3907558a-efb8-4763-a976-6f2ebf335f81", "3fd79f0a-54bc-4e79-8f2d-1199d52319b9", "51edd5fa-d699-4811-b67e-6d85356fc452", "55c6d390-dc40-49cf-b2a2-3a869a23b298", "7a201cfb-c8c5-422e-9804-9771e4827999", "a6a50029-e999-4bfa-8ece-737ed5ec8ebc", "d10e3ec4-1aae-4df9-901b-807cc08eb100", "dd1bfef2-fc1c-4ada-adee-f7f0d242f0de", "e1f79e5c-85e3-47f1-b94c-c49cb4442f05", "edc3ca1b-a374-4bc9-8a58-1f9075ef154f"] : authentik_policy_binding.application_access[key].group == authentik_group.managed["app-operators"].id])
     error_message = "Every reviewed operator application must use the Paul-only group without depending on Authentik administration."
+  }
+
+  assert {
+    condition     = authentik_application.applications["shelfmark"].protocol_provider == tonumber(authentik_provider_proxy.providers["shelfmark"].id) && authentik_provider_proxy.providers["shelfmark"].mode == "proxy" && authentik_provider_proxy.providers["shelfmark"].external_host == "https://shelfmark.diloreto.com" && authentik_provider_proxy.providers["shelfmark"].internal_host == "http://gluetun:8084" && authentik_policy_binding.application_access["edc3ca1b-a374-4bc9-8a58-1f9075ef154f"].target == authentik_application.applications["shelfmark"].uuid
+    error_message = "Shelfmark must be reachable only through its operator-gated embedded Authentik proxy."
   }
 
   assert {

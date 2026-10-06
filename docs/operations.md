@@ -240,6 +240,25 @@ directories or an older restore. Regular backups preserve native state, not
 discarded legacy records; never fabricate completion dates or catalog entries.
 See [device qualification](migrations.md#physical-kobo-continuity).
 
+### Shelfmark acquisition and seeding
+
+Shelfmark at `shelfmark.diloreto.com` uses Authentik's operator-only embedded
+proxy and trusted username/group headers; `App Operators` maps to Shelfmark admin.
+It shares Gluetun's VPN namespace and publishes no host port. Configure source
+API keys and download-client credentials through Shelfmark's native settings;
+these mutable settings are protected in its backed-up `/config` directory.
+Use qBittorrent categories `shelfmark` and `shelfmark-audiobooks`, without changing
+other applications' categories or existing torrents.
+
+Completed ebooks are copied into Grimmory BookDrop, never written directly into
+the library. Shelfmark sees qBittorrent's `/data/downloads` read-only, keeps
+torrents after import and disables ebook/audiobook hardlinks: ingest or metadata
+edits cannot alter seeded originals. Audiobooks stay separate under Shelfmark's
+configuration directory. BookDrop discovery is not proof of automatic library
+import: review its native import settings and destination library before enabling
+unattended imports. Qualify the copy/import/seeding flow with an approved test
+book; do not launch an arbitrary download merely to verify deployment.
+
 ### Omada SMTP and recipients
 
 [Omada mail](omada-mail.md) uses a separate SOPS authority and native Ansible

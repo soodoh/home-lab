@@ -5,6 +5,62 @@ x-logging: &default-logging
     max-file: 3
 
 services:
+  shelfmark:
+    image: ghcr.io/calibrain/shelfmark:v1.4.0@sha256:6891119b9b75c215a6a49f727564261176f9305cdf1a68bf8547bc930c7ce121
+    container_name: shelfmark
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      AUTH_METHOD: proxy
+      PROXY_AUTH_USER_HEADER: X-authentik-username
+      PROXY_AUTH_ADMIN_GROUP_HEADER: X-authentik-groups
+      PROXY_AUTH_ADMIN_GROUP_NAME: App Operators
+      PROXY_AUTH_LOGOUT_URL: https://shelfmark.diloreto.com/outpost.goauthentik.io/sign_out
+      BOOKS_OUTPUT_MODE: folder
+      DESTINATION: /books
+      FILE_ORGANIZATION: none
+      # Ingest copies, never hardlink or remove torrent originals being seeded.
+      HARDLINK_TORRENTS: false
+      HARDLINK_TORRENTS_AUDIOBOOK: false
+      PROWLARR_TORRENT_ACTION: keep
+      PROWLARR_URL: http://localhost:9696
+      QBITTORRENT_URL: http://localhost:8081
+      QBITTORRENT_CATEGORY: shelfmark
+      QBITTORRENT_CATEGORY_AUDIOBOOK: shelfmark-audiobooks
+      DESTINATION_AUDIOBOOK: /config/audiobooks
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/shelfmark-data
+        target: /config
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/home-lab-state/grimmory-bookdrop
+        target: /books
+        bind:
+          create_host_path: false
+      # Match qBittorrent exactly; Shelfmark cannot mutate seeded files.
+      - type: bind
+        source: ${MEDIA_PATH}/downloads
+        target: /data/downloads
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8084/api/health]
+      start_period: 90s
+      timeout: 10s
+      interval: 30s
+      retries: 3
+
   seerr:
     image: ghcr.io/seerr-team/seerr:v3.4.1@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
     init: true

@@ -50,6 +50,10 @@ http:
       rule: "Host(`seerr.diloreto.com`)"
       entryPoints: [websecure]
       service: authentik
+    shelfmark:
+      rule: "Host(`shelfmark.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
     sonarr:
       rule: "Host(`sonarr.diloreto.com`)"
       entryPoints: [websecure]

@@ -13,6 +13,7 @@
 /srv/home-lab-state/gluetun-data
 /srv/home-lab-state/jellyfin-data/config
 /srv/home-lab-state/seerr-data
+/srv/home-lab-state/shelfmark-data
 /srv/home-lab-state/karaoke-eternal-data
 /srv/home-lab-state/cli-proxy-api/auths
 /srv/home-lab-state/mosquitto-data/config
