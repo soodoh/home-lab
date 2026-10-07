@@ -4,6 +4,8 @@ resource "proxmox_storage_directory" "local" {
   id      = "local"
   path    = "/var/lib/vz"
   content = ["backup", "import", "iso", "snippets", "vztmpl"]
+  nodes   = []
+  shared  = false
 }
 
 resource "proxmox_storage_lvmthin" "local" {

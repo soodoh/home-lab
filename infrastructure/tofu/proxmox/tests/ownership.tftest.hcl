@@ -77,6 +77,8 @@ run "native_vm_and_node_ownership" {
   assert {
     condition = (
       proxmox_storage_directory.local.path == "/var/lib/vz" &&
+      !proxmox_storage_directory.local.shared &&
+      length(proxmox_storage_directory.local.nodes) == 0 &&
       toset(proxmox_storage_directory.local.content) == toset(["backup", "import", "iso", "snippets", "vztmpl"]) &&
       proxmox_storage_lvmthin.local.volume_group == "pve" &&
       proxmox_storage_lvmthin.local.thin_pool == "data" &&
