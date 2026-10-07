@@ -26,10 +26,10 @@ run "preserve_separated_access" {
         !contains(privileges, "Permissions.Modify") && !contains(privileges, "User.Modify")
       ]) &&
       toset(proxmox_virtual_environment_role.automation["HomeLabTofuPlanDiskInspect"].privileges) == toset(["VM.Audit", "VM.Config.Disk"]) &&
-      toset(proxmox_virtual_environment_role.automation["HomeLabTofuPlanStorageInspect"].privileges) == toset(["Datastore.Allocate"]) &&
+      toset(proxmox_virtual_environment_role.automation["HomeLabTofuPlanStorageInspect"].privileges) == toset(["Datastore.Allocate", "Datastore.Audit"]) &&
       !contains(proxmox_virtual_environment_role.automation["HomeLabTofuPlan"].privileges, "Datastore.Allocate") &&
       !contains(proxmox_virtual_environment_role.automation["HomeLabTofuApply"].privileges, "Sys.Modify") &&
-      toset(proxmox_virtual_environment_role.automation["HomeLabTofuApplyNodeModify"].privileges) == toset(["Sys.Modify"]) &&
+      toset(proxmox_virtual_environment_role.automation["HomeLabTofuApplyNodeModify"].privileges) == toset(["Sys.Audit", "Sys.Modify"]) &&
       proxmox_acl.automation["apply_node_modify"].path == "/nodes/proxmox" &&
       proxmox_acl.automation["apply_node_modify"].propagate &&
       proxmox_acl.automation["apply_node_modify"].token_id == "root@pam!tofu-apply" &&

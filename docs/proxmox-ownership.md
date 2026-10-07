@@ -136,7 +136,10 @@ by these declarations. Alongside approved activation, independently align the
 sealed host access expectations and reviewed observation bindings; do not capture
 or rewrite them automatically from newly observed permissions. Reviewed
 `additionalAcls` must specify `propagate: false` for each scoped storage binding;
-omitting it retains the existing propagating-ACL expectation.
+omitting it retains the existing propagating-ACL expectation. A more-specific PVE
+token ACL replaces inherited role privileges: the scoped storage role must retain
+`Datastore.Audit` alongside `Datastore.Allocate`, and the node-modification role
+retains `Sys.Audit`. Otherwise the narrow grants silently remove needed read access.
 
 **Node-modification boundary:** global `Sys.Modify` also authorizes role-definition
 writes at `/access`. It is not a safe ordinary-apply grant even without

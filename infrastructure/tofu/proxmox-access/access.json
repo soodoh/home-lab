@@ -36,10 +36,12 @@
       "VM.Config.Disk"
     ],
     "HomeLabTofuApplyNodeModify": [
+      "Sys.Audit",
       "Sys.Modify"
     ],
     "HomeLabTofuPlanStorageInspect": [
-      "Datastore.Allocate"
+      "Datastore.Allocate",
+      "Datastore.Audit"
     ]
   },
   "tokens": {
