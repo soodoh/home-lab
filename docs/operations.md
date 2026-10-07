@@ -414,8 +414,8 @@ never revoke it based on removal of an old ingress route.
 
 [`site.yml`](../ansible/playbooks/site.yml) owns the complete Docker-host
 convergence: it observes active Compose, acquires the production host lock,
-checks Tailscale identity and GOST DNS, converges SSH access, backup tools and
-units, Docker maintenance and the complete committed Compose project, then
+checks Tailscale identity and GOST DNS, converges locale availability, SSH access,
+backup tools and units, Docker maintenance and the complete committed Compose project, then
 observes the result. Site convergence uses strict backup admission before host
 changes. Source publication uses native rsync with checksums, delayed atomic
 file replacement and deletion, preserving unchanged file/directory inodes.
@@ -435,6 +435,13 @@ ansible-playbook ansible/playbooks/site.yml --check
 # Review the current output and obtain host approval before applying.
 ansible-playbook ansible/playbooks/site.yml -e wolf_security_console_confirmed=true
 ```
+
+[`configure-host-locales.yml`](../ansible/playbooks/configure-host-locales.yml)
+is a locale-only interface using the same production lock and strict backup
+admission. Run it with `--limit docker-host --check`, then, after review, with
+`--limit docker-host -e host_locales_apply_confirmed=true`. It generates
+`en_US.UTF-8` without changing system locale defaults or restarting services.
+The read-only behavior test is `ansible/tests/host-locales.yml`.
 
 Site convergence includes the scoped Wolf firewall and app-image pins. Confirm
 independent Proxmox console access before supplying the console flag. For a

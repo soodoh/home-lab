@@ -27,6 +27,10 @@
         compose_native_change_class: data
         compose_native_apply_operation: native-site-convergence
 
+    - name: Converge host locale support for SSH clients
+      ansible.builtin.import_role:
+        name: host_locales
+
     - name: Converge Tailscale deployment SSH access
       ansible.builtin.import_role:
         name: tailscale_deploy_access

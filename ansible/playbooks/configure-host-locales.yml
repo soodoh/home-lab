@@ -1,0 +1,56 @@
+---
+- name: Observe current host state before configuring locales
+  ansible.builtin.import_playbook: observe-hosts.yml
+
+- name: Observe current backup admission before configuring locales
+  ansible.builtin.import_playbook: observe-backups.yml
+
+- name: Configure only Docker host locales under production ownership
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  vars:
+    compose_native_apply_operation: host-locales
+    compose_native_change_class: data
+  pre_tasks:
+    - name: Require explicit approval for live locale changes
+      ansible.builtin.assert:
+        that: host_locales_apply_confirmed | default(false) | bool
+        fail_msg: Live locale convergence requires host_locales_apply_confirmed=true.
+      when: not ansible_check_mode
+
+    - name: Observe active Compose state before locale convergence
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire production ownership for locale convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: host-locales
+  tasks:
+    - name: Revalidate backup admission under exact production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: admission
+
+    - name: Reobserve active Compose under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Converge only host locale availability
+      ansible.builtin.import_role:
+        name: host_locales
+  post_tasks:
+    - name: Release production ownership only after successful locale verification
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: host-locales

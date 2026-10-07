@@ -1,0 +1,17 @@
+---
+# Make client-requested locales available without changing system defaults.
+- name: Ensure locale-generation tools are installed
+  ansible.builtin.apt:
+    name: locales
+    state: present
+  become: true
+
+- name: Generate the locale requested by SSH clients
+  community.general.locale_gen:
+    name: en_US.UTF-8
+    state: present
+  become: true
+
+- name: Verify generated locale behavior
+  ansible.builtin.import_tasks: verify.yml
+  when: not ansible_check_mode

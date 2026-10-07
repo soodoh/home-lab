@@ -1,0 +1,25 @@
+---
+- name: Exercise Bash with the locale requested by SSH clients
+  ansible.builtin.command:
+    argv:
+      # Ansible normalizes subprocess locales; set these inside the probe itself.
+      - /usr/bin/env
+      - LC_ALL=
+      - LANG=C.UTF-8
+      - LC_CTYPE=en_US.UTF-8
+      - LC_COLLATE=en_US.UTF-8
+      - /usr/bin/bash
+      - --noprofile
+      - --norc
+      - -c
+      - export LC_CTYPE=en_US.UTF-8 LC_COLLATE=en_US.UTF-8; /usr/bin/locale charmap
+  register: host_locales_probe
+  changed_when: false
+  check_mode: false
+
+- name: Require UTF-8 without locale warnings
+  ansible.builtin.assert:
+    that:
+      - host_locales_probe.stdout == 'UTF-8'
+      - host_locales_probe.stderr | length == 0
+    fail_msg: The host must support en_US.UTF-8 for SSH client locale settings without Bash warnings.

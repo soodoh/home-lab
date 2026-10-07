@@ -1,0 +1,11 @@
+---
+# Read-only integration test against the real guest locale database.
+# ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/tests/host-locales.yml
+- name: Verify SSH client locale support on the Docker host
+  hosts: docker-host
+  gather_facts: false
+  tasks:
+    - name: Verify native locale behavior without changing host configuration
+      ansible.builtin.import_role:
+        name: host_locales
+        tasks_from: verify
