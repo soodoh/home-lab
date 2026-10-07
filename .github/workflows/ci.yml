@@ -94,8 +94,16 @@ jobs:
           TF_DATA_DIR=$(mktemp -d)
           export TF_DATA_DIR
           trap 'rm -rf "$TF_DATA_DIR"' EXIT
-          tofu -chdir=infrastructure/tofu/tailscale init -backend=false -input=false -lockfile=readonly
-          tofu -chdir=infrastructure/tofu/tailscale test
+          # Mock tests cannot execute native imports. Copy production definitions
+          # unchanged, omitting only imports.tf; validate the full root above.
+          test_root="$TF_DATA_DIR/source/infrastructure/tofu/tailscale"
+          mkdir -p "$test_root" "$TF_DATA_DIR/source/services/data/wolf"
+          rsync -a --exclude='imports.tf' --include='*.tf' --include='*.tfvars.json' \
+            --include='.terraform.lock.hcl' --include='tests/***' --exclude='*' \
+            infrastructure/tofu/tailscale/ "$test_root/"
+          cp services/data/wolf/security.json "$TF_DATA_DIR/source/services/data/wolf/"
+          tofu -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
+          tofu -chdir="$test_root" test
 
       - name: Compile retained Python helpers
         run: python -m compileall -q scripts infrastructure ansible/roles

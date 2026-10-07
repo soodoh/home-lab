@@ -1,5 +1,22 @@
 mock_provider "tailscale" {}
 
+variables {
+  tailscale_servers = {
+    docker_host = { name = "docker-host.example.ts.net", node_id = "nDockerTestCNTRL" }
+    proxmox     = { name = "proxmox.example.ts.net", node_id = "nProxmoxTestCNTRL" }
+  }
+}
+
+override_data {
+  target = data.tailscale_device.servers["docker_host"]
+  values = { node_id = "nDockerTestCNTRL" }
+}
+
+override_data {
+  target = data.tailscale_device.servers["proxmox"]
+  values = { node_id = "nProxmoxTestCNTRL" }
+}
+
 run "owner_only_wolf_ports" {
   command = plan
 
