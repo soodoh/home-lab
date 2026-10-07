@@ -12,12 +12,6 @@ import {
 }
 
 import {
-  for_each = local.access.tokens
-  to       = proxmox_user_token.automation[each.key]
-  id       = "${each.value.user_id}!${each.value.token_name}"
-}
-
-import {
   # The three original token bindings are adopted; scoped node/storage grants are
   # explicit creates requiring independent owner review, not guessed imports.
   for_each = {

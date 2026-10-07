@@ -101,7 +101,8 @@ observer bypass. Require matching observation after apply before completion.
 ## Independent access ownership
 
 The separate `proxmox-access` root adopts the existing three `HomeLabTofu*`
-roles, two privilege-separated token records and three token ACLs. It stages
+roles and three token ACLs, referencing the two independently owned automation
+token identities. It stages
 removal of `Sys.Modify` from the global apply role, with
 `HomeLabTofuApplyNodeModify` bound only at `/nodes/proxmox`. It also stages
 `HomeLabTofuPlanStorageInspect` and three non-propagating plan-token ACLs at
@@ -116,9 +117,12 @@ phase. Never relax policy to accept an import-and-update plan.
 
 It does not own `root@pam`, create a new privileged user, or grant normal
 automation permission to change access. [`access.json`](../infrastructure/tofu/proxmox-access/access.json)
-is the desired privilege/binding authority. Token import cannot retrieve secret
-values; existing credentials remain in independent protected custody. A token
-replacement is a separately approved credential rotation, not ordinary adoption.
+is the desired privilege/binding authority. Token records and secrets remain in
+independent protected custody, not provider state: PVE token-metadata reads require
+`User.Modify`, which also permits token changes. The owner auditor does not receive
+that privilege solely for import. The existing host observer verifies the exact
+sealed identities and privilege separation. A token replacement is an independently
+approved credential rotation, not ordinary provider adoption.
 
 **Storage-read exception:** PVE requires `Datastore.Allocate` for storage-definition
 GETs and for snippet visibility. With only `Datastore.Audit`, the native file

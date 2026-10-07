@@ -1,15 +1,5 @@
 mock_provider "proxmox" {}
 
-override_resource {
-  target = proxmox_user_token.automation["plan"]
-  values = { id = "root@pam!tofu-plan" }
-}
-
-override_resource {
-  target = proxmox_user_token.automation["apply"]
-  values = { id = "root@pam!tofu-apply" }
-}
-
 variables {
   proxmox_access_api_token = "owner@pve!owner-plan=synthetic-test-token"
 }
@@ -21,13 +11,13 @@ run "preserve_separated_access" {
     condition = (
       length(proxmox_virtual_environment_role.automation) == 5 &&
       length(proxmox_acl.automation) == 7 &&
-      length(proxmox_user_token.automation) == 2 &&
-      alltrue([for token in proxmox_user_token.automation : token.privileges_separation]) &&
+      local.token_ids.plan == "root@pam!tofu-plan" &&
+      local.token_ids.apply == "root@pam!tofu-apply" &&
       proxmox_acl.automation["plan_disk_inspect"].path == "/vms/100" &&
       proxmox_acl.automation["plan_disk_inspect"].role_id == "HomeLabTofuPlanDiskInspect" &&
-      proxmox_acl.automation["apply"].token_id == proxmox_user_token.automation["apply"].id
+      proxmox_acl.automation["apply"].token_id == "root@pam!tofu-apply"
     )
-    error_message = "Keep the two separated tokens, original access and scoped inspection exceptions."
+    error_message = "Reference independently owned token identities and preserve original/scoped ACLs."
   }
 
   assert {
@@ -42,7 +32,7 @@ run "preserve_separated_access" {
       toset(proxmox_virtual_environment_role.automation["HomeLabTofuApplyNodeModify"].privileges) == toset(["Sys.Modify"]) &&
       proxmox_acl.automation["apply_node_modify"].path == "/nodes/proxmox" &&
       proxmox_acl.automation["apply_node_modify"].propagate &&
-      proxmox_acl.automation["apply_node_modify"].token_id == proxmox_user_token.automation["apply"].id &&
+      proxmox_acl.automation["apply_node_modify"].token_id == "root@pam!tofu-apply" &&
       alltrue([for acl in proxmox_acl.automation :
         !contains(local.access.roles[acl.role_id], "Sys.Modify") ||
         (acl.path == "/nodes/proxmox" && acl.role_id == "HomeLabTofuApplyNodeModify")
