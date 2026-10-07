@@ -563,7 +563,7 @@ ansible-playbook ansible/playbooks/maintain-proxmox-packages.yml --check
 The desired Proxmox apply grant scopes `Sys.Modify` to `/nodes/proxmox`.
 Global cluster options are owner-only in `proxmox-access`; cluster-firewall writes
 in `proxmox-firewall` also need separately approved independent owner Proxmox
-apply credentials after that scope change. Its normal audited plan token remains
+apply credentials. Its normal audited plan token remains
 usable. Do not restore global `Sys.Modify` to ordinary automation to get an apply
 past a permission failure.
 
@@ -571,8 +571,10 @@ For normal Proxmox provider plans, supply `PROXMOX_VE_API_TOKEN` from the protec
 `PROXMOX_PLAN_TOKEN`, switching to `PROXMOX_APPLY_TOKEN` only for a separately
 approved saved-plan apply. Native snippet uploads additionally require the
 [credential-free SSH and verified FQDN pin](proxmox-ownership.md#snippet-lifecycle-and-ssh).
-The new boot-disk/storage/node/snippet declarations are not permission to mutate
-or import production resources; review their complete remote-backed plan first.
+Boot-disk/storage/node/snippet declarations are not permission to mutate or import
+production resources; review their complete remote-backed plan first. The deployment
+preserves the bridge's implicit MTU through its committed null variable; an explicit
+MTU configuration and network reload need separate review.
 
 Reboots require explicit playbook inputs and fresh observation. Networking,
 firewall, storage and boot changes require independent console access. The

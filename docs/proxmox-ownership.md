@@ -47,10 +47,10 @@ plan token can still perform its audited reads. No Ansible task is a second
 control-plane writer.
 
 PVE reports an unconfigured bridge MTU as null even when the live kernel uses
-1500. `proxmox_bridge_mtu` declares the desired explicit MTU (1500 by default);
-null preserves the implicit API configuration. Initial no-op bridge adoption can
-use a private null override, followed by a separately reviewed explicit-MTU plan
-and network reload. Do not mix the reload into an import-only approval.
+1500. `proxmox_bridge_mtu` supports explicit MTU configuration (1500 by default);
+this deployment records null in `vm.auto.tfvars.json` to preserve the implicit API
+configuration. An explicit-MTU change and network reload require a separately
+reviewed plan; do not mix the reload into an import-only approval.
 
 ## Snippet lifecycle and SSH
 
@@ -100,20 +100,14 @@ observer bypass. Require matching observation after apply before completion.
 
 ## Independent access ownership
 
-The separate `proxmox-access` root adopts the existing three `HomeLabTofu*`
-roles and three token ACLs, referencing the two independently owned automation
-token identities. It stages
-removal of `Sys.Modify` from the global apply role, with
-`HomeLabTofuApplyNodeModify` bound only at `/nodes/proxmox`. It also stages
-`HomeLabTofuPlanStorageInspect` and three non-propagating plan-token ACLs at
+The separate `proxmox-access` root owns five `HomeLabTofu*` roles and seven
+ACLs referencing the two independently owned automation token identities.
+`Sys.Modify` is absent from the global apply role;
+`HomeLabTofuApplyNodeModify` grants it only at `/nodes/proxmox`.
+`HomeLabTofuPlanStorageInspect` has non-propagating plan-token ACLs at
 `/storage/local`, `/storage/local-lvm` and `/storage/storage`. Existing roles are
-discovered for import natively; the new scoped ACLs are explicit owner-reviewed
-creates. Original role adoption must be no-op before a separate privilege update:
-imports combined with role updates are refused. An independently reviewed private
-native override matching freshly observed original role privileges can stage that
-initial adoption; remove it before reviewing the least-privilege update. Keep
-these transient overrides outside Git and inspect the whole saved plan in each
-phase. Never relax policy to accept an import-and-update plan.
+discovered for import natively. Role adoption must be no-op before any separately
+approved privilege change; never relax policy to accept an import-and-update plan.
 
 It does not own `root@pam`, create a new privileged user, or grant normal
 automation permission to change access. [`access.json`](../infrastructure/tofu/proxmox-access/access.json)
@@ -130,11 +124,11 @@ importer can incorrectly report existing snippets absent. The inspection role is
 limited to the three storage IDs, not a grant at `/`, and does not add permission
 to change ACLs. It is nevertheless a **mutating credential**: this permission also
 allows deleting volumes/snippets in those stores, not merely editing definitions.
-Do not call it read-only or assume VM protection blocks the storage API. Activation
-requires explicit independent owner acceptance of that risk. No grant is activated
-by these declarations. Alongside approved activation, independently align the
-sealed host access expectations and reviewed observation bindings; do not capture
-or rewrite them automatically from newly observed permissions. Reviewed
+Do not call it read-only or assume VM protection blocks the storage API. Changing
+this exception requires explicit independent owner acceptance of that risk.
+Independently align the sealed host access expectations and reviewed observation
+bindings with approved changes; do not capture or rewrite them automatically from
+newly observed permissions. Reviewed
 `additionalAcls` must specify `propagate: false` for each scoped storage binding;
 omitting it retains the existing propagating-ACL expectation. A more-specific PVE
 token ACL replaces inherited role privileges: the scoped storage role must retain
@@ -144,9 +138,8 @@ retains `Sys.Audit`. Otherwise the narrow grants silently remove needed read acc
 **Node-modification boundary:** global `Sys.Modify` also authorizes role-definition
 writes at `/access`. It is not a safe ordinary-apply grant even without
 `Permissions.Modify`. Node networking/DNS/timezone writes instead use the scoped
-node ACL; global cluster options remain owner-controlled. The existing live apply
-role is not changed merely by these declarations, and removal of its global grant
-requires separate owner approval. This narrows direct PVE API authority, not the
+node ACL; global cluster options remain owner-controlled. Changes to the scoped grants
+require separate owner approval; declarations alone do not activate them. This narrows direct PVE API authority, not the
 existing root authority available through approved Tailscale SSH/become.
 
 Normal roots cannot own identity or global cluster-option resources, including via imports, nested

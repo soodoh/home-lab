@@ -33,6 +33,19 @@ run "implicit_mtu_is_preserved_when_requested" {
   }
 }
 
+run "explicit_mtu_requires_a_separate_plan" {
+  command = plan
+
+  variables {
+    proxmox_bridge_mtu = 1500
+  }
+
+  assert {
+    condition     = proxmox_network_linux_bridge.lan.mtu == 1500
+    error_message = "Explicit MTU configuration must remain a separately reviewable choice."
+  }
+}
+
 run "plan_keeps_boot_inputs_known" {
   command = plan
 
@@ -94,7 +107,7 @@ run "native_vm_and_node_ownership" {
       proxmox_network_linux_bridge.lan.address == "192.168.0.123/24" &&
       proxmox_network_linux_bridge.lan.gateway == "192.168.0.1" &&
       proxmox_network_linux_bridge.lan.ports == tolist(["eno1"]) &&
-      proxmox_network_linux_bridge.lan.mtu == 1500 &&
+      proxmox_network_linux_bridge.lan.mtu == null &&
       proxmox_virtual_environment_dns.node.servers == tolist(["192.168.0.1", "192.168.0.1"]) &&
       proxmox_virtual_environment_time.node.time_zone == "America/Los_Angeles"
     )

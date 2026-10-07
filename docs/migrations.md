@@ -4,36 +4,20 @@ This lists unresolved **decisions**, not migration receipts. Reobserve the host,
 remote state, provider and backup repositories before acting; Git history is not
 proof of current state.
 
-## Proxmox provider adoption
+## Proxmox host and provisioning qualification
 
-New native declarations for the existing boot disk, storage registrations,
-management bridge, node settings and snippets need a reviewed clean checkout,
-fresh observation and a whole remote-backed plan before adoption. Preserve the
-current volumes, PVE bus attachments, network path and cloud-init instance ID.
-Snippet import reconstructs no source content and requires exact-plan replacement approval;
-qualify the real credential-free uploader and independent hash readback before
-completion. Do not bypass plan policy or infer a no-op apply from mock tests.
+Native control-plane ownership does not qualify cold guest provisioning,
+reinitialization or storage activation. Preserve independently tested console
+access, verify affected-data recovery and inspect current consumers before
+separately reviewing those operations. Native snippet readback does not remove
+legacy credentials from a running guest.
 
-The owner-only `proxmox-access` root additionally needs independently approved
-provider identities and exact-key backend/lock grants in a separately controlled
-protected bucket outside ordinary controller object-write and bucket-policy
-authority. Native storage reads and snippet visibility additionally require the
-staged, scoped `Datastore.Allocate` exception. It permits volume/snippet deletion,
-so explicit owner risk acceptance and aligned sealed observation bindings are
-required before activation. The bridge's implicit MTU needs a no-op import phase
-before separately reviewing explicit MTU configuration/reload. Old partial VM disk
-state needs independently approved provider state repair, not an allowlist bypass.
-Original role imports must be no-op before separately updating privileges; stage
-any fresh readback override privately using native OpenTofu overrides, not a
-policy bypass. Desired `Sys.Modify` moves from the global apply role to a node-only
-role/ACL, and global cluster options are declared in the owner root. Cluster
-firewall mutations retain their separate state root but require independent owner
-Proxmox apply credentials after this change. Align both principals' approved
-observer bindings before post-activation admission. Nothing is activated merely
-because these declarations and CI validation exist.
-The normal AWS grant manifest intentionally excludes its key. See
-[Proxmox ownership](proxmox-ownership.md) for durable resource boundaries and
-remaining API readback gaps.
+ZFS topology/property drift, the storage `mountpoint` setting, complete APT
+repository/signing-key policy and the firewall's omitted forward-policy readback
+remain outside the pinned provider's complete coverage. Preserve native host
+observation and Ansible/systemd ownership rather than adding competing or
+experimental writers. See [Proxmox ownership](proxmox-ownership.md) for the durable
+boundaries and API gaps.
 
 ## Physical Kobo continuity
 

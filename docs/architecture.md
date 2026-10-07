@@ -77,9 +77,9 @@ credentials and encrypted bundles live outside Git.
   permits role-definition changes. Normal node-modification privilege is scoped
   at `/nodes/proxmox`, not `/`. The existing
   boot disk is managed without a whole-disk ignore. Provider list positions follow
-  native import order (`scsi1`, `scsi2`, `scsi3`) without moving PVE bus attachments;
-  old partial state requires independently approved alignment. New declarations
-  require approved adoption before remote state owns them. [Proxmox ownership](proxmox-ownership.md) defines
+  native import order (`scsi1`, `scsi2`, `scsi3`) without moving PVE bus attachments.
+  State repair and new ownership require independent approval and fresh provider
+  readback; declarations alone do not establish ownership. [Proxmox ownership](proxmox-ownership.md) defines
   the independent owner-only access root, snippet lifecycle/readback and remaining
   host/provider gaps. Native Proxmox services persist the firewall policy; the
   observer reads the API and requires the reviewed policy, exact rule order, default
