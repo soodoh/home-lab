@@ -1,8 +1,7 @@
 locals {
-  vm                    = var.proxmox_vm.vm
-  node                  = var.proxmox_vm.node
-  use_hardware_mappings = local.vm.hardware_attachment_mode == "managed"
-  expected_hardware     = jsondecode(file("${path.module}/expected-hardware.json"))
+  vm                = var.proxmox_vm.vm
+  node              = var.proxmox_vm.node
+  expected_hardware = jsondecode(file("${path.module}/expected-hardware.json"))
 }
 
 resource "proxmox_virtual_environment_vm" "debian" {
@@ -96,8 +95,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
 
   hostpci {
     device  = "hostpci1"
-    id      = local.use_hardware_mappings ? null : local.vm.pci.gpu.bdf
-    mapping = local.use_hardware_mappings ? local.vm.pci.gpu.mapping : null
+    mapping = local.vm.pci.gpu.mapping
     pcie    = local.vm.pci.gpu.pcie
     xvga    = local.vm.pci.gpu.xvga
     rombar  = true
@@ -105,25 +103,21 @@ resource "proxmox_virtual_environment_vm" "debian" {
 
   hostpci {
     device  = "hostpci2"
-    id      = local.use_hardware_mappings ? null : local.vm.pci.gpu_audio.bdf
-    mapping = local.use_hardware_mappings ? local.vm.pci.gpu_audio.mapping : null
+    mapping = local.vm.pci.gpu_audio.mapping
     pcie    = local.vm.pci.gpu_audio.pcie
     rombar  = true
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.serial_usb_paths[local.vm.usb.zigbee.mapping]
-    mapping = local.use_hardware_mappings ? local.vm.usb.zigbee.mapping : null
+    mapping = local.vm.usb.zigbee.mapping
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.serial_usb_paths[local.vm.usb.zwave.mapping]
-    mapping = local.use_hardware_mappings ? local.vm.usb.zwave.mapping : null
+    mapping = local.vm.usb.zwave.mapping
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.vm.usb.bluetooth.host
-    mapping = local.use_hardware_mappings ? local.vm.usb.bluetooth.mapping : null
+    mapping = local.vm.usb.bluetooth.mapping
     usb3    = local.vm.usb.bluetooth.usb3
   }
 

@@ -64,6 +64,29 @@ or be intentionally suppressed. Its recipient policy is outside the Authentik
 adoption scope. Reobserve the live rule, event-user destination and policy bindings
 before proposing a separately approved notification change.
 
+## CI and deployment integration
+
+CI deployment and broader operational integration are still in progress. As part
+of that work, wire the useful dormant controller tests into CI:
+
+- `scripts/controller/test-gost-private-subdomain-boundary.test.cjs`;
+- `scripts/controller/test-mindwtr-service.test.cjs`;
+- `scripts/controller/test-traefik-ingress.test.cjs`;
+- `scripts/controller/test-traefik-tailnet.test.cjs`;
+- the controller-only cases in `scripts/controller/test-proxmox-controller-observer.py`.
+
+Keep native APT cases separately opt-in: they require the approved, isolated Linux
+fixture, not a deployment host. Source/configuration tests do not replace live
+application access or negative-path qualification.
+
+## VFIO recovery ownership
+
+Before retiring or re-adopting the VFIO recovery source, independently inspect the
+installed Proxmox helper, policy, consumers and retained owners. The repository
+helper has no declarative installation entrypoint; do not infer nonuse from that
+absence or delete the recovery path merely to tidy the checkout. Resolve installed
+and source identities before choosing an owner and qualifying recovery behavior.
+
 ## Deferred ingress qualifications
 
 Actual ephemeral CI/application access, isolated authenticated GOST destination

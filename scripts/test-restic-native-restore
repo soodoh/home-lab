@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Real Restic and unchanged recovery helpers in a private Linux mount namespace.
+# CI/disposable Linux only; never a production-host validation command.
+set -euo pipefail
+umask 077
+[[ $EUID == 0 && $(uname -s) == Linux && ! -e /etc/home-lab ]] || exit 64
+[[ ${RESTIC_NATIVE_TEST_DISPOSABLE:-false} == true ]] || exit 64
+[[ $# == 1 || $# == 2 ]] || exit 64
+repo_root=$(cd "$(dirname "$0")/.." && pwd -P)
+restic_source=$(realpath -- "$1")
+if [[ $# == 1 ]]; then
+  exec unshare --mount --fork --propagation private -- "$0" "$restic_source" "$(readlink /proc/self/ns/mnt)"
+fi
+[[ $(readlink /proc/self/ns/mnt) != "$2" ]] || exit 64
+work=$(mktemp -d "${TMPDIR:-/tmp}/restic-native-test.XXXXXXXX")
+cleanup() {
+  status=$?
+  trap - EXIT
+  mountpoint -q /srv && umount /srv
+  mountpoint -q /mnt && umount /mnt
+  rm -rf -- "$work"
+  exit "$status"
+}
+trap cleanup EXIT
+mkdir -m 0700 "$work/mnt" "$work/srv" "$work/bin" "$work/recovery"
+mount --bind "$work/mnt" /mnt
+mount --bind "$work/srv" /srv
+install -m 0755 "$restic_source" "$work/bin/restic"
+cp "$repo_root/scripts/restore-critical-backup" "$repo_root/scripts/recovery-scope.py" "$work/bin/"
+chmod 0755 "$work/bin/restore-critical-backup" "$work/bin/recovery-scope.py"
+export PATH="$work/bin:$PATH"
+export RESTIC_REPOSITORY=/mnt/games/restic/home-lab
+export RESTIC_PASSWORD_FILE="$work/password"
+export RESTIC_CACHE_DIR="$work/cache"
+printf '%s\n' 'synthetic-native-restic-test-password' >"$RESTIC_PASSWORD_FILE"
+mkdir -p /mnt/games/restic /srv/home-lab-state/{common,books,unselected} /srv/home-lab-recovery
+chmod 0700 /srv/home-lab-recovery
+printf '%s\n' 'synthetic-common' >/srv/home-lab-state/common/value
+printf '%s\n' 'synthetic-selected-book' >/srv/home-lab-state/books/value
+printf '%s\n' 'synthetic-unselected' >/srv/home-lab-state/unselected/value
+cat >"$work/recovery/groups.json" <<'JSON'
+{"version":1,"common_paths":["/srv/home-lab-state/common"],"groups":{
+  "books":{"services":["book-app"],"paths":["/srv/home-lab-state/books"]},
+  "other":{"services":["other-app"],"paths":["/srv/home-lab-state/unselected"]}
+}}
+JSON
+policy_sha=$(printf 'synthetic-policy' | sha256sum | cut -d' ' -f1)
+artifact_sha=$(printf 'synthetic-artifact' | sha256sum | cut -d' ' -f1)
+restic init >/dev/null 2>&1
+restic backup /srv/home-lab-state --tag cadence=daily --tag "policy=$policy_sha" --tag "artifact=$artifact_sha" >/dev/null 2>&1
+snapshot=$(restic snapshots --json | jq -er '.[0].id')
+export RECOVERY_RESTIC_REPOSITORY=$RESTIC_REPOSITORY RECOVERY_RESTIC_PASSWORD_FILE=$RESTIC_PASSWORD_FILE
+export RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID
+RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID=$(restic cat config | jq -er .id)
+export RECOVERY_EXPECTED_POLICY_SHA256=$policy_sha RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256=$artifact_sha
+export RECOVERY_EXPECTED_RESTIC_SHA256
+RECOVERY_EXPECTED_RESTIC_SHA256=$(sha256sum "$work/bin/restic" | cut -d' ' -f1)
+for scope in books all; do
+  export RECOVERY_TARGET="/srv/home-lab-recovery/restic-$scope"
+  mkdir -m 0700 "$RECOVERY_TARGET"
+  selection=(--recovery-group books)
+  [[ $scope != all ]] || selection=(--all)
+  output=$("$work/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target "${selection[@]}")
+  [[ $output == recovery_restore=verified* && $output != *synthetic-selected-book* ]]
+  for selected in common books; do
+    cmp "/srv/home-lab-state/$selected/value" "$RECOVERY_TARGET/srv/home-lab-state/$selected/value"
+  done
+  if [[ $scope == books ]]; then
+    [[ ! -e $RECOVERY_TARGET/srv/home-lab-state/unselected ]]
+  else
+    cmp /srv/home-lab-state/unselected/value "$RECOVERY_TARGET/srv/home-lab-state/unselected/value"
+  fi
+  [[ ! -e $RECOVERY_TARGET.proof-lock ]]
+done
+printf 'native_restic_restore=verified selective-and-complete\n'

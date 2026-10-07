@@ -303,5 +303,70 @@ class NativeMindwtrReader(unittest.TestCase):
                 subprocess.run(["docker", "rm", "--force", container], capture_output=True, check=True)
 
 
+class NativeRuntimePaths(unittest.TestCase):
+    def test_initialization_preserves_certificates_and_refuses_unsafe_paths(self):
+        with tempfile.TemporaryDirectory(prefix="compose-runtime-test-") as directory:
+            work = Path(directory)
+            store = work / "store"
+            certificate = store / "acme.json"
+            paths = [
+                {"path": str(store), "kind": "directory", "uid": os.getuid(), "gid": os.getgid(), "mode": "0700"},
+                {"path": str(certificate), "kind": "file", "uid": os.getuid(), "gid": os.getgid(), "mode": "0600"},
+            ]
+            playbook = work / "play.json"
+
+            def run(expected=True, check=False):
+                playbook.write_text(json.dumps([{
+                    "hosts": "localhost", "gather_facts": False,
+                    "vars": {"ansible_become": False, "ansible_python_interpreter": shutil.which("python3"),
+                             "compose_native_runtime_paths": paths},
+                    "tasks": [{"ansible.builtin.include_role": {"name": "compose_native", "tasks_from": "runtime-paths"}}],
+                }]))
+                args = ["ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook)]
+                if check:
+                    args.append("--check")
+                result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True,
+                    env={**os.environ, "ANSIBLE_CONFIG": str(ROOT / "ansible/ansible.cfg")}, timeout=60)
+                self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
+                self.assertNotIn("synthetic-private-certificate", result.stdout + result.stderr)
+                return result.stdout
+
+            run(check=True)
+            self.assertFalse(store.exists())
+            run()
+            self.assertEqual(certificate.read_text(), "{}\n")
+            self.assertEqual(store.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(certificate.stat().st_mode & 0o777, 0o600)
+            certificate.write_text("synthetic-private-certificate")
+            inode = certificate.stat().st_ino
+            self.assertRegex(run(), r"changed=0\s")
+            self.assertEqual(certificate.stat().st_ino, inode)
+            self.assertEqual(certificate.read_text(), "synthetic-private-certificate")
+
+            # Admission must fail before creating any other declared path.
+            additional = {"path": str(work / "untouched"), "kind": "directory", "uid": os.getuid(),
+                          "gid": os.getgid(), "mode": "0700"}
+            paths.insert(0, additional)
+            for field in ("uid", "gid"):
+                paths[-1][field] += 1
+                run(expected=False)
+                paths[-1][field] -= 1
+                self.assertFalse((work / "untouched").exists())
+            certificate.chmod(0o644)
+            run(expected=False)
+            self.assertEqual(certificate.stat().st_mode & 0o777, 0o644)
+            certificate.chmod(0o600)
+            certificate.unlink()
+            certificate.symlink_to(work / "absent")
+            run(expected=False)
+            self.assertTrue(certificate.is_symlink())
+            self.assertFalse((work / "absent").exists())
+            certificate.unlink()
+            certificate.mkdir(mode=0o700)
+            run(expected=False)
+            self.assertTrue(certificate.is_dir())
+            self.assertFalse((work / "untouched").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -145,96 +145,6 @@ def safe_protection_enable(before: Any, after: Any, path: tuple[str, ...]) -> bo
     )
 
 
-def safe_state_disk_attachment(before: Any, after: Any) -> bool:
-    if not isinstance(before, dict) or not isinstance(after, dict):
-        return False
-    if changed_keys(before, after) != {("disk",)}:
-        return False
-    before_disks = before.get("disk")
-    after_disks = after.get("disk")
-    if not isinstance(before_disks, list) or not isinstance(after_disks, list):
-        return False
-    if len(before_disks) != 2 or len(after_disks) != 3 or after_disks[:2] != before_disks:
-        return False
-    if [disk.get("interface") for disk in before_disks if isinstance(disk, dict)] != ["scsi0", "scsi1"]:
-        return False
-    candidate = after_disks[2]
-    return candidate == {
-        "aio": "io_uring",
-        "backup": True,
-        "cache": "none",
-        "datastore_id": "local-lvm",
-        "discard": "ignore",
-        "file_format": None,
-        "file_id": None,
-        "import_from": None,
-        "interface": "scsi2",
-        "iothread": True,
-        "path_in_datastore": None,
-        "queues": 0,
-        "replicate": True,
-        "serial": "QUAL-NIXOS-128G",
-        "size": 128,
-        "speed": [],
-        "ssd": False,
-    }
-
-
-def safe_custom_rom_removal(before: Any, after: Any, path: tuple[str, ...]) -> bool:
-    return (
-        "hostpci" in path
-        and path[-1:] == ("rom_file",)
-        and isinstance(value_at_path(before, path), str)
-        and value_at_path(after, path) in (None, "")
-    )
-
-
-def safe_hardware_mapping_transition(
-    before: Any,
-    after: Any,
-    path: tuple[str, ...],
-    mapping_resources: dict[str, list[dict[str, Any]]],
-) -> bool:
-    if len(path) != 3 or path[0] not in {"hostpci", "usb"} or not path[1].isdigit():
-        return False
-    raw_field = "id" if path[0] == "hostpci" else "host"
-    if path[2] not in {raw_field, "mapping"}:
-        return False
-    devices_before = before.get(path[0]) if isinstance(before, dict) else None
-    devices_after = after.get(path[0]) if isinstance(after, dict) else None
-    index = int(path[1])
-    if (
-        not isinstance(devices_before, list)
-        or not isinstance(devices_after, list)
-        or index >= len(devices_before)
-        or index >= len(devices_after)
-    ):
-        return False
-    device_before = devices_before[index]
-    device_after = devices_after[index]
-    if not isinstance(device_before, dict) or not isinstance(device_after, dict):
-        return False
-    raw_value = device_before.get(raw_field)
-    mapping_name = device_after.get("mapping")
-    mapping_entries = mapping_resources.get(mapping_name, []) if isinstance(mapping_name, str) else []
-    mapping_matches_raw_device = any(
-        entry.get("path") == raw_value or entry.get("id") == raw_value
-        for entry in mapping_entries
-    )
-    return (
-        changed_keys(device_before, device_after) == {(raw_field,), ("mapping",)}
-        and isinstance(raw_value, str)
-        and bool(raw_value)
-        and device_before.get("mapping") in (None, "")
-        and device_after.get(raw_field) in (None, "")
-        and isinstance(mapping_name, str)
-        and bool(mapping_name)
-        and mapping_matches_raw_device
-    )
-
-
-
-
 def contains_unknown(value: Any) -> bool:
     if value is True:
         return True
@@ -661,16 +571,6 @@ def main() -> int:
         return 0
     allow: set[str] = set()
     import_only: set[str] = set()
-    mapping_resources: dict[str, list[dict[str, Any]]] = {}
-    for resource in plan.get("resource_changes", []):
-        if resource.get("type") not in {"proxmox_hardware_mapping_pci", "proxmox_hardware_mapping_usb"}:
-            continue
-        after = resource.get("change", {}).get("after")
-        if not isinstance(after, dict) or not isinstance(after.get("name"), str) or not isinstance(after.get("map"), list):
-            continue
-        entries = after["map"]
-        if all(isinstance(entry, dict) for entry in entries):
-            mapping_resources[after["name"]] = entries
     if args.allow_change_file:
         entries = {
             line.strip()
@@ -719,12 +619,6 @@ def main() -> int:
         before = change.get("before")
         after = change.get("after")
         changed = changed_keys(before, after)
-        candidate_attachment = (
-            address == VM_ADDRESS
-            and resource_type == VM_RESOURCE_TYPE
-            and actions == ["update"]
-            and safe_state_disk_attachment(before, after)
-        )
         sensitive = sorted(
             ".".join(path)
             for path in changed
@@ -738,9 +632,6 @@ def main() -> int:
                 )
             )
             and not safe_protection_enable(before, after, path)
-            and not safe_custom_rom_removal(before, after, path)
-            and not safe_hardware_mapping_transition(before, after, path, mapping_resources)
-            and not candidate_attachment
         )
         unknown_sensitive: list[str] = []
         if address == VM_ADDRESS and resource_type == VM_RESOURCE_TYPE:

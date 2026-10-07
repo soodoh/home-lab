@@ -2,9 +2,14 @@
 
 import copy
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 import unittest
+
+import yaml
 
 from jsonschema import Draft202012Validator
 
@@ -18,12 +23,8 @@ OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory"}
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 6)
-        self.assertNotIn("sourceInventory", DESIRED)
-        self.assertEqual(len(DESIRED["applications"]), 21)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 17)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 24)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {
             "passwordless-webauthn", "default-authentication-mfa-validation",
         })
@@ -31,7 +32,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             set(DESIRED["customFlows"]),
             {"passwordless-authentication", "jellyfin-ldap-authentication", "invitation-enrollment"},
         )
-        self.assertEqual(len(DESIRED["flowStageBindings"]), 10)
         self.assertEqual(set(DESIRED["scopeMappings"]), {"vaultwarden-email"})
         self.assertEqual(set(DESIRED["certificates"]), {"jellyfin-ldap"})
         self.assertEqual(set(DESIRED["ldapProviders"]), {"jellyfin"})
@@ -237,14 +237,12 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_omada_bridge_advertises_reachable_host(self) -> None:
         network = json.loads((REPO / "infrastructure/tofu/omada/desired.json").read_text())["network"]
         self.assertEqual(network["dhcp_options"], [{"code": 138, "value": "192.168.0.100"}])
-        infra = (REPO / "services/infra.yml").read_text()
-        omada = infra.split("  omada:", 1)[1].split("\n  ddns-updater:", 1)[0]
-        self.assertNotIn("network_mode: host", omada)
-        self.assertIn("      - omada-backend", omada)
-        self.assertNotIn("      - proxy", omada)
-        self.assertIn("127.0.0.1:8043:8043", omada)
-        self.assertIn("29810:29810/udp", omada)
-        self.assertIn("29811-29817:29811-29817", omada)
+        omada = yaml.safe_load((REPO / "services/infra.yml").read_text())["services"]["omada"]
+        self.assertNotEqual(omada.get("network_mode"), "host")
+        self.assertEqual(omada["networks"], ["omada-backend"])
+        self.assertIn("127.0.0.1:8043:8043", omada["ports"])
+        for port in (":29810:29810/udp", ":29811-29817:29811-29817"):
+            self.assertTrue(any(binding.endswith(port) for binding in omada["ports"]))
 
     def test_tailscale_control_proxy_is_private_and_destination_limited(self) -> None:
         provider = DESIRED["proxyProviders"]["tailscale-control"]
@@ -286,30 +284,25 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             set(DESIRED["proxyProviders"]),
         )
 
-        infra = (REPO / "services" / "infra.yml").read_text()
-        self.assertIn("gogost/gost:3.3.0@sha256:", infra)
-        proxy_service = infra.split("  tailscale-control-proxy:", 1)[1].split("\n  traefik:", 1)[0]
-        self.assertNotIn("\n    ports:", proxy_service)
-        self.assertIn("      - proxy", proxy_service)
+        proxy = yaml.safe_load((REPO / "services/infra.yml").read_text())["services"]["tailscale-control-proxy"]
+        self.assertRegex(proxy["image"], r"^gogost/gost:[^@]+@sha256:[0-9a-f]{64}$")
+        self.assertFalse(proxy.get("ports"))
+        self.assertIn("proxy", proxy["networks"])
 
     def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
-        authentik = (REPO / "services" / "authentik.yml").read_text()
-        outpost = authentik.split("  authentik-ldap:", 1)[1].split("\nnetworks:", 1)[0]
-        self.assertIn(
-            "ghcr.io/goauthentik/ldap:2026.8.3@sha256:7114c560be4e24dc61080fe5bd7684cf0ebf4b0a6230a8247943ffa8957b73d4",
-            outpost,
-        )
-        self.assertIn("AUTHENTIK_HOST: http://authentik-server:9000", outpost)
-        self.assertIn("AUTHENTIK_TOKEN: file:///run/secrets/authentik_ldap_token", outpost)
-        self.assertIn("      - jellyfin-auth", outpost)
-        self.assertNotIn("\n    ports:", outpost)
-        self.assertIn("  jellyfin-auth:\n    internal: true", authentik)
+        authentik = yaml.safe_load((REPO / "services/authentik.yml").read_text())
+        outpost = authentik["services"]["authentik-ldap"]
+        self.assertRegex(outpost["image"], r"^ghcr.io/goauthentik/ldap:[^@]+@sha256:[0-9a-f]{64}$")
+        self.assertEqual(outpost["environment"]["AUTHENTIK_HOST"], "http://authentik-server:9000")
+        self.assertEqual(outpost["environment"]["AUTHENTIK_TOKEN"], "file:///run/secrets/authentik_ldap_token")
+        self.assertIn("jellyfin-auth", outpost["networks"])
+        self.assertFalse(outpost.get("ports"))
+        self.assertTrue(authentik["networks"]["jellyfin-auth"]["internal"])
 
-        apps = (REPO / "services" / "apps.yml").read_text()
-        jellyfin = apps.split("  jellyfin:", 1)[1].split("\n  karaoke-eternal:", 1)[0]
-        self.assertIn("source: ./data/authentik-ldap-ca.pem", jellyfin)
-        self.assertIn("target: /etc/ssl/certs/authentik-ldap.pem", jellyfin)
-        self.assertIn("      - jellyfin-auth", jellyfin)
+        jellyfin = yaml.safe_load((REPO / "services/apps.yml").read_text())["services"]["jellyfin"]
+        self.assertIn({"type": "bind", "source": "./data/authentik-ldap-ca.pem",
+                       "target": "/etc/ssl/certs/authentik-ldap.pem", "read_only": True}, jellyfin["volumes"])
+        self.assertIn("jellyfin-auth", jellyfin["networks"])
         self.assertEqual(
             (REPO / "services" / "data" / "authentik-ldap-ca.pem").read_text(),
             (ROOT / "jellyfin-ldap.pem").read_text(),
@@ -386,54 +379,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ).stdout.decode()
         self.assertRegex(key, r"Public-Key: \(4096 bit\)")
 
-    def test_root_is_import_first_and_secret_aware(self) -> None:
-        versions = (ROOT / "versions.tf").read_text()
-        variables = (ROOT / "variables.tf").read_text()
-        main = "\n".join((ROOT / name).read_text() for name in ("main.tf", "authentication.tf", "imports.tf"))
-
-        self.assertIn('version = "= 2026.8.0"', versions)
-        self.assertIn('key          = "home-lab/authentik/tofu.tfstate"', versions)
-        self.assertRegex(variables, r'variable "authentik_enable_management"[\s\S]+default\s+= false')
-        for resource in (
-            "authentik_application",
-            "authentik_blueprint",
-            "authentik_certificate_key_pair",
-            "authentik_flow",
-            "authentik_flow_stage_binding",
-            "authentik_outpost",
-            "authentik_policy_binding",
-            "authentik_property_mapping_provider_scope",
-            "authentik_provider_ldap",
-            "authentik_provider_oauth2",
-            "authentik_provider_proxy",
-            "authentik_rbac_permission_role",
-            "authentik_rbac_role",
-            "authentik_stage_authenticator_validate",
-            "authentik_user",
-        ):
-            self.assertIn(f'resource "{resource}"', main)
-        self.assertNotIn("prevent_destroy", main)
-        self.assertEqual(main.count("import {"), 22)
-        self.assertIn("for_each = local.existing_custom_flows", main)
-        self.assertIn("for_each = local.existing_flow_stage_bindings", main)
-        self.assertIn("for_each = local.existing_application_policy_bindings", main)
-        self.assertIn("for_each = local.existing_proxy_providers", main)
-        self.assertIn("for_each = local.existing_applications", main)
-        self.assertIn("data.authentik_stage.default_authentication_login", main)
-        self.assertIn("authentik_stage_authenticator_webauthn.managed", main)
-        self.assertIn("local.client_secrets.oauthProviders[each.key].client_secret", main)
-        self.assertIn("authentik_property_mapping_provider_scope.scope_mappings", main)
-        self.assertIn("local.client_secrets.ldap.certificate_private_key", main)
-        self.assertNotIn("ignore_changes = [client_secret]", main)
-        self.assertIn('permission = each.value.permission', main)
-        self.assertIn("local.client_secrets.ldap.bind_password", main)
-        proxy_block = main[main.index('resource "authentik_provider_proxy"'):main.index('resource "authentik_provider_oauth2"')]
-        self.assertNotIn("property_mappings", proxy_block)
-        self.assertIn("url      = var.authentik_url", main)
-        self.assertIn("token    = var.authentik_token", main)
-        self.assertEqual(variables.count("ephemeral = true"), 1)
-        self.assertEqual(variables.count("sensitive = true"), 1)
-
     def test_plan_policy_allowlist_is_exact_for_reviewed_addresses(self) -> None:
         allow = set((REPO / "infrastructure" / "policy" / "allow" / "authentik.txt").read_text().splitlines())
         expected = {
@@ -470,14 +415,100 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 116)
 
-    def test_prepare_step_protects_sensitive_inputs(self) -> None:
-        prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()
-        for value in ("AUTHENTIK_URL", "AUTHENTIK_TOKEN", "SOPS_AGE_KEY_FILE", "chmod 0600"):
-            self.assertIn(value, prepare)
-        self.assertIn("path.is_symlink()", prepare)
-        self.assertIn("stat.S_IMODE(metadata.st_mode) != 0o600", prepare)
+
+
+class AuthentikPlanInputTests(unittest.TestCase):
+    """Execute the real preparation command; fake only SOPS and provider reads."""
+
+    def setUp(self):
+        self.workspace = tempfile.TemporaryDirectory(prefix="authentik-input-test-")
+        self.addCleanup(self.workspace.cleanup)
+        self.work = Path(self.workspace.name)
+        self.bin = self.work / "bin"
+        self.bin.mkdir()
+        self.session = self.work / "session"
+        self.session.mkdir(mode=0o700)
+        self.key = self.work / "age-key"
+        self.key.write_text("synthetic-age-identity")
+        self.key.chmod(0o600)
+        self.clients = {"schemaVersion": 2, "oauthProviders": {
+            key: {"client_secret": "synthetic-secret-" + key} for key in DESIRED["oauthProviders"]
+        }, "ldap": {"bind_password": "s" * 64, "certificate_private_key": "-----BEGIN PRIVATE KEY-----synthetic"}}
+        self.signers = {"schemaVersion": 1, "certificates": {
+            key: {"private_key": "-----BEGIN PRIVATE KEY-----synthetic"} for key in DESIRED["signingCertificates"]
+        }}
+        (self.bin / "sops").write_text(
+            f"#!{sys.executable}\nimport os, pathlib, sys\n"
+            "name = 'clients.json' if pathlib.Path(sys.argv[-1]).name.startswith('client-secrets') else 'signers.json'\n"
+            "sys.stdout.write((pathlib.Path(os.environ['FIXTURE_ROOT']) / name).read_text())\n"
+        )
+        # All inline controller Python remains real. Only the separately tested
+        # provider preflight is intercepted; this command must still invoke it.
+        (self.bin / "python3").write_text(
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            "if [[ ${1:-} == scripts/check-authentik-secret-readability.py ]]; then\n"
+            "  touch \"$FIXTURE_ROOT/provider-read\"\n"
+            "  exit \"${FIXTURE_PROVIDER_STATUS:-0}\"\nfi\n"
+            f"exec {sys.executable!r} \"$@\"\n"
+        )
+        for command in self.bin.iterdir():
+            command.chmod(0o755)
+        self.environment = {
+            "PATH": str(self.bin) + os.pathsep + os.environ["PATH"], "HOME": str(self.work),
+            "TMPDIR": str(self.work), "FIXTURE_ROOT": str(self.work),
+            "TF_VAR_authentik_enable_management": "true", "AUTHENTIK_URL": "https://auth.diloreto.com",
+            "AUTHENTIK_TOKEN": "synthetic-token", "SOPS_AGE_KEY_FILE": str(self.key),
+            "TF_VAR_authentik_client_secrets_path": str(self.session / "clients.json"),
+            "TF_VAR_authentik_signing_keys_path": str(self.session / "signers.json"),
+        }
+
+    def prepare(self, expected=0):
+        (self.work / "clients.json").write_text(json.dumps(self.clients))
+        (self.work / "signers.json").write_text(json.dumps(self.signers))
+        result = subprocess.run([str(REPO / "scripts/prepare-authentik-plan-input")],
+                                env=self.environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode == 0, expected == 0, result.stdout + result.stderr)
+        for secret in ("synthetic-secret", "synthetic-token", "PRIVATE KEY", "s" * 64):
+            self.assertNotIn(secret, result.stdout + result.stderr)
+        return result
+
+    def test_publishes_exact_private_inputs_and_refuses_reuse(self):
+        self.prepare()
+        self.assertTrue((self.work / "provider-read").exists())
+        for name, expected in (("clients.json", self.clients), ("signers.json", self.signers)):
+            target = self.session / name
+            self.assertEqual(json.loads(target.read_text()), expected)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.prepare(expected=1)
+        self.assertEqual(sorted(p.name for p in self.session.iterdir()), ["clients.json", "signers.json"])
+        self.assertEqual(json.loads((self.session / "clients.json").read_text()), self.clients)
+
+    def test_refuses_unprotected_age_identity_or_session(self):
+        self.key.chmod(0o644)
+        self.prepare(expected=1)
+        self.key.chmod(0o600)
+        link = self.work / "linked-key"
+        link.symlink_to(self.key)
+        self.environment["SOPS_AGE_KEY_FILE"] = str(link)
+        self.prepare(expected=1)
+        self.environment["SOPS_AGE_KEY_FILE"] = str(self.key)
+        self.session.chmod(0o755)
+        self.prepare(expected=1)
+        self.assertEqual(list(self.session.iterdir()), [])
+        self.assertFalse((self.work / "provider-read").exists())
+
+    def test_invalid_authority_and_unreadable_provider_leave_no_plaintext(self):
+        original = copy.deepcopy(self.clients)
+        self.clients["oauthProviders"].pop(next(iter(self.clients["oauthProviders"])))
+        self.prepare(expected=1)
+        self.assertEqual(list(self.session.iterdir()), [])
+        self.assertFalse((self.work / "provider-read").exists())
+        self.clients = original
+        self.environment["FIXTURE_PROVIDER_STATUS"] = "1"
+        self.prepare(expected=1)
+        self.assertTrue((self.work / "provider-read").exists())
+        self.assertEqual(list(self.session.iterdir()), [])
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ jobs:
       - name: Install validation dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes jq openssl rsync shellcheck nftables iproute2 util-linux
+          sudo apt-get install --yes bzip2 curl jq openssl rsync shellcheck nftables iproute2 util-linux
           python -m pip install --disable-pip-version-check \
             ansible-core==2.21.2 ansible-lint==26.8.0 yamllint==1.38.0 \
             jsonschema==4.25.1
@@ -56,13 +56,33 @@ jobs:
           python scripts/test-servarr-variables.py
           scripts/test-recovery-tools
 
+      - name: Test real Restic selective recovery in an isolated namespace
+        run: |
+          umask 077
+          work=$(mktemp -d)
+          trap 'sudo rm -rf -- "$work"' EXIT
+          policy=services/data/restic/policy.json
+          curl --fail --silent --show-error --location \
+            "$(jq -r .tools.restic.url "$policy")" --output "$work/restic.bz2"
+          printf '%s  %s\n' "$(jq -r .tools.restic.archive_sha256 "$policy")" "$work/restic.bz2" | sha256sum --check --status
+          bzip2 --decompress --stdout "$work/restic.bz2" >"$work/restic"
+          printf '%s  %s\n' "$(jq -r .tools.restic.installed_sha256 "$policy")" "$work/restic" | sha256sum --check --status
+          sudo env TMPDIR="$work" RESTIC_NATIVE_TEST_DISPOSABLE=true scripts/test-restic-native-restore "$work/restic"
+
       - name: Run native source validators
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg
         run: |
           ansible-lint ansible/playbooks ansible/roles
           yamllint . --no-warnings
-          shellcheck $(git ls-files '*.sh' '*.bash')
+          git ls-files -z | python -c '
+          import pathlib, sys
+          for name in sys.stdin.buffer.read().split(b"\0"):
+              if name and pathlib.Path(name.decode()).read_bytes().split(b"\n", 1)[0] in (
+                  b"#!/bin/sh", b"#!/bin/bash", b"#!/usr/bin/env bash",
+              ):
+                  sys.stdout.buffer.write(name + b"\0")
+          ' | xargs -0 shellcheck
           docker compose config --no-env-resolution --no-interpolate --quiet
           tofu fmt -check -recursive
 

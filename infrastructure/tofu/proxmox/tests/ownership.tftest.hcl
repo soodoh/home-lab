@@ -89,6 +89,21 @@ run "native_vm_and_node_ownership" {
 
   assert {
     condition = (
+      toset(keys(proxmox_hardware_mapping_pci.device)) == toset(["gpu", "gpu_audio"]) &&
+      toset(keys(proxmox_hardware_mapping_usb.device)) == toset(["zigbee", "zwave", "bluetooth"]) &&
+      proxmox_virtual_environment_vm.debian.hostpci[0].mapping == proxmox_hardware_mapping_pci.device["gpu"].name &&
+      proxmox_virtual_environment_vm.debian.hostpci[1].mapping == proxmox_hardware_mapping_pci.device["gpu_audio"].name &&
+      proxmox_virtual_environment_vm.debian.usb[0].mapping == proxmox_hardware_mapping_usb.device["zigbee"].name &&
+      proxmox_virtual_environment_vm.debian.usb[1].mapping == proxmox_hardware_mapping_usb.device["zwave"].name &&
+      proxmox_virtual_environment_vm.debian.usb[2].mapping == proxmox_hardware_mapping_usb.device["bluetooth"].name &&
+      alltrue([for device in proxmox_virtual_environment_vm.debian.hostpci : device.id == null]) &&
+      alltrue([for device in proxmox_virtual_environment_vm.debian.usb : device.host == null])
+    )
+    error_message = "The VM must consume every owned native mapping without raw attachment fallbacks."
+  }
+
+  assert {
+    condition = (
       proxmox_storage_directory.local.path == "/var/lib/vz" &&
       !proxmox_storage_directory.local.shared &&
       length(proxmox_storage_directory.local.nodes) == 0 &&

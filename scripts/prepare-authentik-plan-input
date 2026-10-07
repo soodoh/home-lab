@@ -13,7 +13,7 @@ cd "$repo_root"
 : "${TF_VAR_authentik_signing_keys_path:?TF_VAR_authentik_signing_keys_path is required}"
 [[ $AUTHENTIK_URL == https://auth.diloreto.com ]]
 for target in "$TF_VAR_authentik_client_secrets_path" "$TF_VAR_authentik_signing_keys_path"; do
-  [[ $target = /* && ! -e $target && ! -L $target ]]
+  [[ $target = /* && ! -e $target && ! -L $target ]] || exit 1
 done
 [[ $TF_VAR_authentik_client_secrets_path != "$TF_VAR_authentik_signing_keys_path" ]]
 for command in jq python3 sops; do
@@ -36,8 +36,8 @@ PY
 client_secrets_parent=$(dirname "$TF_VAR_authentik_client_secrets_path")
 signing_keys_parent=$(dirname "$TF_VAR_authentik_signing_keys_path")
 for parent in "$client_secrets_parent" "$signing_keys_parent"; do
-  [[ -d $parent && ! -L $parent ]]
-  [[ $(stat -c '%a' "$parent" 2>/dev/null || stat -f '%Lp' "$parent") == 700 ]]
+  [[ -d $parent && ! -L $parent ]] || exit 1
+  [[ $(stat -c '%a' "$parent" 2>/dev/null || stat -f '%Lp' "$parent") == 700 ]] || exit 1
 done
 client_secrets=$(mktemp "$client_secrets_parent/client-secrets.XXXXXX")
 signing_keys=""

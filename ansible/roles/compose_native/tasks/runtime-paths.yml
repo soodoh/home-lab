@@ -1,0 +1,55 @@
+---
+- name: Inspect managed runtime paths before provisioning any of them
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  loop: "{{ compose_native_runtime_paths }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: compose_native_existing_runtime_paths
+
+- name: Refuse unsafe existing runtime paths before convergence
+  ansible.builtin.assert:
+    that:
+      - item.item.kind in ['directory', 'file']
+      - not (item.stat.islnk | default(false))
+      - >-
+        not (item.stat.exists | default(false)) or
+        (item.stat.isdir | default(false) if item.item.kind == 'directory' else item.stat.isreg | default(false))
+      - not (item.stat.exists | default(false)) or item.stat.uid == item.item.uid
+      - not (item.stat.exists | default(false)) or item.stat.gid == item.item.gid
+      - not (item.stat.exists | default(false)) or item.stat.mode == item.item.mode
+    fail_msg: An existing runtime path must be independently inspected before convergence.
+  loop: "{{ compose_native_existing_runtime_paths.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Create protected managed runtime directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.uid }}"
+    group: "{{ item.gid }}"
+    mode: "{{ item.mode }}"
+  become: true
+  loop: "{{ compose_native_runtime_paths | selectattr('kind', 'equalto', 'directory') }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Initialize certificate stores without overwriting existing certificates
+  ansible.builtin.copy:
+    content: "{}\n"
+    dest: "{{ item.path }}"
+    owner: "{{ item.uid }}"
+    group: "{{ item.gid }}"
+    mode: "{{ item.mode }}"
+    force: false
+  become: true
+  diff: false
+  no_log: true
+  loop: "{{ compose_native_runtime_paths | selectattr('kind', 'equalto', 'file') }}"
+  loop_control:
+    label: "{{ item.path }}"

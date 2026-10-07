@@ -15,6 +15,10 @@ The `proxmox` root declares:
 - the `vmbr0` bridge, node DNS and timezone;
 - three native snippet files referenced directly by VM initialization.
 
+Hardware attachments use the owned native PCI/USB mappings directly. Preserve
+resource addresses and require a fresh remote-backed no-op plan when refactoring
+these declarations; offline mock tests do not establish live equivalence.
+
 The disk list follows the native importer's ascending bus order: games (`scsi1`),
 state (`scsi2`), then boot (`scsi3`). These provider positions are not changes to
 PVE bus attachments. The retired disk declaration and whole-disk ignore are

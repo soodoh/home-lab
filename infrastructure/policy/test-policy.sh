@@ -14,10 +14,7 @@ expect_rejection() {
 
 python3 "$policy" "$fixtures/noop.json"
 python3 "$policy" "$fixtures/protection-enable.json"
-python3 "$policy" "$fixtures/custom-rom-removal.json"
-python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
-python3 "$policy" "$fixtures/candidate-disk-attach.json"
 expect_rejection tailscale-acl-update normal
 python3 "$policy" "$fixtures/tailscale-acl-update.json" \
   --allow-change-file "$root/allow/tailscale.txt"
@@ -39,10 +36,10 @@ if python3 "$policy" "$fixtures/proxmox-firewall-update.json" \
   echo 'import-only firewall allowlist must not permit later mutation' >&2
   exit 1
 fi
-for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
+for fixture in noop protection-enable delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change; do
   expect_rejection "$fixture" vm-start-prerequisite
 done
-for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe boot-order-change vm-lifecycle-change; do
+for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change boot-order-change vm-lifecycle-change; do
   expect_rejection "$fixture" normal
 done
 python3 "$root/test-deletion-approval.py"

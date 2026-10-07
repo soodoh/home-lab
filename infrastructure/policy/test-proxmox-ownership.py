@@ -79,6 +79,22 @@ class ProxmoxOwnershipTests(unittest.TestCase):
             self.assertEqual(self.inspect(plan, root="proxmox-access").returncode, 1)
             self.assertEqual(self.inspect(plan, root="proxmox-access", allow=["import:" + item["address"]]).returncode, 0)
 
+    def test_vm_hardware_updates_cannot_bypass_protected_change_review(self):
+        address = "proxmox_virtual_environment_vm.debian"
+        cases = (
+            ("disk", [{"interface": "scsi1"}], [{"interface": "scsi1"}, {"interface": "scsi2"}]),
+            ("hostpci", [{"mapping": "gpu", "rom_file": "synthetic.rom"}], [{"mapping": "gpu"}]),
+            ("usb", [{"mapping": "adapter-a"}], [{"mapping": "adapter-b"}]),
+        )
+        for field, before, after in cases:
+            with self.subTest(field=field):
+                item = resource("proxmox_virtual_environment_vm", ["update"])
+                item["address"] = address
+                item["change"].update(before={field: before}, after={field: after})
+                result = self.inspect({"resource_changes": [item]}, allow=[address])
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("protected field change", result.stderr)
+
     def test_node_and_file_mutations_require_explicit_review(self):
         for kind in ("proxmox_virtual_environment_dns", "proxmox_virtual_environment_time",
                      "proxmox_virtual_environment_file"):

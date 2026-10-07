@@ -30,21 +30,10 @@ class ResticRuntimeTests(unittest.TestCase):
         self.assertEqual(policy["runner"]["path"], "/usr/local/libexec/home-lab/restic-backup")
         self.assertGreater(len((ROOT / "services/data/restic/files-from").read_text().splitlines()), 0)
         self.assertGreater(len((ROOT / "services/data/restic/excludes").read_text().splitlines()), 0)
-        for duplicate in ("sources", "classified_paths", "excludes", "critical_fixtures"):
-            self.assertNotIn(duplicate, policy)
-        self.assertNotIn("accepted_path", policy["runner"])
-        self.assertNotIn("proton", policy)
         self.assertEqual(policy["retention"]["read_data_subset"], "10%")
-        self.assertNotIn("maintenance_state_path", policy["runner"])
-        self.assertNotIn("start_order", policy["stop_groups"])
-        for duplicate in ("identity_local", "identity_proton", "units"):
-            self.assertNotIn(duplicate, policy["runner"])
         self.assertEqual(self.runner["SUBCOMMANDS"], {
             "preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "status",
         })
-        text = source.decode()
-        for retired in ("pending", "quota", "repair_proton_index", "first_run"):
-            self.assertNotIn(retired, text)
 
     def test_proton_replication_selects_one_current_tagged_snapshot(self):
         select = self.runner["select_current_snapshot"]

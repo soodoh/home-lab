@@ -26,6 +26,15 @@ compose_native_cli_proxy_config_path: /etc/docker-compose/credentials/cli-proxy-
 compose_native_sops_binary: sops
 compose_native_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
 compose_native_secret_files: []
+# Existing paths must already have this identity; never repair unknown app state.
+compose_native_runtime_paths:
+  - {path: /srv/home-lab-state/shelfmark-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/mindwtr-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/traefik-data, kind: directory, uid: 0, gid: 0, mode: '0700'}
+  - {path: /srv/home-lab-state/traefik-tailnet-data, kind: directory, uid: 0, gid: 0, mode: '0700'}
+  - {path: /srv/home-lab-state/traefik-data/acme.json, kind: file, uid: 0, gid: 0, mode: '0600'}
+  - {path: /srv/home-lab-state/traefik-tailnet-data/acme-staging.json, kind: file, uid: 0, gid: 0, mode: '0600'}
+  - {path: /srv/home-lab-state/traefik-tailnet-data/acme.json, kind: file, uid: 0, gid: 0, mode: '0600'}
 compose_native_credentials: "{{ lookup('ansible.builtin.file', compose_native_controller_root ~ '/services/credentials.json') | from_json }}"
 compose_native_oidc_desired: "{{ lookup('ansible.builtin.file', compose_native_authentik_desired_file) | from_json }}"
 compose_native_source_paths:

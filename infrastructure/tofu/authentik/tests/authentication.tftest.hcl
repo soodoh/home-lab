@@ -20,7 +20,9 @@ run "disabled_root_has_no_provider_objects" {
   command = plan
 
   variables {
-    authentik_enable_management = false
+    # Exercise the production default, not an explicit override.
+    authentik_client_secrets_path = "missing-unreadable-secret-input"
+    authentik_signing_keys_path   = "missing-unreadable-signing-input"
   }
 
   assert {
@@ -96,6 +98,18 @@ run "authentication_and_onboarding_preserve_behavior" {
       authentik_certificate_key_pair.signing["grimmory-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["grimmory-oidc"].private_key)}\n"
     )
     error_message = "The new signer must remain separately owned, supplied from its matching encrypted authority, and excluded from imports."
+  }
+
+  assert {
+    condition = (
+      alltrue([for key, provider in authentik_provider_oauth2.providers :
+        provider.client_secret == jsondecode(file(var.authentik_client_secrets_path)).oauthProviders[key].client_secret
+      ]) &&
+      authentik_certificate_key_pair.certificates["jellyfin-ldap"].key_data == local.client_secrets.ldap.certificate_private_key &&
+      authentik_user.service_accounts["jellyfin-ldap-bind"].password == local.client_secrets.ldap.bind_password &&
+      authentik_rbac_permission_role.ldap_directory_search["jellyfin"].permission == local.desired.ldapSearchPermissions["jellyfin"].permission
+    )
+    error_message = "Evaluated resources must use the protected OAuth/LDAP authority and the reviewed directory permission."
   }
 
   assert {

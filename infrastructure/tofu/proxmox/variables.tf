@@ -41,14 +41,13 @@ variable "proxmox_vm" {
         sockets       = number
         type          = string
       })
-      desired_protection       = bool
-      hardware_attachment_mode = string
-      machine                  = string
-      memory_mb                = number
-      name                     = string
-      on_boot                  = bool
-      started                  = bool
-      vmid                     = number
+      desired_protection = bool
+      machine            = string
+      memory_mb          = number
+      name               = string
+      on_boot            = bool
+      started            = bool
+      vmid               = number
       games_disk = object({
         backup    = bool
         discard   = string
@@ -98,7 +97,6 @@ variable "proxmox_vm" {
       })
       usb = object({
         bluetooth = object({
-          host          = string
           mapping       = string
           usb3          = bool
           vendor_device = string
