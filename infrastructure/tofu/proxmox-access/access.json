@@ -1,0 +1,99 @@
+{
+  "roles": {
+    "HomeLabTofuApply": [
+      "Datastore.Allocate",
+      "Datastore.AllocateSpace",
+      "Datastore.AllocateTemplate",
+      "Datastore.Audit",
+      "Mapping.Audit",
+      "Mapping.Modify",
+      "Mapping.Use",
+      "SDN.Audit",
+      "SDN.Use",
+      "Sys.Audit",
+      "VM.Allocate",
+      "VM.Audit",
+      "VM.Config.CDROM",
+      "VM.Config.CPU",
+      "VM.Config.Cloudinit",
+      "VM.Config.Disk",
+      "VM.Config.HWType",
+      "VM.Config.Memory",
+      "VM.Config.Network",
+      "VM.Config.Options",
+      "VM.Migrate",
+      "VM.PowerMgmt"
+    ],
+    "HomeLabTofuPlan": [
+      "Datastore.Audit",
+      "Mapping.Audit",
+      "SDN.Audit",
+      "Sys.Audit",
+      "VM.Audit"
+    ],
+    "HomeLabTofuPlanDiskInspect": [
+      "VM.Audit",
+      "VM.Config.Disk"
+    ],
+    "HomeLabTofuApplyNodeModify": [
+      "Sys.Modify"
+    ],
+    "HomeLabTofuPlanStorageInspect": [
+      "Datastore.Allocate"
+    ]
+  },
+  "tokens": {
+    "apply": {
+      "user_id": "root@pam",
+      "token_name": "tofu-apply"
+    },
+    "plan": {
+      "user_id": "root@pam",
+      "token_name": "tofu-plan"
+    }
+  },
+  "acls": {
+    "apply": {
+      "path": "/",
+      "role_id": "HomeLabTofuApply",
+      "token": "apply",
+      "propagate": true
+    },
+    "plan": {
+      "path": "/",
+      "role_id": "HomeLabTofuPlan",
+      "token": "plan",
+      "propagate": true
+    },
+    "plan_disk_inspect": {
+      "path": "/vms/100",
+      "role_id": "HomeLabTofuPlanDiskInspect",
+      "token": "plan",
+      "propagate": true
+    },
+    "apply_node_modify": {
+      "path": "/nodes/proxmox",
+      "role_id": "HomeLabTofuApplyNodeModify",
+      "token": "apply",
+      "propagate": true
+    },
+    "plan_storage_local": {
+      "path": "/storage/local",
+      "role_id": "HomeLabTofuPlanStorageInspect",
+      "token": "plan",
+      "propagate": false
+    },
+    "plan_storage_local_lvm": {
+      "path": "/storage/local-lvm",
+      "role_id": "HomeLabTofuPlanStorageInspect",
+      "token": "plan",
+      "propagate": false
+    },
+    "plan_storage_zfs": {
+      "path": "/storage/storage",
+      "role_id": "HomeLabTofuPlanStorageInspect",
+      "token": "plan",
+      "propagate": false
+    }
+  }
+}

@@ -1,0 +1,4 @@
+---
+# Preserve the existing cloud-init identity; changing it can rerun first boot.
+instance-id: vm-100-debian-13-20260810-2566-v1
+local-hostname: docker-host

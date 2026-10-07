@@ -1,0 +1,37 @@
+---
+- name: Test native cloud-init hash admission without host mutation
+  hosts: localhost
+  gather_facts: false
+  vars:
+    snippet_source: "{{ playbook_dir }}/../../infrastructure/tofu/proxmox/cloud-init/user.yaml"
+    valid_stat:
+      item: {key: user, value: vm-100-debian-user.yaml}
+      stat:
+        exists: true
+        isreg: true
+        islnk: false
+        nlink: 1
+        uid: 0
+        gid: 0
+        mode: '0644'
+        checksum: "{{ lookup('ansible.builtin.file', snippet_source, rstrip=false) | hash('sha256') }}"
+  tasks:
+    - name: Supply an exact native-stat fixture
+      ansible.builtin.set_fact:
+        proxmox_cloud_init_observe_stats:
+          results: ["{{ valid_stat }}"]
+
+    - name: Accept matching snippet content and protected metadata
+      ansible.builtin.include_role:
+        name: proxmox_cloud_init_observe
+        tasks_from: verify
+
+    - name: Reject invalid snippet fixtures
+      ansible.builtin.include_tasks: tasks/proxmox-cloud-init-invalid.yml
+      loop:
+        - {checksum: tampered-content}
+        - {islnk: true}
+        - {exists: false}
+        - {mode: '0666'}
+      loop_control:
+        loop_var: invalid_stat

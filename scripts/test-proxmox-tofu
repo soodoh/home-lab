@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Native mock-provider tests of production declarations, without operational imports.
+set -euo pipefail
+umask 077
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/home-lab-proxmox-test.XXXXXXXX")
+chmod 0700 "$work"
+trap 'rm -rf "$work"' EXIT
+
+for name in proxmox proxmox-access; do
+  source_root="$repo_root/infrastructure/tofu/$name"
+  test_root="$work/$name/source"
+  mkdir -p "$test_root"
+  rsync -a --exclude='imports.tf' --include='*.tf' --include='*.json' \
+    --include='.terraform.lock.hcl' --include='cloud-init/***' \
+    --include='tests/***' --exclude='*' "$source_root/" "$test_root/"
+  export TF_DATA_DIR="$work/$name/data"
+  tofu -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
+  tofu -chdir="$test_root" test
+done

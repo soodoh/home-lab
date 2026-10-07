@@ -277,8 +277,10 @@ def token_policy_valid(token, principal, acl_records, sealed_identity):
         return False
     if not isinstance(metadata, dict) or int(metadata.get("privsep", -1)) != (1 if binding["privilegeSeparation"] else 0):
         return False
+    if any(not isinstance(item.get("propagate", True), bool) for item in binding["additionalAcls"]):
+        return False
     expected = {(binding["primaryAcl"], binding["role"], 1)} | \
-        {(item["path"], item["role"], 1) for item in binding["additionalAcls"]}
+        {(item["path"], item["role"], int(item.get("propagate", True))) for item in binding["additionalAcls"]}
     selected = [item for item in acl_records if isinstance(item, dict) and item.get("ugid") == identity]
     actual = []
     for item in selected:

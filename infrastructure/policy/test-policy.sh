@@ -49,5 +49,6 @@ python3 "$root/test-deletion-approval.py"
 python3 "$root/test-oidc-ownership.py"
 python3 "$root/test-controller-identity-gate.py"
 python3 "$root/test-acme-identity-approval.py"
+python3 "$root/test-proxmox-ownership.py"
 
 echo "plan policy fixtures passed"

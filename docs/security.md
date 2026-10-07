@@ -2,6 +2,23 @@
 
 ## Protected output
 
+[Proxmox access ownership](proxmox-ownership.md#independent-access-ownership) is
+separate from normal provider automation: owner-only state grants and ephemeral
+owner provider credentials are required to manage the existing roles/token ACLs.
+The desired normal automation grants exclude direct access-management authority:
+`Sys.Modify` is scoped to `/nodes/proxmox`, not `/` or `/access`. Global cluster
+options remain owner-only; cluster-firewall mutations also require independent
+owner Proxmox apply credentials after this scope change. The current global apply
+grant is not removed until independently approved activation. The staged
+storage-read exception grants `Datastore.Allocate` only at the three existing
+storage IDs: PVE requires it for configuration reads and snippet visibility, but
+it also permits volume/snippet deletion. The plan credential is therefore mutating
+if that exception is activated. Independent owner risk approval and sealed access
+expectation alignment are prerequisites; the declaration is not an active grant.
+Native snippet uploads retain Tailscale SSH without deployment keys; pre-pin the
+provider's exact
+node FQDN because it accepts unknown host keys.
+
 Never print or commit:
 
 - decrypted SOPS values or resolved Compose configuration;

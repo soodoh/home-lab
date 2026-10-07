@@ -1,0 +1,6 @@
+---
+- name: Verify provider-owned Proxmox snippets without changing the host
+  hosts: proxmox
+  gather_facts: false
+  roles:
+    - proxmox_cloud_init_observe

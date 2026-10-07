@@ -43,21 +43,8 @@ resource "proxmox_virtual_environment_vm" "debian" {
     floating  = 0
   }
 
-  # Preserve provider TypeList indexes after permanent retirement of the former disk[0].
-  # The whole ignored block is inert and prevents index shifts from mutating scsi1 or scsi2.
-  disk {
-    datastore_id = local.vm.retired_disk_slot.datastore
-    import_from  = ""
-    interface    = local.vm.retired_disk_slot.interface
-    size         = local.vm.retired_disk_slot.size_gb
-    iothread     = local.vm.retired_disk_slot.iothread
-    backup       = true
-    cache        = "none"
-    discard      = "ignore"
-    replicate    = true
-    ssd          = false
-  }
-
+  # Match the native importer's ascending bus order. Align old partial provider
+  # state independently; none of these existing bus attachments is being moved.
   disk {
     datastore_id      = ""
     path_in_datastore = local.expected_hardware.gamesDiskIdentity
@@ -82,6 +69,22 @@ resource "proxmox_virtual_environment_vm" "debian" {
     discard      = local.vm.state_disk.discard
     replicate    = true
     ssd          = local.vm.state_disk.ssd
+  }
+
+  # Adopt the existing boot volume, not a new disk or an image import.
+  disk {
+    datastore_id      = local.vm.boot_disk.datastore
+    path_in_datastore = local.vm.boot_disk.volume
+    file_format       = "raw"
+    interface         = local.vm.boot_disk.interface
+    serial            = local.vm.boot_disk.serial
+    size              = local.vm.boot_disk.size_gb
+    iothread          = local.vm.boot_disk.iothread
+    backup            = local.vm.boot_disk.backup
+    cache             = "none"
+    discard           = local.vm.boot_disk.discard
+    replicate         = true
+    ssd               = local.vm.boot_disk.ssd
   }
 
   network_device {
@@ -137,24 +140,12 @@ resource "proxmox_virtual_environment_vm" "debian" {
   }
 
   initialization {
-    datastore_id = var.proxmox_vm.cloud_init.drive_datastore
-    interface    = var.proxmox_vm.cloud_init.drive_interface
-    upgrade      = true
-    user_data_file_id = format(
-      "%s:snippets/%s",
-      var.proxmox_vm.cloud_init.datastore,
-      basename(var.proxmox_vm.cloud_init.user_data_snippet_path),
-    )
-    meta_data_file_id = format(
-      "%s:snippets/%s",
-      var.proxmox_vm.cloud_init.datastore,
-      basename(var.proxmox_vm.cloud_init.meta_data_snippet_path),
-    )
-    network_data_file_id = format(
-      "%s:snippets/%s",
-      var.proxmox_vm.cloud_init.datastore,
-      basename(var.proxmox_vm.cloud_init.network_data_snippet_path),
-    )
+    datastore_id         = var.proxmox_vm.cloud_init.drive_datastore
+    interface            = var.proxmox_vm.cloud_init.drive_interface
+    upgrade              = true
+    user_data_file_id    = local.cloud_init_file_ids.user
+    meta_data_file_id    = local.cloud_init_file_ids.meta
+    network_data_file_id = local.cloud_init_file_ids.network
   }
 
   startup {
@@ -166,10 +157,13 @@ resource "proxmox_virtual_environment_vm" "debian" {
   depends_on = [
     proxmox_hardware_mapping_pci.device,
     proxmox_hardware_mapping_usb.device,
+    proxmox_storage_lvmthin.local,
+    proxmox_network_linux_bridge.lan,
   ]
 
   lifecycle {
-    ignore_changes = [disk[0], disk[1].file_format]
+    # PVE does not report a file format for a raw physical device.
+    ignore_changes = [disk[0].file_format]
 
     precondition {
       condition = (

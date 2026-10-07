@@ -1,0 +1,23 @@
+---
+- name: Supply altered native metadata
+  ansible.builtin.set_fact:
+    proxmox_cloud_init_rejected: false
+    proxmox_cloud_init_observe_stats:
+      results:
+        - "{{ valid_stat | combine({'stat': valid_stat.stat | combine(invalid_stat)}) }}"
+
+- name: Require invalid metadata or content to refuse admission
+  block:
+    - name: Inspect the altered native stat fixture
+      ansible.builtin.include_role:
+        name: proxmox_cloud_init_observe
+        tasks_from: verify
+  rescue:
+    - name: Record the expected refusal
+      ansible.builtin.set_fact:
+        proxmox_cloud_init_rejected: true
+
+- name: Verify that invalid content or metadata was rejected
+  ansible.builtin.assert:
+    that: proxmox_cloud_init_rejected | bool
+    fail_msg: The native snippet observer accepted invalid content or metadata.

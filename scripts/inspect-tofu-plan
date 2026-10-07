@@ -36,8 +36,13 @@ PY
 )
 printf 'saved_plan_sha256=%s\n' "$plan_sha256"
 plan_root=unknown
-if [[ -n $tofu_chdir ]] && [[ $(cd "$tofu_chdir" && pwd -P) == "$repo_root/infrastructure/tofu/aws-foundation" ]]; then
-  plan_root=aws-foundation
+if [[ -n $tofu_chdir ]]; then
+  canonical_root=$(cd "$tofu_chdir" && pwd -P)
+  for candidate in aws-foundation proxmox-access; do
+    if [[ $canonical_root == "$repo_root/infrastructure/tofu/$candidate" ]]; then
+      plan_root=$candidate
+    fi
+  done
 fi
 python3 "$repo_root/infrastructure/policy/inspect-plan.py" "$json" "$@" \
   --saved-plan-sha256="$plan_sha256" --plan-root="$plan_root"

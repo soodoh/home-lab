@@ -114,6 +114,10 @@ them. Observation output is current-run input, not a Git artifact.
 
 Active remote-backed roots under `infrastructure/tofu/` are `authentik`,
 `aws-foundation`, `omada`, `proxmox`, `proxmox-firewall`, `servarr` and `tailscale`.
+The declared `proxmox-access` root is owner-only and requires independent backend
+and provider admission; never initialize it with ordinary controller credentials.
+[Proxmox ownership](proxmox-ownership.md) describes new adoption, native snippet
+replacement/readback and the host boundaries that remain outside the provider.
 Initialize against the **remote S3 backend**, refresh against the provider,
 review the whole saved plan and apply only that plan with the separate apply
 identity. A new plan after apply must have zero proposed changes. Never target
@@ -144,8 +148,13 @@ including write-only Wi-Fi credentials and notification-selector import limits. 
 not a reason to copy live settings into Git. For Proxmox, the host observer must
 compare live disk/USB topology, sealed host expectations and
 [`expected-hardware.json`](../infrastructure/tofu/proxmox/expected-hardware.json)
-before plan/apply; reobserve after topology changes. Never update expected
-hardware automatically from an unexplained observation. The Proxmox cluster
+before plan/apply; reobserve after topology changes. For ordinary snippet plans
+and after any snippet apply, also run
+`ansible-playbook ansible/playbooks/observe-proxmox-cloud-init.yml`: native file
+resources do not compare remote content. An intentional Git snippet change needs
+private before-image inspection and explicit replacement review, not an ignored
+hash mismatch. Never update expected hardware automatically from an unexplained
+observation. The Proxmox cluster
 firewall has its own root and ordered policy; the host observer separately
 checks the provider's non-round-tripping default forward policy. Preserve
 independent console access for network, boot and storage changes.
@@ -550,6 +559,20 @@ ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 ansible-playbook ansible/playbooks/configure-proxmox-maintenance.yml --check
 ansible-playbook ansible/playbooks/maintain-proxmox-packages.yml --check
 ```
+
+The desired Proxmox apply grant scopes `Sys.Modify` to `/nodes/proxmox`.
+Global cluster options are owner-only in `proxmox-access`; cluster-firewall writes
+in `proxmox-firewall` also need separately approved independent owner Proxmox
+apply credentials after that scope change. Its normal audited plan token remains
+usable. Do not restore global `Sys.Modify` to ordinary automation to get an apply
+past a permission failure.
+
+For normal Proxmox provider plans, supply `PROXMOX_VE_API_TOKEN` from the protected
+`PROXMOX_PLAN_TOKEN`, switching to `PROXMOX_APPLY_TOKEN` only for a separately
+approved saved-plan apply. Native snippet uploads additionally require the
+[credential-free SSH and verified FQDN pin](proxmox-ownership.md#snippet-lifecycle-and-ssh).
+The new boot-disk/storage/node/snippet declarations are not permission to mutate
+or import production resources; review their complete remote-backed plan first.
 
 Reboots require explicit playbook inputs and fresh observation. Networking,
 firewall, storage and boot changes require independent console access. The

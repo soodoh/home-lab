@@ -70,10 +70,18 @@ credentials and encrypted bundles live outside Git.
   two-container bridge and verifies the observed self-signed Omada certificate;
   Omada's forced HTTPS redirect requires this encrypted backend hop. Device
   adoption and port exposure require fresh live checks, not an old cutover report.
-- Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB
-  hardware mappings. The inert first disk block preserves provider list indexes after
-  retirement of its former bus slot; changing that tombstone requires an explicit
-  provider/state migration. Native Proxmox services persist the firewall policy; the
+- The Proxmox root declares the VM, all three existing disk attachments, PCI/USB
+  mappings, PVE storage registrations, management bridge, node DNS/timezone and
+  native cloud-init snippet files. Global cluster keyboard/MAC settings belong
+  to the independent owner-only access root because their write privilege also
+  permits role-definition changes. Normal node-modification privilege is scoped
+  at `/nodes/proxmox`, not `/`. The existing
+  boot disk is managed without a whole-disk ignore. Provider list positions follow
+  native import order (`scsi1`, `scsi2`, `scsi3`) without moving PVE bus attachments;
+  old partial state requires independently approved alignment. New declarations
+  require approved adoption before remote state owns them. [Proxmox ownership](proxmox-ownership.md) defines
+  the independent owner-only access root, snippet lifecycle/readback and remaining
+  host/provider gaps. Native Proxmox services persist the firewall policy; the
   observer reads the API and requires the reviewed policy, exact rule order, default
   forward policy and both backends to match. A separate `proxmox-firewall` OpenTofu
   root owns the adopted cluster policy without inheriting the VM/hardware root's

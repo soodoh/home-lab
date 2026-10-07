@@ -1,0 +1,5 @@
+{
+  "meta": "vm-100-debian-meta.yaml",
+  "network": "vm-100-debian-network.yaml",
+  "user": "vm-100-debian-user.yaml"
+}

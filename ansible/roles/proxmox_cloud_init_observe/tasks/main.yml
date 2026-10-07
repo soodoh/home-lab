@@ -1,0 +1,25 @@
+---
+- name: Require read-only Proxmox snippet verification
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox'
+      - ansible_become | bool
+
+- name: Read the source-defined snippet identities
+  ansible.builtin.set_fact:
+    proxmox_cloud_init_observe_files: >-
+      {{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/tofu/proxmox/cloud-init/files.json') | from_json }}
+
+- name: Read native snippet metadata and content hashes
+  ansible.builtin.stat:
+    path: "/var/lib/vz/snippets/{{ item.value }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_checksum: true
+    get_mime: false
+    get_attributes: false
+  loop: "{{ proxmox_cloud_init_observe_files | dict2items }}"
+  register: proxmox_cloud_init_observe_stats
+
+- name: Verify native snippet readback independently of provider state
+  ansible.builtin.import_tasks: verify.yml

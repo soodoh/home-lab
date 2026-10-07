@@ -1,0 +1,20 @@
+---
+- name: Require regular protected snippets with exact desired content
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.nlink == 1
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+      - item.stat.mode == '0644'
+      - >-
+        item.stat.checksum == (lookup('ansible.builtin.file',
+          role_path ~ '/../../../infrastructure/tofu/proxmox/cloud-init/' ~ item.item.key ~ '.yaml',
+          rstrip=false) | hash('sha256'))
+    quiet: true
+    fail_msg: A cloud-init snippet differs from Git; no upload, repair or guest reinitialization was attempted.
+  loop: "{{ proxmox_cloud_init_observe_stats.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"

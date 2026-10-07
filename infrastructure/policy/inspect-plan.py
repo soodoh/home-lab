@@ -66,6 +66,20 @@ VM_BOOT_LIFECYCLE_FIELDS = {
 }
 STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage", "s3_bucket")
 NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_identity")
+PROXMOX_ACCESS_TYPES = {
+    "proxmox_acl", "proxmox_virtual_environment_acl",
+    "proxmox_virtual_environment_role", "proxmox_virtual_environment_group",
+    "proxmox_virtual_environment_user", "proxmox_user_token",
+    "proxmox_virtual_environment_user_token",
+}
+PROXMOX_OWNER_CONTROL_TYPES = {
+    "proxmox_cluster_options", "proxmox_virtual_environment_cluster_options",
+}
+PROXMOX_CONTROL_TYPES = {
+    "proxmox_virtual_environment_dns", "proxmox_virtual_environment_time",
+    "proxmox_cluster_options", "proxmox_virtual_environment_cluster_options",
+    "proxmox_virtual_environment_file",
+}
 VM_ADDRESS = "proxmox_virtual_environment_vm.debian"
 VM_RESOURCE_TYPE = "proxmox_virtual_environment_vm"
 OIDC_RESOURCE_TYPE = "aws_iam_openid_connect_provider"
@@ -322,6 +336,50 @@ def oidc_ownership_failures(envelopes: list[tuple[str, dict[str, Any]]]) -> list
     ]
 
 
+def proxmox_access_ownership_failures(
+    envelopes: list[tuple[str, dict[str, Any]]], root: str, mode: str
+) -> list[str]:
+    """Normal automation must never become a writer of its own permissions."""
+    return [
+        f"{location}: {resource.get('address', '<unknown>')}: Proxmox access/global-control ownership requires the independent proxmox-access root"
+        for location, resource in envelopes
+        if resource["type"] in PROXMOX_ACCESS_TYPES | PROXMOX_OWNER_CONTROL_TYPES and resource.get("mode") != "data"
+        and (root != "proxmox-access" or mode != "normal")
+    ]
+
+
+def approved_snippet_import_replacement(
+    resource: dict[str, Any], approved: set[tuple[str, str, tuple[str, ...]]]
+) -> bool:
+    """The file importer cannot reconstruct source_raw; admit only exact approvals.
+
+    Never allow create-before-destroy on the same path: the subsequent delete
+    would remove the newly uploaded file. Other import mutations remain refused.
+    """
+    change = resource["change"]
+    before, after = change.get("before"), change.get("after")
+    if (
+        not isinstance(before, dict) or not isinstance(after, dict)
+        or change.get("actions") != ["delete", "create"]
+        or not isinstance(resource.get("address"), str)
+    ):
+        return False
+    source = after.get("source_raw")
+    return (
+        resource["type"] == "proxmox_virtual_environment_file"
+        and (resource["address"], resource["type"], tuple(change["actions"])) in approved
+        and all(
+            isinstance(before.get(key), str) and bool(before[key]) and before[key] == after.get(key)
+            for key in ("node_name", "datastore_id")
+        )
+        and before.get("content_type") == after.get("content_type") == "snippets"
+        and isinstance(source, list) and len(source) == 1 and isinstance(source[0], dict)
+        and isinstance(before.get("file_name"), str) and bool(before["file_name"])
+        and before["file_name"] == source[0].get("file_name")
+        and isinstance(source[0].get("data"), str)
+    )
+
+
 def known_identity_result(value: Any) -> bool:
     """Unknown masks may contain booleans and nested containers, not truthy guesses."""
     if isinstance(value, bool):
@@ -567,8 +625,10 @@ def main() -> int:
     except (ValueError, RecursionError) as error:
         print(f"DENY: malformed plan; owner intervention required to verify identity tracking: {error}", file=sys.stderr)
         return 1
-    # Both invariants precede EVERY controller mode, allowlist and import/no-op shortcut.
-    ownership_failures = oidc_ownership_failures(envelopes)
+    # Ownership invariants precede EVERY controller mode, allowlist and import/no-op shortcut.
+    ownership_failures = oidc_ownership_failures(envelopes) + proxmox_access_ownership_failures(
+        envelopes, args.plan_root, args.mode
+    )
     if ownership_failures:
         for failure in sorted(set(ownership_failures)):
             print(f"DENY: {failure}", file=sys.stderr)
@@ -633,8 +693,10 @@ def main() -> int:
             observed_actions += 1
             if address not in allow and address not in import_only:
                 failures.append(f"{address}: import is not explicitly allowlisted")
-            elif actions != ["no-op"]:
-                failures.append(f"{address}: allowlisted import must be read-only")
+            elif actions != ["no-op"] and not (
+                address in allow and approved_snippet_import_replacement(resource, approved)
+            ):
+                failures.append(f"{address}: import must be read-only or an exactly approved snippet replacement")
             continue
         if actions in ([], ["no-op"], ["read"]):
             continue
@@ -701,6 +763,8 @@ def main() -> int:
         lower_type = resource_type.lower()
         if any(marker in lower_type for marker in STORAGE_RESOURCE_MARKERS):
             failures.append(f"{address}: storage mutation requires an explicit reviewed allowlist")
+        if resource_type in PROXMOX_ACCESS_TYPES | PROXMOX_CONTROL_TYPES:
+            failures.append(f"{address}: Proxmox control-plane mutation requires an explicit reviewed allowlist")
         if any(marker in lower_type for marker in NETWORK_RESOURCE_MARKERS):
             failures.append(f"{address}: network/control-plane mutation requires an explicit reviewed allowlist")
 

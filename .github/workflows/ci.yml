@@ -72,7 +72,7 @@ jobs:
         run: |
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
-          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-firewall,servarr,tailscale}; do
+          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-access,proxmox-firewall,servarr,tailscale}; do
             export TF_DATA_DIR="$work/$(basename "$root")"
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
@@ -105,6 +105,14 @@ jobs:
           tofu -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
           tofu -chdir="$test_root" test
 
+      - name: Test native Proxmox ownership declarations
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        run: |
+          scripts/test-proxmox-tofu
+          ansible-playbook -i 'localhost,' -c local \
+            ansible/tests/proxmox-cloud-init.yml -e ansible_become=false
+
       - name: Compile retained Python helpers
         run: python -m compileall -q scripts infrastructure ansible/roles
 
@@ -116,6 +124,7 @@ jobs:
           shellcheck scripts/check-omada-mail
           python scripts/controller/test-local-provider-credentials.py
           python scripts/controller/test-proxmox-hardware-identities.py
+          python scripts/controller/test-proxmox-access-bindings.py
           python scripts/controller/test-authentik-tofu-foundation.py
           python scripts/test-authentik-tofu
           python scripts/controller/test-authentik-secret-readability.py
