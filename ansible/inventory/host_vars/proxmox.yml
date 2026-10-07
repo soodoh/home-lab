@@ -88,7 +88,10 @@ proxmox_observe_protected_spec:
       primaryAcl: /
       privilegeSeparation: true
       role: HomeLabTofuApply
-      additionalAcls: []
+      additionalAcls:
+        - path: /nodes/proxmox
+          role: HomeLabTofuApplyNodeModify
+          propagate: true
     - principal: plan
       primaryAcl: /
       privilegeSeparation: true
@@ -96,3 +99,12 @@ proxmox_observe_protected_spec:
       additionalAcls:
         - path: /vms/100
           role: HomeLabTofuPlanDiskInspect
+        - path: /storage/local
+          role: HomeLabTofuPlanStorageInspect
+          propagate: false
+        - path: /storage/local-lvm
+          role: HomeLabTofuPlanStorageInspect
+          propagate: false
+        - path: /storage/storage
+          role: HomeLabTofuPlanStorageInspect
+          propagate: false
