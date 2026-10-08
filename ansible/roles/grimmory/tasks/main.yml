@@ -31,7 +31,7 @@
     fail_msg: Grimmory must use Authentik's encrypted OIDC source, not duplicated credentials.
   no_log: true
 
-- name: Converge native Grimmory authentication and adopted import settings
+- name: Converge native Grimmory authentication, Hardcover key and adopted import settings
   ansible.builtin.include_tasks:
     file: controller.yml
     apply:

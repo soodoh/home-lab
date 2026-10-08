@@ -43,7 +43,7 @@
         name: compose_native
         tasks_from: observe
 
-    - name: Converge native authentication and adopted import settings
+    - name: Converge native authentication, Hardcover key and adopted import settings
       ansible.builtin.import_role:
         name: grimmory
 

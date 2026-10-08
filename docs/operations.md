@@ -218,7 +218,8 @@ subsequent plans. Do not grant provider identities their own permissions.
 ### Grimmory native authentication and library ownership
 
 [`converge-grimmory.yml`](../ansible/playbooks/converge-grimmory.yml) converges only
-managed authentication settings through the native API over verified HTTPS. Check
+managed authentication settings, the shared SOPS Hardcover metadata API key and
+adopted library import patterns through the native API over verified HTTPS. Check
 mode authenticates the existing recovery administrator but does not write settings:
 
 ```sh
@@ -234,6 +235,22 @@ Initialize only an explicitly approved empty instance with
 accounts or promote users during convergence. Native settings writes are sequential,
 not atomic: concurrent-edit guards and exact readback are required, and failures
 retain production ownership for inspection.
+
+The Hardcover metadata key derives from `HARDCOVER_API_KEY` in
+`secrets/production.sops.yaml`, the same authority used by Shelfmark. Store the raw
+token without `Bearer ` or whitespace; rotate with
+`sops edit secrets/production.sops.yaml`, then check and separately approve both
+Grimmory and Shelfmark convergence from that same SOPS revision. These consumer
+updates are not atomic. Grimmory merges only
+`metadataProviderSettings.hardcover.apiKey` into the observed native provider
+settings, preserving Hardcover enablement and every other provider setting/key.
+Unreadable provider settings refuse convergence; concurrent-edit guards and exact
+readback protect the complete merged object. No Compose environment variable,
+secret mount or OpenTofu resource is added. Treat UI key changes as drift.
+Per-user Hardcover reading-progress sync tokens remain application-owned.
+Settings persistence does not prove the token is valid at Hardcover; verify native
+metadata access after an approved apply. Synthetic behavior coverage is
+`python3 scripts/controller/test-grimmory.py`.
 
 Grimmory is the sole catalog/file writer. Use native uploads or BookDrop and
 `BOOK_PER_FOLDER` to group formats as one book. Keep library roots separate:

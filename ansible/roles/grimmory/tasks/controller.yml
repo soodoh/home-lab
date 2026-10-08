@@ -16,6 +16,15 @@
       - grimmory_discovery.json.token_endpoint is match('^https://auth\.diloreto\.com/')
     fail_msg: Apply and verify the reviewed Authentik provider before consumer convergence.
 
+- name: Require the shared raw Hardcover token from production SOPS
+  ansible.builtin.assert:
+    that:
+      - grimmory_production_secrets.HARDCOVER_API_KEY is string
+      - grimmory_production_secrets.HARDCOVER_API_KEY | length > 0
+      - grimmory_production_secrets.HARDCOVER_API_KEY is match('^[!-~]+\Z')
+    fail_msg: Grimmory requires the raw production SOPS Hardcover token without a Bearer prefix or whitespace.
+  no_log: true
+
 - name: Read native Grimmory setup status
   ansible.builtin.uri:
     url: "{{ grimmory_base_url }}/api/v1/setup/status"
@@ -106,6 +115,25 @@
   changed_when: false
   check_mode: false
 
+- name: Require readable native metadata settings before merging the managed key
+  ansible.builtin.assert:
+    that:
+      - grimmory_settings_current.json.metadataProviderSettings is mapping
+      - grimmory_settings_current.json.metadataProviderSettings.hardcover is mapping
+      - grimmory_settings_current.json.metadataProviderSettings.hardcover.enabled is boolean
+    fail_msg: Grimmory metadata settings must be readable to preserve application-owned provider configuration.
+
+# The native API replaces this whole object. Own only hardcover.apiKey, retaining
+# enablement, other providers and their credentials from the guarded observation.
+- name: Merge only the SOPS Hardcover key into observed metadata provider settings
+  ansible.builtin.set_fact:
+    grimmory_settings: >-
+      {{ grimmory_settings + [{'name': 'METADATA_PROVIDER_SETTINGS',
+          'response': 'metadataProviderSettings',
+          'value': grimmory_settings_current.json.metadataProviderSettings |
+            combine({'hardcover': {'apiKey': grimmory_production_secrets.HARDCOVER_API_KEY}}, recursive=true)}] }}
+    cacheable: false
+
 - name: Select only differing managed settings without touching library or user data
   ansible.builtin.set_fact:
     grimmory_setting_changes: "{{ grimmory_setting_changes + [{'name': item.name, 'value': item.value}] }}"
@@ -115,11 +143,11 @@
 
 - name: Report the bounded check-mode settings decision
   ansible.builtin.debug:
-    msg: "Grimmory authentication settings would change: {{ grimmory_setting_changes | length }}"
+    msg: "Grimmory managed settings would change: {{ grimmory_setting_changes | length }}"
   no_log: false
   when: ansible_check_mode
 
-- name: Write and verify managed authentication settings
+- name: Write and verify managed application settings
   ansible.builtin.include_tasks: apply.yml
   when: not ansible_check_mode
 

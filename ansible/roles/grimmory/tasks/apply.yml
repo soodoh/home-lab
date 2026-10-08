@@ -14,7 +14,7 @@
 
 # The native endpoint applies each entry sequentially, not atomically. On failure
 # retain production ownership and inspect; never silently restore an old secret.
-- name: Converge only differing native authentication settings
+- name: Converge only differing managed application settings
   ansible.builtin.uri:
     url: "{{ grimmory_base_url }}/api/v1/settings"
     method: PUT
@@ -24,7 +24,7 @@
   changed_when: true
   when: grimmory_setting_changes | length > 0
 
-- name: Reread persisted authentication settings
+- name: Reread persisted application settings
   ansible.builtin.uri:
     url: "{{ grimmory_base_url }}/api/v1/settings"
     method: GET
@@ -35,7 +35,7 @@
 - name: Require exact secret and public settings persistence
   ansible.builtin.assert:
     that: grimmory_settings_verified.json[item.response] == item.value
-    fail_msg: Grimmory authentication did not persist; retain ownership and inspect privately.
+    fail_msg: Grimmory managed settings did not persist; retain ownership and inspect privately.
   loop: "{{ grimmory_settings }}"
 
 - name: Require unrelated settings to remain unchanged

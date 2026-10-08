@@ -22,6 +22,7 @@ ISSUER = "https://auth.diloreto.com/application/o/grimmory/"
 SECRET = "synthetic-oidc-secret"
 PASSWORD = "synthetic-admin-password"
 TOKEN = "synthetic-access-token"
+HARDCOVER_KEY = 'hc_pat_synthetic"quotes"$dollar\\backslash'
 FIELDS = {
     "OIDC_PROVIDER_DETAILS": "oidcProviderDetails",
     "OIDC_PROVIDER_CLIENT_SECRET": "oidcProviderClientSecret",
@@ -29,6 +30,7 @@ FIELDS = {
     "OIDC_GROUP_SYNC_MODE": "oidcGroupSyncMode",
     "OIDC_ENABLED": "oidcEnabled",
     "OIDC_FORCE_ONLY_MODE": "oidcForceOnlyMode",
+    "METADATA_PROVIDER_SETTINGS": "metadataProviderSettings",
 }
 
 
@@ -36,7 +38,14 @@ FIELDS = {
 def api_server(mode="normal", initialized=True):
     state = {
         "initialized": initialized,
-        "settings": {"unrelatedSetting": {"preserve": True}, "oidcEnabled": False, "oidcForceOnlyMode": False},
+        "settings": {
+            "unrelatedSetting": {"preserve": True}, "oidcEnabled": False, "oidcForceOnlyMode": False,
+            "metadataProviderSettings": {
+                "hardcover": {"enabled": False, "apiKey": "stale-hardcover-key"},
+                "google": {"enabled": True, "apiKey": "synthetic-google-key", "language": "en"},
+                "comicvine": {"enabled": False, "apiKey": "synthetic-comicvine-key"},
+            },
+        },
         "writes": [], "setups": 0, "reads": 0,
         "library": {"id": 73, "name": "Audiobooks", "paths": [{"id": 9, "path": "/audiobooks"}],
                     "organizationMode": "BOOK_PER_FOLDER", "watch": False,
@@ -90,6 +99,8 @@ def api_server(mode="normal", initialized=True):
                 state["reads"] += 1
                 if mode == "concurrent" and state["reads"] == 2:
                     state["settings"]["unrelatedSetting"] = {"preserve": "concurrent edit"}
+                if mode == "metadata-concurrent" and state["reads"] == 2:
+                    state["settings"]["metadataProviderSettings"]["hardcover"]["enabled"] = True
                 self.reply(200, state["settings"])
             else:
                 self.reply(404, {})
@@ -135,8 +146,12 @@ def api_server(mode="normal", initialized=True):
                 if mode != "not-persisted" and entry["name"] == "OIDC_FORCE_ONLY_MODE" and not state["settings"].get("oidcEnabled"):
                     self.reply(400, {})
                     return
+                if mode == "hardcover-not-persisted" and entry["name"] == "METADATA_PROVIDER_SETTINGS":
+                    continue
                 if mode != "not-persisted":
                     state["settings"][FIELDS[entry["name"]]] = entry["value"]
+                if mode == "metadata-clobbered" and entry["name"] == "METADATA_PROVIDER_SETTINGS":
+                    state["settings"]["metadataProviderSettings"]["google"]["language"] = "fr"
             state["writes"].append(copy.deepcopy(body))
             self.reply(200, {})
 
@@ -153,7 +168,7 @@ def api_server(mode="normal", initialized=True):
 
 class NativeAuthenticationTests(unittest.TestCase):
     def run_native(self, url, *, check=False, initialize=False, secret=SECRET, linking=False, discovery_url=None,
-                   preflight=False):
+                   preflight=False, production_secrets=None):
         with tempfile.TemporaryDirectory(prefix="grimmory-native-test-") as directory:
             work = Path(directory)
             tasks = yaml.safe_load((ROLE / "controller.yml").read_text())
@@ -168,7 +183,8 @@ class NativeAuthenticationTests(unittest.TestCase):
                     "grimmory_base_url": url, "grimmory_admin_username": "grimmory-admin",
                     "grimmory_admin_email": "admin@example.invalid", "grimmory_initialize_confirmed": initialize,
                     "grimmory_allow_local_account_linking": linking,
-                    "grimmory_production_secrets": {"GRIMMORY_ADMIN_PASSWORD": PASSWORD},
+                    "grimmory_production_secrets": production_secrets if production_secrets is not None else {
+                        "GRIMMORY_ADMIN_PASSWORD": PASSWORD, "HARDCOVER_API_KEY": HARDCOVER_KEY},
                     "grimmory_oidc_secrets": {"oauthProviders": {"grimmory": {"client_secret": secret}}},
                     "grimmory_oidc_desired": {"oauthProviders": {"grimmory": {"client_id": "synthetic-client"}}},
                 },
@@ -213,8 +229,12 @@ class NativeAuthenticationTests(unittest.TestCase):
                 **os.environ, "ANSIBLE_CONFIG": str(ROOT / "ansible/ansible.cfg"),
                 "ANSIBLE_NOCOLOR": "1", "ANSIBLE_LOCAL_TEMP": str(work / "ansible"),
             })
-            for sensitive in (secret, PASSWORD, TOKEN):
-                self.assertNotIn(sensitive, result.stdout + result.stderr)
+            hardcover_key = play[0]["vars"]["grimmory_production_secrets"].get("HARDCOVER_API_KEY")
+            for sensitive in (secret, PASSWORD, TOKEN, HARDCOVER_KEY, hardcover_key,
+                              "synthetic-google-key", "synthetic-comicvine-key"):
+                if isinstance(sensitive, str) and sensitive:
+                    self.assertNotIn(sensitive, result.stdout + result.stderr)
+                    self.assertNotIn(json.dumps(sensitive)[1:-1], result.stdout + result.stderr)
             return result
 
     def test_exact_settings_idempotency_and_secret_rotation(self):
@@ -234,6 +254,73 @@ class NativeAuthenticationTests(unittest.TestCase):
             third = self.run_native(url, secret="synthetic-rotated-secret")
             self.assertEqual(third.returncode, 0, third.stdout + third.stderr)
             self.assertEqual(state["writes"][-1], [{"name": "OIDC_PROVIDER_CLIENT_SECRET", "value": "synthetic-rotated-secret"}])
+
+    def test_hardcover_key_merge_check_idempotency_rotation_and_drift(self):
+        with api_server() as (url, state):
+            before = copy.deepcopy(state["settings"]["metadataProviderSettings"])
+            # An unset native key is also managed, without enabling the provider.
+            state["settings"]["metadataProviderSettings"]["hardcover"]["apiKey"] = None
+            checked = self.run_native(url, check=True)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            self.assertEqual(state["writes"], [])
+            applied = self.run_native(url)
+            self.assertEqual(applied.returncode, 0, applied.stdout + applied.stderr)
+            expected = copy.deepcopy(before)
+            expected["hardcover"]["apiKey"] = HARDCOVER_KEY
+            self.assertEqual(state["settings"]["metadataProviderSettings"], expected)
+            state["writes"].clear()
+            repeated = self.run_native(url)
+            self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+            self.assertRegex(repeated.stdout, r"changed=0\s")
+            self.assertEqual(state["writes"], [])
+
+            rotated_key = "hc_pat_synthetic-rotated-key"
+            desired = {"GRIMMORY_ADMIN_PASSWORD": PASSWORD, "HARDCOVER_API_KEY": rotated_key}
+            checked_rotation = self.run_native(url, check=True, production_secrets=desired)
+            self.assertEqual(checked_rotation.returncode, 0, checked_rotation.stdout + checked_rotation.stderr)
+            self.assertEqual(state["writes"], [])
+            self.assertEqual(state["settings"]["metadataProviderSettings"], expected)
+            rotated = self.run_native(url, production_secrets=desired)
+            self.assertEqual(rotated.returncode, 0, rotated.stdout + rotated.stderr)
+            expected["hardcover"]["apiKey"] = rotated_key
+            self.assertEqual(state["writes"], [[{"name": "METADATA_PROVIDER_SETTINGS", "value": expected}]])
+            self.assertEqual(state["settings"]["metadataProviderSettings"], expected)
+
+            # UI changes to unowned fields are retained; UI key edits are drift.
+            state["settings"]["metadataProviderSettings"]["hardcover"] = {"enabled": True, "apiKey": "ui-drift"}
+            state["settings"]["metadataProviderSettings"]["google"]["language"] = "de"
+            expected["hardcover"]["enabled"] = True
+            expected["google"]["language"] = "de"
+            converged = self.run_native(url, production_secrets=desired)
+            self.assertEqual(converged.returncode, 0, converged.stdout + converged.stderr)
+            self.assertEqual(state["writes"][-1], [{"name": "METADATA_PROVIDER_SETTINGS", "value": expected}])
+            self.assertEqual(state["settings"]["metadataProviderSettings"], expected)
+
+    def test_invalid_or_missing_sops_hardcover_token_refuses_before_writes(self):
+        for fields in ({}, {"HARDCOVER_API_KEY": None}, {"HARDCOVER_API_KEY": ""},
+                       {"HARDCOVER_API_KEY": 123}, {"HARDCOVER_API_KEY": "Bearer hc_pat_token"},
+                       {"HARDCOVER_API_KEY": "hc_pat_token "}, {"HARDCOVER_API_KEY": "hc_pat_token\n"}):
+            with self.subTest(fields=fields), api_server(initialized=False) as (url, state):
+                result = self.run_native(url, initialize=True, production_secrets={"GRIMMORY_ADMIN_PASSWORD": PASSWORD, **fields})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(state["writes"], [])
+                self.assertEqual(state["setups"], 0)
+
+    def test_unreadable_metadata_settings_refuse_without_overwriting_preferences(self):
+        for metadata in (None, {}, {"hardcover": None}, {"hardcover": {}}, {"hardcover": {"enabled": "false"}}):
+            with self.subTest(metadata=metadata), api_server() as (url, state):
+                state["settings"]["metadataProviderSettings"] = metadata
+                result = self.run_native(url)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(state["writes"], [])
+                self.assertEqual(state["settings"]["metadataProviderSettings"], metadata)
+
+    def test_hardcover_concurrency_and_nested_readback_failures_refuse(self):
+        for mode in ("metadata-concurrent", "hardcover-not-persisted", "metadata-clobbered"):
+            with self.subTest(mode=mode), api_server(mode) as (url, state):
+                result = self.run_native(url)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(state["writes"]), 0 if mode == "metadata-concurrent" else 1)
 
     def test_enabling_provisioning_changes_only_onboarding_policy(self):
         with api_server() as (url, state):

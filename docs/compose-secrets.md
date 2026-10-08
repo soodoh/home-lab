@@ -37,6 +37,11 @@ database-password file as `spring.datasource.password` through Spring Boot
 converged through its native settings API, not mounted under a fictional `_FILE`
 setting or copied into Docker environment values. The administrator password is
 controller-only bootstrap/authentication input, not a Compose credential mount.
+The shared production SOPS `HARDCOVER_API_KEY` is merged through that same native
+settings API into `metadataProviderSettings.hardcover.apiKey`, preserving provider
+enablement and unrelated settings/credentials. It is not a Compose credential
+mount or environment input. Per-user reading-progress sync tokens remain
+application-owned.
 The app never receives the database root password. Initialization password files
 do not rotate existing database accounts; rotation needs a separately admitted
 native account change and app restart. See

@@ -49,8 +49,11 @@ that source on the controller to render Home Assistant's protected `!secret`
 entry and Vaultwarden's protected client-secret file. Grimmory uses the same
 encrypted authority through its native admin settings API, with controller-side
 Ansible `no_log` tasks and verified HTTPS; it has no native OIDC secret-file reader.
-Its database/bootstrap credentials remain in production SOPS, and its database
-password uses Spring Boot's native `configtree:` reader. See
+Its database/bootstrap credentials and shared `HARDCOVER_API_KEY` remain in
+production SOPS. Ansible merges only the Hardcover metadata key into native
+provider settings, preserving enablement and other provider credentials; per-user
+reading-progress sync tokens remain application-owned. The database password uses
+Spring Boot's native `configtree:` reader. See
 [native authentication convergence](operations.md#grimmory-native-authentication-and-library-ownership)
 for local-administrator recovery and approval-gated settings changes.
 Only the public Vaultwarden client ID

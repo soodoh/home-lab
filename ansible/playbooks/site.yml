@@ -233,7 +233,7 @@
       vars:
         compose_native_apply_confirmed: true
 
-    - name: Converge Grimmory authentication from the encrypted authorities
+    - name: Converge Grimmory authentication and Hardcover key from the encrypted authorities
       ansible.builtin.import_role:
         name: grimmory
       when: not ansible_check_mode
