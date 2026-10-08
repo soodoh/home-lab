@@ -18,7 +18,7 @@ const authentikHosts = [
 const directHosts = {
   hass: 'hass', vaultwarden: 'vaultwarden', watch: 'jellyfin', books: 'books',
   nextcloud: 'nextcloud', todo: 'mindwtr-app', 'todo-api': 'mindwtr-cloud',
-  'todo-auth': 'authentik', karaoke: 'karaoke',
+  'todo-auth': 'authentik', karaoke: 'karaoke', 'books-kobo-covers': 'books',
 };
 
 test('the public host allowlist routes to the intended private backends', () => {
@@ -30,12 +30,14 @@ test('the public host allowlist routes to the intended private backends', () => 
   assert.ok(!Object.values(dynamic.routers).some(({ rule }) => /omada\.diloreto\.com|proxmox\.diloreto\.com|zwave\.diloreto\.com|ts-control\.diloreto\.com|sonarr-4k\.diloreto\.com/.test(rule)));
   for (const [host, service] of Object.entries(expected)) {
     const route = dynamic.routers[host];
-    if (host !== 'todo-api' && host !== 'todo-auth') {
+    if (!['todo-api', 'todo-auth', 'books-kobo-covers'].includes(host)) {
       assert.equal(route.rule, `Host(\`${host}.diloreto.com\`)`);
     }
     assert.deepEqual(route.entryPoints, ['websecure']);
     assert.equal(route.service, service);
-    assert.deepEqual(route.middlewares, host === 'todo' ? ['mindwtr-web-auth'] : undefined);
+    const middlewares = host === 'todo' ? ['mindwtr-web-auth']
+      : host === 'books-kobo-covers' ? ['kobo-cover-cache'] : undefined;
+    assert.deepEqual(route.middlewares, middlewares);
     assert.ok(dynamic.services[service].loadBalancer.servers[0].url.startsWith('http://'));
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
