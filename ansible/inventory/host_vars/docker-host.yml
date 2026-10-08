@@ -29,6 +29,10 @@ rclone_archive_sha256: "8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed8388058
 rclone_binary_sha256: "acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49"
 rclone_version_output: "rclone v1.76.0-beta.10267.220fe7619"
 
+# Preserve distinct audio chapter filenames during native BookDrop imports.
+grimmory_library_import_patterns:
+  /audiobooks: "<{authors}/>{title}/{currentFilename}"
+
 # Native Compose ownership for the existing host.
 compose_native_project_name: docker-compose
 compose_native_controller_root: "{{ playbook_dir }}/../.."

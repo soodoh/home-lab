@@ -10,7 +10,7 @@
       - shelfmark_gid == 1000
     fail_msg: Shelfmark convergence requires the adopted instance and protected SOPS identity.
 
-- name: Converge native Shelfmark connection settings
+- name: Converge native Shelfmark connection and acquisition settings
   block:
     - name: Read existing credential authorities on the controller
       ansible.builtin.set_fact:
@@ -23,7 +23,7 @@
         cacheable: false
       no_log: true
 
-    - name: Validate credentials and bind only managed native connection fields
+    - name: Validate credentials and bind only managed native settings
       ansible.builtin.include_tasks: bind-settings.yml
 
     - name: Read the persisted qBittorrent login without exposing it

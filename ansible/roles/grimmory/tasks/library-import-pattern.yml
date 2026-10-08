@@ -1,0 +1,83 @@
+---
+- name: Read native libraries without modifying identities or grants
+  ansible.builtin.uri:
+    url: "{{ grimmory_base_url }}/api/v1/libraries"
+    headers: "{{ grimmory_api_headers }}"
+  register: grimmory_import_libraries
+  changed_when: false
+  check_mode: false
+
+- name: Initialize exact-root library selection
+  ansible.builtin.set_fact:
+    grimmory_import_matches: []
+    cacheable: false
+
+- name: Select the adopted library by its container root rather than a fixed ID
+  ansible.builtin.set_fact:
+    grimmory_import_matches: "{{ grimmory_import_matches + [item] }}"
+    cacheable: false
+  loop: "{{ grimmory_import_libraries.json }}"
+  when: grimmory_library_import_pattern.key in (item.paths | map(attribute='path') | list)
+
+- name: Refuse missing or ambiguous roots and empty naming policies
+  ansible.builtin.assert:
+    that:
+      - grimmory_import_matches | length == 1
+      - grimmory_import_matches[0].paths | map(attribute='path') | list == [grimmory_library_import_pattern.key]
+      - grimmory_import_matches[0].organizationMode == 'BOOK_PER_FOLDER'
+      - grimmory_library_import_pattern.value is string
+      - grimmory_library_import_pattern.value | length > 0
+    fail_msg: Import naming requires one single-root Book Per Folder library for the declared root.
+
+- name: Report the bounded import naming decision
+  ansible.builtin.debug:
+    msg:
+      root: "{{ grimmory_library_import_pattern.key }}"
+      pattern_change: "{{ grimmory_import_matches[0].fileNamingPattern | default(none) != grimmory_library_import_pattern.value }}"
+  no_log: false
+  changed_when: >-
+    ansible_check_mode and
+    grimmory_import_matches[0].fileNamingPattern | default(none) != grimmory_library_import_pattern.value
+
+- name: Guard and update only changed import naming
+  when:
+    - not ansible_check_mode
+    - grimmory_import_matches[0].fileNamingPattern | default(none) != grimmory_library_import_pattern.value
+  block:
+    - name: Reread the adopted library immediately before its native PATCH
+      ansible.builtin.uri:
+        url: "{{ grimmory_base_url }}/api/v1/libraries/{{ grimmory_import_matches[0].id }}"
+        headers: "{{ grimmory_api_headers }}"
+      register: grimmory_import_guard
+      changed_when: false
+
+    - name: Refuse concurrent naming or root changes
+      ansible.builtin.assert:
+        that:
+          - grimmory_import_guard.json.paths == grimmory_import_matches[0].paths
+          - grimmory_import_guard.json.organizationMode == grimmory_import_matches[0].organizationMode
+          - grimmory_import_guard.json.fileNamingPattern | default(none) == grimmory_import_matches[0].fileNamingPattern | default(none)
+
+    - name: Set the native library import pattern without moving books or changing access
+      ansible.builtin.uri:
+        url: "{{ grimmory_base_url }}/api/v1/libraries/{{ grimmory_import_matches[0].id }}/file-naming-pattern"
+        method: PATCH
+        headers: "{{ grimmory_api_headers }}"
+        body_format: json
+        body:
+          fileNamingPattern: "{{ grimmory_library_import_pattern.value }}"
+      changed_when: true
+
+    - name: Read back persisted library import naming
+      ansible.builtin.uri:
+        url: "{{ grimmory_base_url }}/api/v1/libraries/{{ grimmory_import_matches[0].id }}"
+        headers: "{{ grimmory_api_headers }}"
+      register: grimmory_import_verified
+      changed_when: false
+
+    - name: Require exact naming persistence and unchanged root and organization
+      ansible.builtin.assert:
+        that:
+          - grimmory_import_verified.json.fileNamingPattern == grimmory_library_import_pattern.value
+          - grimmory_import_verified.json.paths == grimmory_import_matches[0].paths
+          - grimmory_import_verified.json.organizationMode == grimmory_import_matches[0].organizationMode

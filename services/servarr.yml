@@ -24,18 +24,9 @@ services:
       PROXY_AUTH_ADMIN_GROUP_HEADER: X-authentik-groups
       PROXY_AUTH_ADMIN_GROUP_NAME: App Operators
       PROXY_AUTH_LOGOUT_URL: https://shelfmark.diloreto.com/outpost.goauthentik.io/sign_out
-      BOOKS_OUTPUT_MODE: folder
-      DESTINATION: /books
-      FILE_ORGANIZATION: none
-      # Ingest copies, never hardlink or remove torrent originals being seeded.
-      HARDLINK_TORRENTS: false
-      HARDLINK_TORRENTS_AUDIOBOOK: false
-      PROWLARR_TORRENT_ACTION: keep
+      # Download destinations, naming and seeding policy are native Ansible-owned settings.
       PROWLARR_URL: http://localhost:9696
       QBITTORRENT_URL: http://localhost:8081
-      QBITTORRENT_CATEGORY: shelfmark
-      QBITTORRENT_CATEGORY_AUDIOBOOK: shelfmark-audiobooks
-      DESTINATION_AUDIOBOOK: /config/audiobooks
     volumes:
       - type: bind
         source: /srv/home-lab-state/shelfmark-data
@@ -44,7 +35,7 @@ services:
           create_host_path: false
       - type: bind
         source: /srv/home-lab-state/grimmory-bookdrop
-        target: /books
+        target: /grimmory-bookdrop
         bind:
           create_host_path: false
       # Match qBittorrent exactly; Shelfmark cannot mutate seeded files.

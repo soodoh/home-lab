@@ -16,6 +16,8 @@ grimmory_storage_mountpoint: /mnt/storage
 grimmory_storage_mount_source: 192.168.0.123:/storage/docker
 grimmory_storage_filesystem: nfs4
 grimmory_initialize_confirmed: false
+# Opt-in patterns for adopted libraries; never creates libraries or changes grants.
+grimmory_library_import_patterns: {}
 # Opt in only for the two-account linking window, then converge the default again.
 grimmory_allow_local_account_linking: false
 grimmory_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"

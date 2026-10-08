@@ -1,5 +1,5 @@
 ---
-- name: Qualify connection settings using isolated native readers and read-only connection tests
+- name: Qualify managed settings using isolated native readers and read-only connection tests
   ansible.builtin.command:
     argv:
       - docker
@@ -10,7 +10,7 @@
       - python
       - -c
       - |
-        import json, os, pathlib, sys, tempfile
+        import json, os, pathlib, sqlite3, sys, tempfile
         try:
             payload = json.load(sys.stdin)
             # Native startup writes environment defaults back to settings.
@@ -26,25 +26,43 @@
                     else:
                         target.write_text(json.dumps(values))
                     target.chmod(0o600)
+                # Snapshot user overrides without importing a native writer against live state.
+                with sqlite3.connect('file:/config/users.db?mode=ro', uri=True) as source:
+                    with sqlite3.connect(root / 'users.db') as target:
+                        source.backup(target)
+                        user_ids = [row[0] for row in target.execute('SELECT id FROM users')]
+                if not payload['persisted']:
+                    # The running container may still have the previous Compose defaults.
+                    for fields in payload['expected'].values():
+                        for key in fields:
+                            os.environ.pop(key, None)
+                    os.environ.pop('INGEST_DIR', None)  # Native DESTINATION environment alias.
                 os.environ['CONFIG_DIR'] = directory
                 os.environ['LOG_ROOT'] = directory
                 from shelfmark.core.config import config
                 from shelfmark.download.clients.settings import _test_qbittorrent_connection, _test_sabnzbd_connection
                 from shelfmark.release_sources.prowlarr.settings import _test_prowlarr_connection
                 from shelfmark.metadata_providers.hardcover import _test_hardcover_connection
+                policy_keys = set(payload['expected'].get('downloads', {})) | {
+                    'QBITTORRENT_CATEGORY', 'QBITTORRENT_CATEGORY_AUDIOBOOK', 'PROWLARR_TORRENT_ACTION'}
                 for fields in payload['expected'].values():
                     for key, value in fields.items():
                         if config.get(key) != value:
                             raise ValueError('effective setting differs')
+                        if payload['persisted'] and key in policy_keys and config.is_from_env(key):
+                            raise ValueError('environment shadows managed native policy')
+                        for user_id in user_ids:
+                            if config.get(key, user_id=user_id) != value:
+                                raise ValueError('user override shadows managed setting')
                 # Hardcover also saves connection metadata, but only in this private copy.
                 tests = (_test_qbittorrent_connection, _test_sabnzbd_connection,
                          _test_prowlarr_connection, _test_hardcover_connection)
                 for test in tests:
                     if not test().get('success'):
                         raise ValueError('native connection test failed')
-            print('shelfmark_connections=verified')
+            print('shelfmark_settings_and_connections=verified')
         except Exception:
-            print('shelfmark_connections=failed', file=sys.stderr)
+            print('shelfmark_settings_and_connections=failed', file=sys.stderr)
             sys.exit(1)
     stdin: >-
       {{ {'expected': shelfmark_settings, 'documents': shelfmark_settings_merged,

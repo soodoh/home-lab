@@ -1,0 +1,327 @@
+---
+# Opt-in pinned-image qualification. Uses synthetic files and isolated loopback
+# services only: no SOPS, production mounts, libraries, users or network routes.
+- name: Qualify reviewed audiobook BookDrop imports
+  hosts: "{{ grimmory_test_host | default('localhost') }}"
+  gather_facts: false
+  vars:
+    grimmory_test_source: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../services/grimmory.yml') | from_yaml }}"
+    grimmory_test_patterns: >-
+      {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../inventory/host_vars/docker-host.yml')
+          | from_yaml).grimmory_library_import_patterns }}
+    grimmory_test_names: [Single.m4b, '01 - Opening.mp3', '02 - Ending.mp3']
+  tasks:
+    - name: Require explicit isolated-container qualification
+      ansible.builtin.assert:
+        that: grimmory_runtime_test | default(false) | bool
+
+    - name: Inspect the native fixture platform
+      ansible.builtin.command: uname -s
+      register: grimmory_test_kernel
+      changed_when: false
+
+    - name: Require native Linux bind ownership and a local Docker engine
+      ansible.builtin.assert:
+        that: grimmory_test_kernel.stdout == 'Linux'
+        fail_msg: Run this fixture on an approved Linux Docker host with controller FFmpeg.
+
+    - name: Allocate a private host fixture workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: grimmory-bookdrop-test-
+        path: "{{ grimmory_test_parent | default('/tmp') }}"
+      register: grimmory_test_work
+      become: true
+
+    - name: Allocate synthetic audio under the controller task workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: grimmory-audio-
+        path: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}"
+      register: grimmory_test_audio
+      delegate_to: localhost
+      become: false
+
+    - name: Exercise native review imports and remove only the isolated fixture
+      environment:
+        DOCKER_HOST: unix:///var/run/docker.sock
+      block:
+        - name: Generate distinct tiny valid audio files without external downloads
+          ansible.builtin.command:
+            argv:
+              - ffmpeg
+              - -hide_banner
+              - -loglevel
+              - error
+              - -f
+              - lavfi
+              - -i
+              - "sine=frequency={{ 440 + index * 110 }}:duration=0.2"
+              - "{{ grimmory_test_audio.path }}/{{ item }}"
+          loop: "{{ grimmory_test_names }}"
+          loop_control:
+            index_var: index
+          delegate_to: localhost
+          become: false
+          changed_when: true
+
+        - name: Prepare isolated bind directories with native ownership
+          ansible.builtin.file:
+            path: "{{ grimmory_test_work.path }}/{{ item.name }}"
+            state: directory
+            owner: "{{ item.uid }}"
+            group: "{{ item.uid }}"
+            mode: '0700'
+          loop:
+            - {name: app, uid: 1000}
+            - {name: inbox, uid: 1000}
+            - {name: books, uid: 1000}
+            - {name: audio, uid: 1000}
+            - {name: db, uid: 999}
+          become: true
+
+        - name: Write synthetic native credential files
+          ansible.builtin.copy:
+            dest: "{{ grimmory_test_work.path }}/{{ item.name }}"
+            content: synthetic-fixture-password
+            owner: root
+            group: "{{ item.gid }}"
+            mode: '0440'
+          loop:
+            - {name: datasource, gid: 1000}
+            - {name: db-password, gid: 999}
+            - {name: db-root-password, gid: 999}
+          become: true
+
+        - name: Build an isolated model from the pinned native services
+          ansible.builtin.set_fact:
+            grimmory_test_project: "{{ grimmory_test_work.path | basename }}"
+            grimmory_test_app: >-
+              {{ grimmory_test_source.services.grimmory | combine({
+                'container_name': (grimmory_test_work.path | basename) ~ '-app',
+                'restart': 'no', 'networks': ['fixture'], 'secrets': [],
+                'ports': ['127.0.0.1::6060'],
+                'environment': grimmory_test_source.services.grimmory.environment | combine({'TZ': 'UTC'}),
+                'volumes': [
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/app', 'target': '/app/data'},
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/inbox', 'target': '/bookdrop'},
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/books', 'target': '/books'},
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/audio', 'target': '/audiobooks'},
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/datasource',
+                   'target': '/run/secrets/spring.datasource.password', 'read_only': true}]}) }}
+            grimmory_test_db: >-
+              {{ grimmory_test_source.services['grimmory-db'] | combine({
+                'container_name': (grimmory_test_work.path | basename) ~ '-db',
+                'restart': 'no', 'networks': ['fixture'], 'secrets': [],
+                'environment': grimmory_test_source.services['grimmory-db'].environment | combine({'TZ': 'UTC'}),
+                'volumes': [
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/db', 'target': '/var/lib/mysql'},
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/db-password',
+                   'target': '/run/secrets/grimmory_db_password', 'read_only': true},
+                  {'type': 'bind', 'source': grimmory_test_work.path ~ '/db-root-password',
+                   'target': '/run/secrets/grimmory_db_root_password', 'read_only': true}]}) }}
+
+        - name: Write only the synthetic Compose model
+          ansible.builtin.copy:
+            dest: "{{ grimmory_test_work.path }}/compose.json"
+            content: >-
+              {{ {'services': {'grimmory': grimmory_test_app, 'grimmory-db': grimmory_test_db},
+                  'networks': {'fixture': {}}} | to_json }}
+            mode: '0600'
+          become: true
+
+        - name: Start only the isolated pinned services
+          community.docker.docker_compose_v2:
+            project_src: "{{ grimmory_test_work.path }}"
+            project_name: "{{ grimmory_test_project }}"
+            files: [compose.json]
+            wait: true
+            wait_timeout: 300
+            pull: never
+            build: never
+          become: true
+
+        - name: Read the loopback-only fixture endpoint
+          ansible.builtin.command:
+            argv: [docker, compose, -p, "{{ grimmory_test_project }}", -f,
+                   "{{ grimmory_test_work.path }}/compose.json", port, grimmory, '6060']
+          become: true
+          register: grimmory_test_port
+          changed_when: false
+
+        - name: Require loopback publication and bind the isolated API
+          ansible.builtin.assert:
+            that: grimmory_test_port.stdout is match('^127[.]0[.]0[.]1:[0-9]+$')
+
+        - name: Bind the synthetic endpoint
+          ansible.builtin.set_fact:
+            grimmory_base_url: "http://{{ grimmory_test_port.stdout }}"
+
+        - name: Initialize only the isolated empty instance
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/setup"
+            method: POST
+            body_format: json
+            body:
+              username: fixture-admin
+              email: fixture@example.invalid
+              name: Synthetic Fixture
+              password: synthetic-fixture-password
+          changed_when: true
+
+        - name: Authenticate only the synthetic administrator
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/auth/login"
+            method: POST
+            body_format: json
+            body: {username: fixture-admin, password: synthetic-fixture-password}
+          register: grimmory_test_login
+          no_log: true
+
+        - name: Bind synthetic API authorization
+          ansible.builtin.set_fact:
+            grimmory_api_headers:
+              Authorization: "Bearer {{ grimmory_test_login.json.accessToken }}"
+          no_log: true
+
+        - name: Create only the isolated audiobook library
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/libraries"
+            method: POST
+            headers: "{{ grimmory_api_headers }}"
+            body_format: json
+            body:
+              name: Audiobooks Fixture
+              paths: [{path: /audiobooks}]
+              watch: false
+              organizationMode: BOOK_PER_FOLDER
+              allowedFormats: [AUDIOBOOK]
+              formatPriority: [AUDIOBOOK]
+          register: grimmory_test_library
+          changed_when: true
+          no_log: true
+
+        - name: Exercise the actual native import-pattern convergence
+          ansible.builtin.include_role:
+            name: grimmory
+            tasks_from: library-import-pattern
+          vars:
+            grimmory_library_import_pattern:
+              key: /audiobooks
+              value: "{{ grimmory_test_patterns['/audiobooks'] }}"
+
+        - name: Stage valid single-file and chaptered audio into isolated BookDrop
+          ansible.builtin.copy:
+            src: "{{ grimmory_test_audio.path }}/{{ item }}"
+            dest: "{{ grimmory_test_work.path }}/inbox/{{ item }}"
+            owner: '1000'
+            group: '1000'
+            mode: '0600'
+          loop: "{{ grimmory_test_names }}"
+          become: true
+          register: grimmory_test_copies
+
+        - name: Require all audio to wait for native review
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/bookdrop/files?status=PENDING_REVIEW&size=10"
+            headers: "{{ grimmory_api_headers }}"
+          register: grimmory_test_review
+          until: grimmory_test_review.json.content | default([]) | length == 3
+          retries: 40
+          delay: 3
+          no_log: true
+
+        - name: Read the library before manual review completion
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/libraries/{{ grimmory_test_library.json.id }}/book"
+            headers: "{{ grimmory_api_headers }}"
+          register: grimmory_test_before_import
+          no_log: true
+
+        - name: Require review rather than automatic catalog import
+          ansible.builtin.assert:
+            that: grimmory_test_before_import.json | length == 0
+
+        - name: Initialize the explicit review selection
+          ansible.builtin.set_fact:
+            grimmory_test_selection: []
+
+        - name: Select library and metadata explicitly for each synthetic file
+          ansible.builtin.set_fact:
+            grimmory_test_selection: >-
+              {{ grimmory_test_selection + [{'fileId': item.id,
+                  'libraryId': grimmory_test_library.json.id,
+                  'pathId': grimmory_test_library.json.paths[0].id,
+                  'metadata': {'title': 'Single' if item.fileName == 'Single.m4b' else 'Chapters',
+                               'authors': ['Fixture Author']}}] }}
+          loop: "{{ grimmory_test_review.json.content }}"
+          no_log: true
+
+        - name: Complete only the explicit isolated review selection
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/bookdrop/imports/finalize"
+            method: POST
+            headers: "{{ grimmory_api_headers }}"
+            body_format: json
+            body: {selectAll: false, files: "{{ grimmory_test_selection }}"}
+          register: grimmory_test_import
+          changed_when: true
+          no_log: true
+
+        - name: Require native import of all distinct audio files without collisions
+          ansible.builtin.assert:
+            that:
+              - grimmory_test_import.json.successfullyImported == 3
+              - grimmory_test_import.json.failed == 0
+
+        - name: Read back the native imported catalog
+          ansible.builtin.uri:
+            url: "{{ grimmory_base_url }}/api/v1/libraries/{{ grimmory_test_library.json.id }}/book"
+            headers: "{{ grimmory_api_headers }}"
+          register: grimmory_test_catalog
+          no_log: true
+
+        - name: Qualify the pinned limitation that BookDrop imports chapters as separate entries
+          ansible.builtin.assert:
+            that:
+              - grimmory_test_catalog.json | length == 3
+              - grimmory_test_catalog.json | map(attribute='primaryFile.fileName') | sort == grimmory_test_names | sort
+
+        - name: Inspect every imported file checksum
+          ansible.builtin.stat:
+            path: >-
+              {{ grimmory_test_work.path }}/audio/Fixture Author/{{ 'Single' if item.item == 'Single.m4b' else 'Chapters' }}/{{ item.item }}
+            checksum_algorithm: sha1
+          loop: "{{ grimmory_test_copies.results }}"
+          register: grimmory_test_imported_files
+          become: true
+
+        - name: Require byte-preserving native imports with original chapter names
+          ansible.builtin.assert:
+            that:
+              - item.stat.checksum == item.item.checksum
+              - item.stat.uid == 1000
+          loop: "{{ grimmory_test_imported_files.results }}"
+      always:
+        - name: Remove only the isolated pinned test project
+          community.docker.docker_compose_v2:
+            project_src: "{{ grimmory_test_work.path }}"
+            project_name: "{{ grimmory_test_project }}"
+            files: [compose.json]
+            state: absent
+            remove_volumes: true
+          become: true
+          when: grimmory_test_project is defined
+
+        - name: Remove the synthetic host workspace after test project cleanup
+          ansible.builtin.file:
+            path: "{{ grimmory_test_work.path }}"
+            state: absent
+          become: true
+
+        - name: Remove the synthetic controller audio files
+          ansible.builtin.file:
+            path: "{{ grimmory_test_audio.path }}"
+            state: absent
+          delegate_to: localhost
+          become: false

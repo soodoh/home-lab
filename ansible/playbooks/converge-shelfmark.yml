@@ -1,11 +1,11 @@
 ---
-- name: Observe current host state before syncing Shelfmark credentials
+- name: Observe current host state before converging Shelfmark settings
   ansible.builtin.import_playbook: observe-hosts.yml
 
-- name: Observe current backup admission before syncing Shelfmark credentials
+- name: Observe current backup admission before converging Shelfmark settings
   ansible.builtin.import_playbook: observe-backups.yml
 
-- name: Sync Shelfmark connection settings under production ownership
+- name: Converge Shelfmark connection and acquisition settings under production ownership
   hosts: docker-host
   gather_facts: true
   gather_subset: ["!all", min]
@@ -13,7 +13,7 @@
   vars:
     compose_native_apply_operation: shelfmark-connections
   pre_tasks:
-    - name: Require explicit approval for live Shelfmark connection changes
+    - name: Require explicit approval for live Shelfmark settings changes
       ansible.builtin.assert:
         that: shelfmark_apply_confirmed | default(false) | bool
         fail_msg: Live Shelfmark convergence requires shelfmark_apply_confirmed=true.

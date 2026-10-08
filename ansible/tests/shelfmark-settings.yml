@@ -14,6 +14,16 @@
         next line
       sabnzbd_api_key: synthetic-sabnzbd-key-long-enough-32
     shelfmark_fixture:
+      downloads:
+        BOOKS_OUTPUT_MODE: browser
+        DESTINATION: /stale/inbox
+        DESTINATION_AUDIOBOOK: /stale/audio
+        FILE_ORGANIZATION: rename_and_group
+        FILE_ORGANIZATION_AUDIOBOOK: rename
+        HARDLINK_TORRENTS: true
+        HARDLINK_TORRENTS_AUDIOBOOK: true
+        MAX_CONCURRENT_DOWNLOADS: 7
+        TEMPLATE_AUDIOBOOK_RENAME: '{Author} - {Title}'
       hardcover:
         HARDCOVER_API_KEY: stale
         HARDCOVER_ENABLED: false
@@ -28,15 +38,16 @@
       prowlarr_clients:
         QBITTORRENT_PASSWORD: stale
         QBITTORRENT_API_KEY: stale-priority-key
-        QBITTORRENT_CATEGORY: preserve-category
-        PROWLARR_TORRENT_ACTION: keep
+        QBITTORRENT_CATEGORY: stale-category
+        QBITTORRENT_CATEGORY_AUDIOBOOK: stale-audio-category
+        PROWLARR_TORRENT_ACTION: remove
         PROWLARR_USENET_ACTION: keep
   tasks:
     - name: Allocate synthetic settings under the task workspace
       ansible.builtin.tempfile:
         state: directory
         prefix: shelfmark-settings-test.
-        path: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}"
+        path: "{{ shelfmark_fixture_parent | default(lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true)) }}"
       register: shelfmark_fixture_root
 
     - name: Inspect the fixture identity
@@ -104,7 +115,14 @@
               - shelfmark_settings_merged.hardcover == shelfmark_fixture.hardcover | combine(shelfmark_settings.hardcover)
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_PASSWORD == shelfmark_settings.prowlarr_clients.QBITTORRENT_PASSWORD
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_API_KEY == ''
-              - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY == 'preserve-category'
+              - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY == 'shelfmark'
+              - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY_AUDIOBOOK == 'shelfmark-audiobooks'
+              - shelfmark_settings_merged.downloads == shelfmark_fixture.downloads | combine(shelfmark_settings.downloads)
+              - shelfmark_settings_merged.downloads.DESTINATION == '/grimmory-bookdrop'
+              - shelfmark_settings_merged.downloads.DESTINATION_AUDIOBOOK == '/grimmory-bookdrop'
+              - shelfmark_settings_merged.downloads.FILE_ORGANIZATION_AUDIOBOOK == 'none'
+              - not shelfmark_settings_merged.downloads.HARDLINK_TORRENTS
+              - not shelfmark_settings_merged.downloads.HARDLINK_TORRENTS_AUDIOBOOK
               - shelfmark_settings_merged.prowlarr_clients.PROWLARR_TORRENT_ACTION == 'keep'
               - shelfmark_settings_merged.prowlarr_config.PROWLARR_INDEXERS == [3, 7]
 
@@ -144,6 +162,7 @@
           ansible.builtin.assert:
             that:
               - shelfmark_settings_changed
+              - shelfmark_settings_current.downloads == shelfmark_settings_merged.downloads
               - shelfmark_settings_current.prowlarr_config == shelfmark_settings_merged.prowlarr_config
               - shelfmark_settings_current.prowlarr_clients == shelfmark_settings_merged.prowlarr_clients
 
@@ -182,17 +201,21 @@
               - --network=none
               - --read-only
               - --tmpfs=/tmp:rw,size=128m,mode=1777
+              - --tmpfs=/grimmory-bookdrop:rw,size=4m,mode=1777
+              - --tmpfs=/config:rw,size=4m,mode=1777
               - --user=1000:1000
-              - --env=CONFIG_DIR=/tmp/config
+              - --env=CONFIG_DIR=/config
               - --env=LOG_ROOT=/tmp/logs
               - --entrypoint=python
               - "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../../services/servarr.yml') | from_yaml).services.shelfmark.image }}"
               - -c
               - |
-                import json, pathlib, sys
+                import json, os, pathlib, subprocess, sys
+                from shelfmark.core.models import DownloadTask
                 from unittest.mock import patch
-                expected = json.load(sys.stdin)
-                root = pathlib.Path('/tmp/config/plugins')
+                fixture = json.load(sys.stdin)
+                expected = fixture['settings']
+                root = pathlib.Path('/config/plugins')
                 root.mkdir(parents=True)
                 for tab, values in expected.items():
                     (root / (tab + '.json')).write_text(json.dumps(values))
@@ -204,6 +227,63 @@
                             assert config.get(key) == value, key
                             assert not config.is_from_env(key), key
                 assert json.loads((root / 'hardcover.json').read_text()) == expected['hardcover']
+                from shelfmark.core.user_db import UserDB
+                db = UserDB(str(root.parent / 'users.db'))
+                db.initialize()
+                user = db.create_user('synthetic-reader')
+                db.set_user_settings(user['id'], {'SUPPORTED_AUDIOBOOK_FORMATS': ['m4b', 'mp3', 'm4a']})
+                config.refresh(force=True)
+                for key, value in expected['downloads'].items():
+                    assert config.get(key, user_id=user['id']) == value, key
+                from shelfmark.download.postprocess.destination import get_final_destination
+                from shelfmark.download.postprocess.transfer import process_directory, should_hardlink
+                # Exercise native torrent-copy delivery for ebooks, M4B and ordered chapters.
+                for number, (kind, names) in enumerate((('book (fiction)', ['Novel.epub']),
+                                                        ('audiobook', ['Single.m4b']),
+                                                        ('audiobook', ['01 - Opening.mp3', '02 - Ending.mp3']))):
+                    source = pathlib.Path('/tmp/seeded') / str(number)
+                    source.mkdir(parents=True)
+                    for name in names:
+                        (source / name).write_bytes(('synthetic-' + name).encode())
+                    task = DownloadTask(task_id=str(number), source='prowlarr', title='Fixture',
+                                        content_type=kind, original_download_path=str(source),
+                                        user_id=user['id'], username=user['username'])
+                    inbox = get_final_destination(task)
+                    assert str(inbox) == expected['downloads']['DESTINATION']
+                    assert not should_hardlink(task)
+                    outputs, error = process_directory(source, inbox, task, allow_archive_extraction=False)
+                    assert error is None, error
+                    assert sorted(path.name for path in outputs) == sorted(names)
+                    for path in outputs:
+                        original = source / path.name
+                        assert path.read_bytes() == original.read_bytes()
+                        assert path.stat().st_ino != original.stat().st_ino
+                db.set_user_settings(user['id'], {'DESTINATION_AUDIOBOOK': '/different/inbox'})
+                config.refresh(force=True)
+                assert config.get('DESTINATION_AUDIOBOOK', user_id=user['id']) != expected['downloads']['DESTINATION_AUDIOBOOK']
+                # Execute the production reader/override gate; mock only outbound probes.
+                preamble = '''
+                from unittest.mock import patch
+                for target in ('shelfmark.download.clients.settings._test_qbittorrent_connection',
+                               'shelfmark.download.clients.settings._test_sabnzbd_connection',
+                               'shelfmark.release_sources.prowlarr.settings._test_prowlarr_connection',
+                               'shelfmark.metadata_providers.hardcover._test_hardcover_connection'):
+                    patch(target, return_value={'success': True}).start()
+                '''
+                def check_reader(persisted, succeeds, overrides=None):
+                    payload = {'persisted': persisted, 'documents': expected, 'expected': fixture['managed']}
+                    result = subprocess.run([sys.executable, '-c', preamble + fixture['reader']],
+                                            input=json.dumps(payload), capture_output=True, text=True,
+                                            env={**os.environ, **(overrides or {})})
+                    assert (result.returncode == 0) == succeeds, result.stdout + result.stderr
+                check_reader(True, False)  # Divergent per-user destination must refuse.
+                db.set_user_settings(user['id'], {'DESTINATION_AUDIOBOOK': None})
+                check_reader(True, True)
+                check_reader(False, True, {'INGEST_DIR': '/stale/inbox', 'HARDLINK_TORRENTS_AUDIOBOOK': 'true'})
+                check_reader(True, False, {'INGEST_DIR': expected['downloads']['DESTINATION']})
+                assert db.get_user_settings(user['id']) == {'SUPPORTED_AUDIOBOOK_FORMATS': ['m4b', 'mp3', 'm4a']}
+                for tab, values in expected.items():
+                    assert json.loads((root / (tab + '.json')).read_text()) == values, tab
                 from shelfmark.metadata_providers.hardcover import HardcoverProvider, _test_hardcover_connection
                 # Qualify the native read-only API probe without external requests.
                 with patch.object(HardcoverProvider, '_execute_query', return_value={'me': [{'id': 99, 'username': 'synthetic-user'}]}) as query:
@@ -216,7 +296,10 @@
                 for key in ('HARDCOVER_ENABLED', 'HARDCOVER_DEFAULT_SORT', 'HARDCOVER_AUTO_REMOVE_ON_DOWNLOAD'):
                     assert persisted[key] == expected['hardcover'][key], key
                 print('pinned_shelfmark_native_readers=verified')
-            stdin: "{{ shelfmark_settings_merged | to_json }}"
+            stdin: >-
+              {{ {'settings': shelfmark_settings_merged, 'managed': shelfmark_settings,
+                  'reader': (lookup('ansible.builtin.file', playbook_dir ~ '/../roles/shelfmark/tasks/verify-connections.yml')
+                             | from_yaml)[0]['ansible.builtin.command']['argv'][-1]} | to_json }}
           changed_when: false
           when: shelfmark_runtime_test | default(false) | bool
 

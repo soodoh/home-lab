@@ -122,3 +122,9 @@
 - name: Write and verify managed authentication settings
   ansible.builtin.include_tasks: apply.yml
   when: not ansible_check_mode
+
+- name: Converge import naming for explicitly adopted library roots
+  ansible.builtin.include_tasks: library-import-pattern.yml
+  loop: "{{ grimmory_library_import_patterns | default({}) | dict2items }}"
+  loop_control:
+    loop_var: grimmory_library_import_pattern

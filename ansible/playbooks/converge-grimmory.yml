@@ -1,11 +1,11 @@
 ---
-- name: Observe current host state before changing Grimmory authentication
+- name: Observe current host state before changing Grimmory settings
   ansible.builtin.import_playbook: observe-hosts.yml
 
-- name: Observe current backup admission before changing Grimmory authentication
+- name: Observe current backup admission before changing Grimmory settings
   ansible.builtin.import_playbook: observe-backups.yml
 
-- name: Converge Grimmory authentication under production ownership
+- name: Converge Grimmory settings under production ownership
   hosts: docker-host
   gather_facts: true
   gather_subset: ["!all", min]
@@ -13,10 +13,10 @@
   vars:
     compose_native_apply_operation: grimmory-authentication
   pre_tasks:
-    - name: Require explicit approval for authentication changes
+    - name: Require explicit approval for Grimmory settings changes
       ansible.builtin.assert:
         that: grimmory_apply_confirmed | default(false) | bool
-        fail_msg: Live authentication convergence requires grimmory_apply_confirmed=true.
+        fail_msg: Live Grimmory settings convergence requires grimmory_apply_confirmed=true.
       when: not ansible_check_mode
 
     - name: Observe active Compose state
@@ -43,7 +43,7 @@
         name: compose_native
         tasks_from: observe
 
-    - name: Converge only authentication settings
+    - name: Converge native authentication and adopted import settings
       ansible.builtin.import_role:
         name: grimmory
 

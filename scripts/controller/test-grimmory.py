@@ -38,6 +38,10 @@ def api_server(mode="normal", initialized=True):
         "initialized": initialized,
         "settings": {"unrelatedSetting": {"preserve": True}, "oidcEnabled": False, "oidcForceOnlyMode": False},
         "writes": [], "setups": 0, "reads": 0,
+        "library": {"id": 73, "name": "Audiobooks", "paths": [{"id": 9, "path": "/audiobooks"}],
+                    "organizationMode": "BOOK_PER_FOLDER", "watch": False,
+                    "allowedFormats": ["AUDIOBOOK"], "unrelatedPreference": "preserve"},
+        "library_writes": [],
     }
 
     class Handler(BaseHTTPRequestHandler):
@@ -67,6 +71,21 @@ def api_server(mode="normal", initialized=True):
                                  "token_endpoint": "https://auth.diloreto.com/application/o/token/"})
             elif self.path == "/api/v1/setup/status":
                 self.reply(200, {"data": state["initialized"]})
+            elif self.path == "/api/v1/libraries" and self.authorized():
+                libraries = [state['library']]
+                if mode == 'library-missing':
+                    libraries = []
+                elif mode == 'library-ambiguous':
+                    libraries.append(state['library'] | {'id': 99})
+                elif mode == 'library-multiroot':
+                    state['library']['paths'].append({'id': 10, 'path': '/books/shared'})
+                elif mode == 'library-file-mode':
+                    state['library']['organizationMode'] = 'BOOK_PER_FILE'
+                self.reply(200, libraries)
+            elif self.path == "/api/v1/libraries/73" and self.authorized():
+                if mode == 'library-concurrent' and not state['library_writes']:
+                    state['library']['fileNamingPattern'] = 'concurrent-edit'
+                self.reply(200, state['library'])
             elif self.path == "/api/v1/settings" and self.authorized():
                 state["reads"] += 1
                 if mode == "concurrent" and state["reads"] == 2:
@@ -91,6 +110,19 @@ def api_server(mode="normal", initialized=True):
                 self.reply(200, {"accessToken": TOKEN})
             else:
                 self.reply(404, {})
+
+        def do_PATCH(self):
+            if self.path != '/api/v1/libraries/73/file-naming-pattern' or not self.authorized():
+                self.reply(404, {})
+                return
+            body = self.body()
+            if set(body) != {'fileNamingPattern'}:
+                self.reply(400, {})
+                return
+            if mode != 'library-not-persisted':
+                state['library']['fileNamingPattern'] = body['fileNamingPattern']
+            state['library_writes'].append(copy.deepcopy(body))
+            self.reply(200, state['library'])
 
         def do_PUT(self):
             if self.path != "/api/v1/settings" or not self.authorized():
@@ -267,6 +299,49 @@ class NativeAuthenticationTests(unittest.TestCase):
                 self.assertEqual(state["setups"], 0)
 
 
+class LibraryImportPatternTests(unittest.TestCase):
+    def run_native(self, url, *, check=False):
+        with tempfile.TemporaryDirectory(prefix='grimmory-import-pattern-test-') as directory:
+            path = Path(directory) / 'playbook.json'
+            desired = yaml.safe_load((ROOT / 'ansible/inventory/host_vars/docker-host.yml').read_text())['grimmory_library_import_patterns']
+            path.write_text(json.dumps([{'hosts': 'localhost', 'gather_facts': False, 'vars': {
+                'ansible_become': False, 'ansible_python_interpreter': sys.executable,
+                'grimmory_base_url': url, 'grimmory_api_headers': {'Authorization': 'Bearer ' + TOKEN},
+                'grimmory_library_import_pattern': {'key': '/audiobooks', 'value': desired['/audiobooks']},
+            }, 'tasks': [{'ansible.builtin.include_tasks': {'file': str(ROLE / 'library-import-pattern.yml'),
+                'apply': {'no_log': True, 'module_defaults': {'ansible.builtin.uri': {
+                    'follow_redirects': 'none', 'use_proxy': False, 'timeout': 5}}}}}]}]))
+            command = ['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(path)]
+            if check:
+                command.append('--check')
+            return subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
+
+    def test_check_apply_preservation_and_idempotency(self):
+        with api_server() as (url, state):
+            before = copy.deepcopy(state['library'])
+            checked = self.run_native(url, check=True)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            self.assertEqual(state['library'], before)
+            self.assertEqual(state['library_writes'], [])
+            applied = self.run_native(url)
+            self.assertEqual(applied.returncode, 0, applied.stdout + applied.stderr)
+            self.assertEqual(len(state['library_writes']), 1)
+            self.assertEqual(state['library'], before | state['library_writes'][0])
+            repeated = self.run_native(url)
+            self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+            self.assertRegex(repeated.stdout, r'changed=0\s')
+            self.assertEqual(len(state['library_writes']), 1)
+
+    def test_ownership_concurrent_edits_and_persistence_failures_refuse(self):
+        for mode in ('library-missing', 'library-ambiguous', 'library-multiroot', 'library-file-mode',
+                     'library-concurrent', 'library-not-persisted'):
+            with self.subTest(mode=mode), api_server(mode) as (url, state):
+                result = self.run_native(url)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(state['library_writes']), 1 if mode == 'library-not-persisted' else 0)
+                self.assertEqual(state['writes'], [])
+
+
 class LibraryStorageTests(unittest.TestCase):
     def test_mount_admission_precedes_directory_creation(self):
         for source, filesystem, returncode, admitted in (
@@ -357,6 +432,31 @@ else:
                         self.assertNotEqual(result.returncode, 0)
                         if phase == 'missing':
                             self.assertEqual((work / 'checked').read_text(), '')
+
+    def test_shelfmark_inbox_and_native_policy_have_one_owner(self):
+        result = subprocess.run(["docker", "compose", "config", "--no-interpolate", "--no-env-resolution", "--format", "json"],
+                                cwd=ROOT, capture_output=True, text=True, check=True)
+        model = json.loads(result.stdout)
+        service = model['services']['shelfmark']
+        bindings = yaml.safe_load((ROOT / 'ansible/roles/shelfmark/tasks/bind-settings.yml').read_text())
+        settings = next(task['ansible.builtin.set_fact']['shelfmark_settings'] for task in bindings
+                        if 'shelfmark_settings' in task.get('ansible.builtin.set_fact', {}))
+        inbox = next(mount for mount in service['volumes']
+                     if mount['target'] == settings['downloads']['DESTINATION'])
+        self.assertEqual(inbox['target'], settings['downloads']['DESTINATION_AUDIOBOOK'])
+        grimmory_inbox = next(mount for mount in model['services']['grimmory']['volumes']
+                              if mount['target'] == '/bookdrop')
+        self.assertEqual(inbox['source'], grimmory_inbox['source'])
+        self.assertFalse(inbox.get('read_only', False))
+        self.assertFalse(inbox['bind']['create_host_path'])
+        self.assertTrue(next(mount for mount in service['volumes']
+                             if mount['target'] == '/data/downloads')['read_only'])
+        policy = set(settings['downloads']) | {'INGEST_DIR', 'QBITTORRENT_CATEGORY',
+                                               'QBITTORRENT_CATEGORY_AUDIOBOOK', 'PROWLARR_TORRENT_ACTION'}
+        self.assertFalse(policy.intersection(service['environment']))
+        library_sources = {mount['source'] for mount in model['services']['grimmory']['volumes']
+                           if mount['target'] in ('/books', '/audiobooks')}
+        self.assertFalse(library_sources.intersection(mount['source'] for mount in service['volumes']))
 
     def test_library_writer_secret_readers_and_backup_scope(self):
         result = subprocess.run(["docker", "compose", "config", "--no-interpolate", "--no-env-resolution", "--format", "json"],
