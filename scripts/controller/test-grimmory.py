@@ -267,6 +267,40 @@ class NativeAuthenticationTests(unittest.TestCase):
                 self.assertEqual(state["setups"], 0)
 
 
+class LibraryStorageTests(unittest.TestCase):
+    def test_mount_admission_precedes_directory_creation(self):
+        for source, filesystem, returncode, admitted in (
+            ("192.168.0.123:/storage/docker", "nfs4", 0, True),
+            ("192.168.0.123:/storage/other", "nfs4", 0, False),
+            ("/dev/sda1", "ext4", 0, False),
+            ("", "", 1, False),
+        ):
+            with self.subTest(source=source, filesystem=filesystem, returncode=returncode):
+                with tempfile.TemporaryDirectory(prefix="grimmory-storage-test-") as directory:
+                    work = Path(directory)
+                    mount = work / "findmnt"
+                    response = json.dumps({"filesystems": [{"target": "/mnt/storage",
+                                                          "source": source, "fstype": filesystem}]})
+                    mount.write_text("#!/bin/sh\nprintf '%s\\n' '" + response + "'\nexit " + str(returncode) + "\n")
+                    mount.chmod(0o700)
+                    paths = [work / name for name in ("books", "audiobooks")]
+                    play = [{"name": "Exercise library storage admission", "hosts": "localhost", "gather_facts": False,
+                             "vars": {"grimmory_storage_findmnt_path": str(mount),
+                                      "grimmory_state_directories": [{"path": str(p), "uid": os.getuid(), "gid": os.getgid()} for p in paths]},
+                             "tasks": [{"name": "Prepare admitted library storage", "ansible.builtin.import_role":
+                                        {"name": "grimmory", "tasks_from": "directories"}}]}]
+                    playbook = work / "play.yml"
+                    playbook.write_text(yaml.safe_dump(play))
+                    environment = os.environ | {"ANSIBLE_ROLES_PATH": str(ROOT / "ansible/roles")}
+                    result = subprocess.run(["ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook),
+                                             "-e", "ansible_become=false"], capture_output=True, text=True, env=environment)
+                    self.assertEqual(result.returncode == 0, admitted, result.stdout + result.stderr)
+                    for path in paths:
+                        self.assertEqual(path.exists(), admitted)
+                        if admitted:
+                            self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+
+
 class ComposeContractTests(unittest.TestCase):
     def test_health_admission_uses_active_source_but_refuses_missing_or_unhealthy_services(self):
         with tempfile.TemporaryDirectory(prefix="compose-health-test-") as directory:
@@ -334,10 +368,12 @@ else:
         self.assertFalse(database.get("ports"))
         self.assertEqual(set(database["networks"]), {"grimmory-db"})
         self.assertTrue(model["networks"]["grimmory-db"]["internal"])
-        books = next(v for v in service["volumes"] if v["target"] == "/books")
-        self.assertEqual(books["source"], "/srv/home-lab-state/grimmory-books")
-        self.assertFalse(books.get("read_only", False))
-        self.assertFalse(books["bind"]["create_host_path"])
+        for target, source in (("/books", "/mnt/storage/media/books"),
+                               ("/audiobooks", "/mnt/storage/media/audiobooks")):
+            mount = next(v for v in service["volumes"] if v["target"] == target)
+            self.assertEqual(mount["source"], source)
+            self.assertFalse(mount.get("read_only", False))
+            self.assertFalse(mount["bind"]["create_host_path"])
         self.assertEqual(service["environment"]["DISK_TYPE"], "LOCAL")
         self.assertEqual(service["environment"]["ALLOWED_ORIGINS"], "https://books.diloreto.com")
         desired = json.loads((ROOT / "infrastructure/tofu/authentik/desired.json").read_text())
@@ -366,7 +402,10 @@ else:
         recovery = json.loads((ROOT / "recovery/groups.json").read_text())["groups"]["books"]
         for name in ("grimmory", "grimmory-db"):
             self.assertIn(name, recovery["services"])
-        for name in ("grimmory-data", "grimmory-db-data", "grimmory-bookdrop", "grimmory-books"):
+        for path in ("/mnt/storage/media/books", "/mnt/storage/media/audiobooks"):
+            self.assertIn(path, scope)
+            self.assertIn(path, recovery["paths"])
+        for name in ("grimmory-data", "grimmory-db-data", "grimmory-bookdrop"):
             path = "/srv/home-lab-state/" + name
             self.assertIn(path, scope)
             self.assertIn(path, recovery["paths"])

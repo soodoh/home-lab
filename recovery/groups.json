@@ -18,7 +18,8 @@
     "books": {
       "services": ["grimmory", "grimmory-db", "tachidesk", "caro-tachidesk", "shelfmark"],
       "paths": [
-        "/srv/home-lab-state/grimmory-books",
+        "/mnt/storage/media/books",
+        "/mnt/storage/media/audiobooks",
         "/srv/home-lab-state/grimmory-data",
         "/srv/home-lab-state/grimmory-db-data",
         "/srv/home-lab-state/grimmory-bookdrop",

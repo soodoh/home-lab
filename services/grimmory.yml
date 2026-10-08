@@ -38,8 +38,13 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: /srv/home-lab-state/grimmory-books
+        source: /mnt/storage/media/books
         target: /books
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /mnt/storage/media/audiobooks
+        target: /audiobooks
         bind:
           create_host_path: false
       - type: bind

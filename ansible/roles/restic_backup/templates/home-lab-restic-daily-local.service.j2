@@ -1,6 +1,6 @@
 [Unit]
 Description=Home Lab Restic daily local snapshot and NFS copy
-RequiresMountsFor={{ restic_systemd.games_mountpoint }}
+RequiresMountsFor={{ restic_systemd.games_mountpoint }} {{ restic_systemd.nfs_mountpoint }}
 After=docker.service network-online.target
 Wants=network-online.target
 Before=home-lab-restic-daily-proton.service

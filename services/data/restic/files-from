@@ -3,7 +3,8 @@
 /srv/home-lab-state/authentik-data/custom-templates
 /srv/home-lab-state/authentik-data/certs/live
 /srv/home-lab-state/authentik-data/certs/archive
-/srv/home-lab-state/grimmory-books
+/mnt/storage/media/books
+/mnt/storage/media/audiobooks
 /srv/home-lab-state/grimmory-data
 /srv/home-lab-state/grimmory-db-data
 /srv/home-lab-state/grimmory-bookdrop

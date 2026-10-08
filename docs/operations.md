@@ -237,8 +237,24 @@ retain production ownership for inspection.
 
 Grimmory is the sole catalog/file writer. Use native uploads or BookDrop and
 `BOOK_PER_FOLDER` to group formats as one book. Keep library roots separate:
-`/books/paul` for Paul and `/books/sarabeth` for Paul and Sarabeth. Library
-assignment defines web access; Kobo shelves define device selection only.
+`/books/paul` for Paul and `/books/sarabeth` for Paul and Sarabeth. On the host,
+these are `/mnt/storage/media/books/paul` and
+`/mnt/storage/media/books/sarabeth` on the reviewed NFS export. The separate
+`/mnt/storage/media/audiobooks` bind mount is `/audiobooks` in Grimmory; its
+Book Per Folder library is assigned to Paul only. Database and application
+state remain local. Both NFS roots are included in daily Restic snapshots and
+the `books` recovery group; the NFS repository copy shares the library storage
+failure domain, so retain the independent games and Proton copies. Directory
+convergence refuses missing or wrong exports, and the local backup unit requires
+both storage mounts. The adopted Docker storage dependency must continue to
+order startup after the NFS mount.
+
+NFS changes made by other clients do not reliably generate local watcher events;
+keep watching disabled and use native imports or explicit rescans. Book Per Folder
+combines ebook/audio files in the same book folder (or an audio subfolder), not
+matching titles across `/books` and `/audiobooks`. Shelfmark audiobook downloads
+remain acquisition staging under `/config/audiobooks`, not the Grimmory library.
+Library assignment defines web access; Kobo shelves define device selection only.
 Preserve book/file identities and history when moving books between library roots;
 qualify native moves and rescans before bulk changes. Keep original formats,
 including KEPUB derivatives excluded by the generic scanner. Writable storage does

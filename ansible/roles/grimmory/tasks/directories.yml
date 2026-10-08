@@ -1,4 +1,27 @@
 ---
+- name: Observe the library storage mount before creating directories
+  ansible.builtin.command:
+    argv:
+      - "{{ grimmory_storage_findmnt_path }}"
+      - --json
+      - --mountpoint
+      - "{{ grimmory_storage_mountpoint }}"
+      - --output
+      - TARGET,SOURCE,FSTYPE
+  become: true
+  register: grimmory_storage_mount
+  changed_when: false
+  check_mode: false
+
+- name: Require the reviewed NFS export rather than an unmounted local directory
+  ansible.builtin.assert:
+    that:
+      - (grimmory_storage_mount.stdout | from_json).filesystems | length == 1
+      - (grimmory_storage_mount.stdout | from_json).filesystems[0].target == grimmory_storage_mountpoint
+      - (grimmory_storage_mount.stdout | from_json).filesystems[0].source == grimmory_storage_mount_source
+      - (grimmory_storage_mount.stdout | from_json).filesystems[0].fstype == grimmory_storage_filesystem
+    fail_msg: Restore the reviewed library storage mount before convergence.
+
 - name: Inspect Grimmory state directories without reading contents
   ansible.builtin.stat:
     path: "{{ item.path }}"
@@ -15,7 +38,7 @@
       - not (item.stat.islnk | default(false))
       - not (item.stat.exists | default(false)) or item.stat.isdir | default(false)
       - not (item.stat.exists | default(false)) or item.stat.uid == item.item.uid
-      - not (item.stat.exists | default(false)) or item.stat.gid == item.item.uid
+      - not (item.stat.exists | default(false)) or item.stat.gid == item.item.gid | default(item.item.uid)
       - not (item.stat.exists | default(false)) or item.stat.mode == '0700'
     fail_msg: Inspect existing Grimmory directory ownership before convergence.
   loop: "{{ grimmory_directory_stats.results }}"
@@ -27,7 +50,7 @@
     path: "{{ item.path }}"
     state: directory
     owner: "{{ item.uid }}"
-    group: "{{ item.uid }}"
+    group: "{{ item.gid | default(item.uid) }}"
     mode: "0700"
   loop: "{{ grimmory_state_directories }}"
   become: true

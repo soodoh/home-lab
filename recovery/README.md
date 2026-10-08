@@ -5,6 +5,12 @@ directory. Production activation is not yet qualified.
 
 ## Scope
 
+The `books` group includes the NFS library roots `/mnt/storage/media/books` and
+`/mnt/storage/media/audiobooks` along with local Grimmory database/application
+state. Restore checks must validate both storage locations together. The NFS
+repository is on the same export as the live library; use games or Proton for
+independent recovery if that storage is lost.
+
 [`groups.json`](groups.json) maps named service groups to managed paths. The common
 protected Compose interpolation environment and credential-file directory are
 included in every scope. Individual credentials remain plaintext after a restore;
