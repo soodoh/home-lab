@@ -75,16 +75,6 @@ http:
       rule: "Host(`watch.diloreto.com`)"
       entryPoints: [websecure]
       service: jellyfin
-    # Remove this router and kobo-cover-cache when Grimmory fixes Kobo cover
-    # cache headers upstream; v3.5.0 inherits Spring Security's no-store policy.
-    books-kobo-covers:
-      rule: >-
-        Host(`books.diloreto.com`) && (Method(`GET`) || Method(`HEAD`)) &&
-        PathRegexp(`^/api/kobo/[^/]+/v1/books/BL-[^/]+/([^/]+/)?thumbnail/[0-9]+/[0-9]+/([0-9]+/)?(true|false)/image[.]jpg$`)
-      entryPoints: [websecure]
-      priority: 100
-      service: books
-      middlewares: [kobo-cover-cache]
     books:
       rule: "Host(`books.diloreto.com`)"
       entryPoints: [websecure]
@@ -115,15 +105,6 @@ http:
       service: karaoke
 
   middlewares:
-    # Temporary companion to books-kobo-covers; remove after the upstream fix.
-    kobo-cover-cache:
-      headers:
-        customResponseHeaders:
-          # Allow private storage/stale offline use, without making errors fresh.
-          # Native Headers also applies to failures, so do not add a positive TTL.
-          Cache-Control: "private, max-age=0"
-          Pragma: ""
-          Expires: ""
     mindwtr-web-auth:
       forwardAuth:
         address: http://authentik-server:9000/outpost.goauthentik.io/auth/traefik
