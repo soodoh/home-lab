@@ -14,7 +14,10 @@ compose_native_expected_service_count: 0
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
-# Choosing routine attests release review found no persistent-data/storage migration.
+# Only the approved CI routine lane enforces archive classification and the host-clock window.
+compose_native_automated: false
+compose_native_upgrade_policy: "{{ lookup('ansible.builtin.file', compose_native_controller_root ~ '/controller/compose-updates.json') | from_json }}"
+# Choosing routine attests release review or the explicitly approved automatic upgrade policy.
 compose_native_change_class: data
 compose_native_apply_operation: compose-native-deploy
 compose_native_sops_file: "{{ compose_native_controller_root }}/secrets/production.sops.yaml"

@@ -1,0 +1,156 @@
+name: Deploy Compose
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Covers 06:17, 07:17 and 08:17 Pacific in both DST offsets.
+    # The timezone-aware admission check ignores the extra UTC hour.
+    - cron: "17 13-16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# This covers source selection, validation and apply, not merely the final job.
+# A queued run selects current main, never its possibly obsolete push SHA.
+# One pending run is sufficient: replacement coalesces desired state, not active applies.
+concurrency:
+  group: home-lab-production
+  cancel-in-progress: false
+
+jobs:
+  select:
+    if: github.ref == 'refs/heads/main' && vars.COMPOSE_AUTO_APPLY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source_ref: ${{ steps.source.outputs.ref }}
+      admitted: ${{ steps.window.outputs.admitted }}
+    steps:
+      - name: Select current main inside production serialization
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Freeze the selected source revision
+        id: source
+        run: printf 'ref=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Defer automatic work outside the Pacific admission window
+        id: window
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("admission", "scripts/compose-upgrade-admission.py")
+          admission = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(admission)
+          policy = json.loads(Path("controller/compose-updates.json").read_text())
+          admitted = admission.window_open(policy)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"admitted={str(admitted).lower()}\n")
+          print("compose_deployment=" + ("admitted" if admitted else "deferred"))
+          PY
+
+  validate:
+    needs: select
+    if: needs.select.outputs.admitted == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      source_ref: ${{ needs.select.outputs.source_ref }}
+
+  deploy:
+    needs: [select, validate]
+    if: needs.select.outputs.admitted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: infrastructure-deploy
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ANSIBLE_CONFIG: ansible/ansible.cfg
+    steps:
+      - name: Check out exactly the validated revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.select.outputs.source_ref }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Prepare one private disposable controller workspace
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+          DOCKER_HOST_KNOWN_HOSTS: ${{ vars.DOCKER_HOST_KNOWN_HOSTS }}
+          TS_CLIENT_ID: ${{ vars.TS_OAUTH_CLIENT_ID }}
+          TS_AUDIENCE: ${{ vars.TS_AUDIENCE }}
+        run: |
+          umask 077
+          work=$(mktemp -d "$RUNNER_TEMP/home-lab-deploy.XXXXXXXX")
+          printf 'HOME_LAB_DEPLOY_WORKSPACE=%s\nTMPDIR=%s\nSOPS_AGE_KEY_FILE=%s/age-key\nANSIBLE_LOCAL_TEMP=%s/ansible\n' \
+            "$work" "$work" "$work" "$work" >> "$GITHUB_ENV"
+          export HOME_LAB_DEPLOY_WORKSPACE=$work
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          for name in ("SOPS_AGE_KEY", "DOCKER_HOST_KNOWN_HOSTS", "TS_CLIENT_ID", "TS_AUDIENCE"):
+              if not os.environ.get(name):
+                  raise SystemExit(f"missing protected deployment input: {name}")
+          work = Path(os.environ["HOME_LAB_DEPLOY_WORKSPACE"])
+          (work / "age-key").write_text(os.environ["SOPS_AGE_KEY"] + "\n")
+          (work / "known_hosts").write_text(os.environ["DOCKER_HOST_KNOWN_HOSTS"] + "\n")
+          PY
+          mkdir -p "$HOME/.ssh"
+          chmod 0700 "$HOME/.ssh"
+          install -m 0600 "$work/known_hosts" "$HOME/.ssh/known_hosts"
+
+      - name: Install pinned controller tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes rsync
+          python -m pip install --disable-pip-version-check ansible-core==2.21.2
+          ansible-galaxy collection install -r ansible/collections/requirements.yml
+          curl --fail --silent --show-error --location \
+            https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64 \
+            --output "$HOME_LAB_DEPLOY_WORKSPACE/sops"
+          printf '%s  %s\n' e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b \
+            "$HOME_LAB_DEPLOY_WORKSPACE/sops" | sha256sum --check --status
+          sudo install -m 0755 "$HOME_LAB_DEPLOY_WORKSPACE/sops" /usr/local/bin/sops
+
+      - name: Validate encrypted Compose inputs without printing resolved values
+        run: python scripts/check-compose-with-sops.py
+
+      - name: Join the scoped ephemeral deployment identity
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          oauth-client-id: ${{ vars.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ vars.TS_AUDIENCE }}
+          tags: tag:ci-deploy
+          version: 1.94.2
+          ping: docker-host.mora-rattlesnake.ts.net
+
+      - name: Observe and converge through the existing production and backup ownership gates
+        run: |
+          ansible-playbook ansible/playbooks/deploy-compose.yml \
+            -e compose_native_apply_confirmed=true \
+            -e compose_native_change_class=routine \
+            -e compose_native_automated=true
+
+      - name: Report failure without clearing production ownership or reverting data
+        if: failure()
+        run: |
+          printf '%s\n' '::error::Compose deployment failed. Inspect production ownership, backup journals and any retained source before-image before retrying.'
+
+      - name: Remove controller credentials and scratch only
+        if: always()
+        run: |
+          if [ -n "${HOME_LAB_DEPLOY_WORKSPACE:-}" ]; then
+            rm -rf -- "$HOME_LAB_DEPLOY_WORKSPACE"
+          fi
+          rm -f -- "$HOME/.ssh/known_hosts"

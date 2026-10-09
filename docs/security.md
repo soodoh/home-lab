@@ -170,6 +170,18 @@ coordination working, but its system PAC is **off** and remote authenticated
 whitelist refusal remains untested. Treat loss of the proxy credential as loss
 of this network boundary and revoke it as described below.
 
+## Automatic Compose deployment credentials
+
+The approved routine deployment lane stores the operator-authorized age identity
+only in the main-restricted `infrastructure-deploy` environment's `SOPS_AGE_KEY`
+secret. This grants trusted main deployment jobs decryption authority for every
+SOPS file covered by that identity. PR validation receives neither that secret
+nor an OIDC grant. The deploy job uses private mode-0600 controller files and
+removes them on every exit; never upload decrypted files or source/state archives.
+Tailscale access uses the exact federated environment subject and ephemeral nodes,
+not a stored auth key, OAuth secret or native SSH key. See
+[deployment access](deployment-access.md#github-hosted-runners).
+
 ## SSH and privilege
 
 [`ansible/inventory/hosts.yml`](../ansible/inventory/hosts.yml) fixes the Tailscale

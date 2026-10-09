@@ -76,8 +76,8 @@ ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 Run the relevant observer afresh before **each** plan or host apply. Backup
 observation never creates a backup. Select admission according to reviewed risk:
 
-- **Routine reversible upgrades:** after checking release notes and startup
-  behavior for persistent-data compatibility, a daily local snapshot less than
+- **Routine upgrades:** after release/startup compatibility review or admission
+  under the approved automatic Compose policy below, a daily local snapshot less than
   48 hours old must cover the current files-from scope under the current backup
   policy. Its `artifact=` tag may identify an earlier deployment. NFS/Proton lag,
   unavailability or a terminal failed Proton copy is a warning, not a reason to
@@ -547,8 +547,9 @@ only the writer-consistency adapter. `deploy-compose.yml` is a narrower
 Compose-only interface requiring `compose_native_apply_confirmed=true`. Prefer
 it for an independently reviewed service upgrade; use `site.yml` for full host
 convergence. The default change class is `data` (strict admission). Selecting
-`compose_native_change_class=routine` attests the persistent-data compatibility
-review above; image-only does not automatically mean low risk:
+`compose_native_change_class=routine` attests the compatibility review above or
+admission under the explicitly approved automatic policy below; image-only does
+not automatically mean low risk:
 
 ```sh
 ansible-playbook ansible/playbooks/deploy-compose.yml --check
@@ -562,6 +563,71 @@ The host must have native rsync installed. An interrupted publication preserves 
 before retrying. Do not delete host-local artifacts merely because a controller
 session ended. [Recovery](../recovery/README.md) currently supports private
 staging, not production activation.
+
+### Automatic Compose updates
+
+The approved standing policy groups **all versioned Compose minor, patch and
+digest updates, including databases**, into one Renovate PR. Major releases,
+`latest`/`stable`, development/prerelease tags, Wolf custom-manager images and
+non-Compose dependencies remain manual. Version tags and exact digests stay pinned.
+This broad policy explicitly accepts non-major application/database startup risk:
+version classification is not proof that a release is migration-free or reversible.
+Exclude a known migration from the automatic lane and review recovery separately.
+There is no automatic data rollback; production recovery activation remains unqualified.
+
+Renovate automerges only 06:00–08:00 in `America/Los_Angeles`, after required CI
+and an up-to-date base. `platformAutomerge=false` keeps GitHub from merging later
+outside that window. Registry age checks are best-effort: Docker Hub supports them,
+whereas GHCR and other registries without timestamps do not. The explicit
+`timestamp-optional` setting avoids indefinitely blocking those updates; it does
+**not** provide a three/seven-day cooldown there.
+
+[Deploy Compose](../.github/workflows/deploy-compose.yml) is a separate,
+non-cancelling production workflow. One constant GitHub concurrency group covers
+**selection, validation and deployment**. Pending runs may be replaced; the next
+run checks out current main inside that group, freezes its SHA and runs the same
+CI against exactly that revision. This intentionally coalesces intermediate
+commits, never applies an old event SHA, and never interrupts an active deployment.
+The host production/backup locks also exclude manual applies and backup writers.
+Do not add another production workflow outside this concurrency group.
+
+[`compose-updates.json`](../controller/compose-updates.json) defines the 06:00–09:00
+Pacific deployment window and a 30-minute start reserve (last admission before
+08:30). Main pushes trigger convergence; UTC scheduled retries cover both DST
+offsets. Outside the window, the run defers without waiting overnight. Images are
+pre-pulled from staged source without stopping services, then the host clock is
+rechecked before publishing production source. Closed-window deferral discards
+only staging and releases this run's exact owner. Failures retain ownership and
+any source before-image for inspection; never automatically clear a failed lock.
+A start window cannot guarantee a failed service recovers before the window ends.
+
+Automatic deployment compares the host's accepted source archive with the selected
+Git archive, under production ownership. It refuses additions/deletions, configuration
+or secret changes, image identity/variant changes, majors, downgrades and floating
+or prerelease image updates. Only versioned non-major image-field changes (or
+unchanged source) qualify for routine backup admission. Thus a manually merged
+major/configuration change mixed into latest main does not inherit routine approval.
+The read-only adapter never extracts archives or prints source contents.
+
+The daily backup remains at 05:00 host-local Pacific time. No per-PR full backup
+is added. Fresh local coverage under the current scope/policy admits routine
+updates, even after earlier routine deployments; the existing backup observer
+revalidates it under the acquired production owner. Active writers, failed local
+units and interruption journals remain blockers. Only the next matching complete
+chain proves three-copy coverage of the changed artifact.
+
+For an independently reviewed major, data or configuration change, use the existing
+manual playbook interface with strict admission and explicit approval bound to the
+reviewed checkout. The workflow's manual dispatch only retries the routine lane;
+it never bypasses the window or source classifier. Use
+`COMPOSE_AUTO_APPLY_ENABLED=false` to disable this workflow, including scheduled
+retries and dispatches. See
+[deployment setup](deployment-access.md#github-hosted-runners) for environment,
+credential and required-check configuration.
+
+Focused behavior tests are `python3 scripts/test-compose-upgrade-admission.py`;
+use native Renovate validation, actionlint, Ansible syntax/lint and Compose validation
+for related configuration changes.
 
 ### Backup runtime and downtime
 
@@ -675,8 +741,9 @@ OpenTofu root refreshes from its remote backend, no resource is owned only by
 local state, and independent custody exists for required credentials and
 recovery payloads. Then remove private per-run work rather than archiving it.
 
-Package, Tailscale, image and provider updates are reviewed changes, not
-automatic installs; image tags do not override tracked digest pins. Sonarr,
+Package, Tailscale, provider and non-routine image updates remain reviewed changes.
+Only the approved routine Compose policy above authorizes automatic convergence;
+image tags do not override tracked digest pins. Sonarr,
 Radarr and Radarr-4k's `downloadPropersAndRepacks: doNotPrefer` lives in their
 backed-up application databases, not Compose. Verify it in each application
 after restore; do not start a real download merely to test that setting.

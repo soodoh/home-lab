@@ -1,0 +1,6 @@
+{
+  "timezone": "America/Los_Angeles",
+  "start_hour": 6,
+  "end_hour": 9,
+  "minimum_remaining_minutes": 30
+}

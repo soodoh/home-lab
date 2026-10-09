@@ -99,10 +99,11 @@ Tag:     tag:ci-deploy
 
 The numeric claims bind trust to the current GitHub owner and repository identities,
 not only their mutable names. The identity's client ID and audience are non-secret
-OpenTofu outputs. No auth key, OAuth client secret or host private key is stored in
-GitHub. A future protected job
-can request `id-token: write`, pass the client ID, audience and `tag:ci-deploy` to the
-pinned `tailscale/github-action`, and receive a new ephemeral node for that job. The
+OpenTofu outputs; verify the corresponding live federated identity before setup.
+No auth key, OAuth client secret or host private key is stored in GitHub. The
+[Compose deployment job](../.github/workflows/deploy-compose.yml) requests
+`id-token: write`, passes the client ID, audience and `tag:ci-deploy` to the
+commit-pinned `tailscale/github-action`, and receives a new ephemeral node for that job. The
 action logs the node out when the job completes and Tailscale removes it from the
 tailnet.
 
@@ -111,5 +112,44 @@ The tag receives only the destination ports above and Tailscale SSH access as
 runs. Configure the GitHub environment and workflow only in the same reviewed change;
 do not broaden the federated subject or use a long-lived fallback credential.
 
-This repository currently stages the network and identity boundary only. It does not
-yet authorize an automated deployment workflow.
+The approved [routine upgrade policy](operations.md#automatic-compose-updates)
+authorizes this narrowly scoped automatic deployment. Actual ephemeral CI SSH and
+application access still require a successful live qualification; source validation
+and an observed federation configuration are not proof of that path.
+
+### Environment and merge protection
+
+Use the native GitHub API/CLI with the reviewed JSON declarations in `controller/`:
+
+- `github-compose-ruleset.json` preserves default-branch deletion protection and
+  requires a PR, an up-to-date successful Actions `validate` check, resolved review
+  threads and no force pushes. Zero mandatory human approvals permits routine
+  automerge; major/data changes still require operator review and explicit deploy.
+- `github-compose-environment.json` restricts `infrastructure-deploy` to custom
+  branch policies. Add exactly one **branch** policy named `main` (not a tag rule).
+  It has no wait timer or mandatory reviewer, so approved routine updates are unattended.
+- Set environment variables `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE` from the exact
+  live deployment federation—not an older apply/plan identity.
+- Set environment variable `DOCKER_HOST_KNOWN_HOSTS` to the independently verified
+  `docker-host` host-key alias entry. Never learn/accept a new key from an
+  unauthenticated runtime scan. The inventory continues to require strict checking.
+- Put the approved age identity in environment secret `SOPS_AGE_KEY`. This explicitly
+  grants trusted main deployment jobs decryption authority for all ciphertext covered
+  by that identity. It is not a Tailscale or native SSH credential.
+- Set repository variable `COMPOSE_AUTO_APPLY_ENABLED=true` only when these inputs
+  are ready; `false` disables push, scheduled and dispatched deployment jobs.
+  Keep repository squash merge and auto-merge enabled.
+
+The reusable CI workflow receives no deployment secrets or OIDC permission. Only
+main's protected deployment job obtains them, after validating its exact selected
+revision. The job creates one mode-0700 workspace outside Git, writes credentials
+with mode 0600, uses Ansible `no_log` and quiet SOPS/Compose validation, then removes
+controller secrets and scratch on every exit. Do not upload controller archives,
+resolved Compose output, decrypted source or state as Actions artifacts. Production
+ownership and before-images are never removed by controller cleanup.
+
+Renovate's repository settings and required checks can be configured before merging
+these workflow changes, but the new deployment workflow and scheduled retries do
+not exist on GitHub until their reviewed commit reaches main. The first deployment
+must start from an admitted existing source/backup state; the automatic lane does
+not bootstrap hosts, restore data or admit outstanding configuration migrations.

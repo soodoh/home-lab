@@ -4,12 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Immutable source revision selected inside the production concurrency lane
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ inputs.source_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -19,6 +25,8 @@ jobs:
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,7 +36,7 @@ jobs:
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          tofu_version: 1.12.6
+          tofu_version: 1.13.1
 
       - name: Install validation dependencies
         run: |
@@ -44,6 +52,17 @@ jobs:
 
       - name: Validate Compose image policy
         run: python scripts/check-compose-image-pins.py
+
+      - name: Validate Renovate configuration natively
+        run: |
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          npm exec --cache "$work/npm-cache" --yes --package renovate@44.149.0 -- \
+            renovate-config-validator --strict renovate.json
+
+      - name: Validate automatic Compose upgrade admission
+        run: python scripts/test-compose-upgrade-admission.py
 
       - name: Validate backup and recovery behavior
         run: |
@@ -93,7 +112,8 @@ jobs:
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
           for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-access,proxmox-firewall,servarr,tailscale}; do
-            export TF_DATA_DIR="$work/$(basename "$root")"
+            TF_DATA_DIR="$work/$(basename "$root")"
+            export TF_DATA_DIR
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
           done

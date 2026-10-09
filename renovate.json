@@ -8,6 +8,12 @@
     "dependencies"
   ],
   "prConcurrentLimit": 5,
+  "timezone": "America/Los_Angeles",
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "automergeSchedule": ["* 6-7 * * *"],
+  "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
       "matchDepTypes": [
@@ -17,30 +23,37 @@
       "rangeStrategy": "bump"
     },
     {
-      "description": "Keep Docker updates isolated and manually reviewed",
+      "description": "Keep major, floating and custom-manager Docker updates manually reviewed",
       "matchDatasources": [
         "docker"
       ],
       "pinDigests": true,
       "groupName": null,
-      "separateMinorPatch": true,
+      "separateMinorPatch": false,
       "minimumReleaseAge": "3 days",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
       "automerge": false
     },
     {
-      "description": "Retain the historical FlareSolverr review label and longer release age",
+      "description": "Batch all versioned Compose non-major updates, including databases, into one routine PR",
+      "matchManagers": ["docker-compose"],
+      "matchDatasources": ["docker"],
+      "matchCurrentValue": "/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpine[0-9.]*|apache|ubi[0-9]+|openssl))?$/",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "routine Compose images",
+      "groupSlug": "routine-compose-images",
+      "automerge": true,
+      "addLabels": ["compose-routine"]
+    },
+    {
+      "description": "Retain the longer FlareSolverr release age where registry timestamps exist",
       "matchDatasources": [
         "docker"
       ],
       "matchPackageNames": [
         "ghcr.io/flaresolverr/flaresolverr"
       ],
-      "labels": [
-        "dependencies",
-        "compose-canary"
-      ],
-      "minimumReleaseAge": "7 days",
-      "automerge": false
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Require an explicit migration for PostgreSQL major releases",
