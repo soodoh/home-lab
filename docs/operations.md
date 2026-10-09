@@ -58,7 +58,20 @@ unset AUTHENTIK_PLAN_TOKEN AUTHENTIK_APPLY_TOKEN \
 Protect the session directory and its saved plans, exports and approvals; never
 print decrypted SOPS, resolved Compose, provider state or plan JSON. Run the
 native validators applicable to changed files (see [README](../README.md) and
-CI). Focused backup/recovery checks are `scripts/test-recovery-tools`,
+CI). When reviewing a provider version/lock update, include both the Linux CI
+runner and local Mac platforms in the native lock refresh, for example:
+
+```sh
+tofu -chdir=infrastructure/tofu/authentik providers lock \
+  -platform=linux_amd64 -platform=darwin_arm64
+```
+
+Review the selected versions and signed checksums before committing. A ZIP (`zh:`)
+checksum alone cannot validate the unpacked Linux package; its platform-specific
+`h1:` must also be tracked for subsequent commands after read-only initialization.
+Keep CI's `-lockfile=readonly`; do not remove the lock or disable checksum checks.
+
+Focused backup/recovery checks are `scripts/test-recovery-tools`,
 `python3 scripts/test-restic-runtime.py`, and
 `python3 scripts/test-restic-observer.py`.
 
