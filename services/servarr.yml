@@ -116,7 +116,7 @@ services:
 
   tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.3.2361@sha256:c1888d3c331cdc139a49a5ec62260f02ca003739bc7f754114b8293a305bffd3
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2366@sha256:1fac27c387dc2ea9949e1a01ad7f6d6de9d72d3988338a95476748e5c45c4582
     container_name: tachidesk
     restart: unless-stopped
     logging: *default-logging
@@ -149,7 +149,7 @@ services:
 
   caro-tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.3.2361@sha256:c1888d3c331cdc139a49a5ec62260f02ca003739bc7f754114b8293a305bffd3
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2366@sha256:1fac27c387dc2ea9949e1a01ad7f6d6de9d72d3988338a95476748e5c45c4582
     container_name: caro-tachidesk
     restart: unless-stopped
     logging: *default-logging
