@@ -37,6 +37,8 @@ jobs:
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: 1.13.1
+          # Fixture helpers intentionally omit action-only environment variables.
+          tofu_wrapper: false
 
       - name: Install validation dependencies
         run: |
