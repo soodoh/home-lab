@@ -446,6 +446,33 @@ must preserve the top-level root and must not treat the empty field list as
 permission to change it. Disabled metadata providers remain application
 defaults, not managed resources.
 
+### VPN transport and torrent connectability
+
+Gluetun uses Proton WireGuard with native secret-file readers for
+`WIREGUARD_PRIVATE_KEY` and `WIREGUARD_ADDRESSES`, both owned by
+`secrets/production.sops.yaml`. Generate a Proton WireGuard configuration with
+NAT-PMP enabled and moderate NAT disabled; import the raw `[Interface]`
+`PrivateKey` and `Address` values without logging them. Compose limits selection
+to port-forwarding-capable servers and retains the reviewed country filter.
+A country filter does not guarantee that a replacement exit belongs to the
+ASN permitted by the MAM session.
+
+The port-forward hook validates the assigned port, waits boundedly for
+qBittorrent, updates its native listening port and verifies API readback before
+calling the MAM dynamic-seedbox endpoint. Any port-update or verification failure
+stops the hook without a MAM request. Test this behavior with
+`python3 scripts/test-gluetun-hooks.py`; session/cooldown behavior remains covered
+by `python3 scripts/test-mam-seedbox.py`.
+
+After a transport or server change, independently test the VPN **outbound** IP
+and assigned port from outside the VPN, verify the MAM hook outcome and check
+MAM after the next permitted tracker announce/recheck. A NAT-PMP allocation or
+a successful MAM session update is not proof of connectability. If the provider
+forwards on a different IP, do not hardcode that address or assume MAM accepts
+an announce-IP override. Changing the VPN transport is a candidate remedy that
+requires the same live verification. Never repeatedly rotate exits or bypass
+MAM's IP-change cooldown to obtain a passing check.
+
 ### MAM session bootstrap and rotation
 
 `secrets/servarr.sops.yaml` owns the initial MAM session ID at

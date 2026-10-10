@@ -1,9 +1,10 @@
 #!/bin/sh
 
+set -e
+
 DIR=$(dirname "$0")
 
 "$DIR"/qbittorrent_port.sh
-# Update MAM after qBittorrent is running & forwarded port updated,
-# to ensure that torrent client is reporting same IP before attempting
-# to update the dynamicSeedbox endpoint.
+# Register the VPN egress only after verifying the client's listening port.
+# MAM session authorization alone does not prove public reachability.
 "$DIR"/mam_seedbox.sh

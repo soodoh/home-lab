@@ -87,6 +87,12 @@ class ComposeDelivery(unittest.TestCase):
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", private["environment"])
         self.assertNotIn("secrets", services["traefik"])
         gluetun = services["gluetun"]
+        self.assertEqual(gluetun["environment"]["VPN_TYPE"], "wireguard")
+        self.assertEqual(gluetun["environment"]["PORT_FORWARD_ONLY"], "on")
+        for name in ("private_key", "addresses"):
+            self.assertEqual(gluetun["environment"]["WIREGUARD_" + name.upper() + "_SECRETFILE"],
+                             "/run/secrets/wireguard_" + name)
+            self.assertNotIn("WIREGUARD_" + name.upper(), gluetun["environment"])
         self.assertEqual(gluetun["environment"]["MAM_ID_FILE"], "/run/secrets/mam_initial_id")
         self.assertNotIn("MAM_ID", gluetun["environment"])
         self.assertEqual([name for name, service in services.items()
