@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   openfit:
-    image: ghcr.io/soodoh/openfit:latest@sha256:14738ad7937761cd447c6d619381aac323f08c5a3de7635160ae6b139cc87694
+    image: ghcr.io/soodoh/openfit:latest@sha256:b2542c6b27ef0f0c37d7de9c1418d11b1ec4c86103bf9ecbaa43bd41bd41d825
     container_name: openfit
     restart: unless-stopped
     logging: *default-logging
