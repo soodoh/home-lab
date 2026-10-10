@@ -34,7 +34,7 @@ jobs:
           python-version: "3.14"
 
       - name: Set up OpenTofu
-        uses: opentofu/setup-opentofu@v1
+        uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: 1.13.1
           # Fixture helpers intentionally omit action-only environment variables.
