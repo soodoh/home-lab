@@ -452,8 +452,11 @@ Gluetun uses Proton WireGuard with native secret-file readers for
 `WIREGUARD_PRIVATE_KEY` and `WIREGUARD_ADDRESSES`, both owned by
 `secrets/production.sops.yaml`. Generate a Proton WireGuard configuration with
 NAT-PMP enabled and moderate NAT disabled; import the raw `[Interface]`
-`PrivateKey` and `Address` values without logging them. Compose limits selection
-to port-forwarding-capable servers and retains the reviewed country filter.
+`PrivateKey` and **only IPv4 entries** from `Address` without logging them.
+Proton may include IPv6 entries, which this deployment does not support. Native
+credential preflight rejects incompatible addresses before writing files.
+Compose limits selection to port-forwarding-capable servers and retains the
+reviewed country filter.
 A country filter does not guarantee that a replacement exit belongs to the
 ASN permitted by the MAM session.
 
