@@ -202,7 +202,7 @@ services:
       - /srv/home-lab-state/flaresolverr-data:/config
 
   prowlarr:
-    image: ghcr.io/linuxserver/prowlarr:2.6.5-develop@sha256:85248c75ebf12f985bdd1d3b8f17deda23b7a5902aaa0888b9f13e57410580e9
+    image: ghcr.io/linuxserver/prowlarr:2.6.5-develop@sha256:e7a05286500b6e51084b0ba263dbbaf825db1ec7b731bf18aea30df84714e5f6
     container_name: prowlarr
     restart: unless-stopped
     network_mode: service:gluetun
