@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   cli-proxy-api:
-    image: eceasy/cli-proxy-api:v8.0.12@sha256:f2f1ee7a3cd18f49b8e4ba13611b86b9f9069122eff9fb182912996964aa945d
+    image: eceasy/cli-proxy-api:v8.0.17@sha256:3badde1bcc2eab6bec729fca20e9953981574e34c0389bd5c810b20f955bf0b8
     container_name: cli-proxy-api
     restart: unless-stopped
     logging: *default-logging
