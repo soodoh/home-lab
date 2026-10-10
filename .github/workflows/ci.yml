@@ -4,21 +4,29 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Immutable source revision selected inside the production concurrency lane
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ inputs.source_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,7 +36,9 @@ jobs:
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          tofu_version: 1.12.6
+          tofu_version: 1.13.1
+          # Fixture helpers intentionally omit action-only environment variables.
+          tofu_wrapper: false
 
       - name: Install validation dependencies
         run: |
@@ -36,7 +46,7 @@ jobs:
           sudo apt-get install --yes bzip2 curl jq openssl rsync shellcheck nftables iproute2 util-linux ffmpeg
           python -m pip install --disable-pip-version-check \
             ansible-core==2.21.2 ansible-lint==26.8.0 yamllint==1.38.0 \
-            jsonschema==4.25.1
+            jsonschema==4.25.1 requests==2.34.2
           ansible-galaxy collection install -r ansible/collections/requirements.yml
 
       - name: Enforce disposable-controller boundaries
@@ -44,6 +54,17 @@ jobs:
 
       - name: Validate Compose image policy
         run: python scripts/check-compose-image-pins.py
+
+      - name: Validate Renovate configuration natively
+        run: |
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          npm exec --cache "$work/npm-cache" --yes --package renovate@44.149.0 -- \
+            renovate-config-validator --strict renovate.json
+
+      - name: Validate automatic Compose upgrade admission
+        run: python scripts/test-compose-upgrade-admission.py
 
       - name: Validate backup and recovery behavior
         run: |
@@ -93,7 +114,8 @@ jobs:
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
           for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-access,proxmox-firewall,servarr,tailscale}; do
-            export TF_DATA_DIR="$work/$(basename "$root")"
+            TF_DATA_DIR="$work/$(basename "$root")"
+            export TF_DATA_DIR
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
           done
@@ -137,6 +159,8 @@ jobs:
         run: python -m compileall -q scripts infrastructure ansible/roles
 
       - name: Validate provider observation inputs
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
         run: |
           python scripts/test-omada-export.py
           python scripts/test-omada-mail.py

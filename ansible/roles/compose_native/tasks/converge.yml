@@ -1,0 +1,226 @@
+---
+- name: Observe managed bind mount consumers before publication
+  ansible.builtin.script:
+    cmd: >-
+      {{ compose_native_controller_root }}/scripts/compose-mounts.py
+      --project {{ compose_native_project_name }}
+      --source-root {{ compose_native_current_dir }}
+      --credentials-root /etc/docker-compose/credentials
+    executable: /usr/bin/python3
+  become: true
+  changed_when: false
+  register: compose_native_mounts_before
+  no_log: true
+
+- name: Publish changed Compose source
+  when: compose_native_source_changed | bool
+  block:
+    - name: Refuse an unresolved previous Compose source tree
+      ansible.builtin.stat:
+        path: "{{ compose_native_previous_dir }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_previous_source
+      failed_when: compose_native_previous_source.stat.exists | default(false)
+
+    - name: Preserve the current source during convergence
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cp
+          - --archive
+          - --no-target-directory
+          - --
+          - "{{ compose_native_current_dir }}"
+          - "{{ compose_native_previous_dir }}"
+      become: true
+      changed_when: true
+
+    - name: Publish source while preserving unchanged file and directory mounts
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/rsync
+          - --archive
+          - --checksum
+          - --delete
+          - --delay-updates
+          - "{{ compose_native_incoming_source.path }}/"
+          - "{{ compose_native_current_dir }}/"
+      become: true
+      changed_when: true
+
+- name: Provision native credential files and minimal interpolation inputs
+  ansible.builtin.include_tasks: credentials.yml
+
+- name: Prepare protected Grimmory runtime directories
+  ansible.builtin.include_role:
+    name: grimmory
+    tasks_from: directories
+
+- name: Admit and provision managed application directories and certificate stores
+  ansible.builtin.include_tasks: runtime-paths.yml
+
+- name: Create the protected CLIProxyAPI OAuth directory
+  ansible.builtin.file:
+    path: /srv/home-lab-state/cli-proxy-api/auths
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Validate the published Compose model
+  ansible.builtin.command:
+    argv: "{{ compose_native_runtime_cli + ['config', '--quiet'] }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  changed_when: false
+  no_log: true
+
+- name: List services in the published model without resolving private values
+  ansible.builtin.command:
+    argv: "{{ compose_native_runtime_cli + ['config', '--services'] }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_new_services
+  changed_when: false
+  no_log: true
+
+- name: Pull missing digest-pinned images after provisioning reviewed manual configuration
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    ignore_buildable: true
+    policy: missing
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  no_log: true
+  when: not (compose_native_automated | bool)
+
+- name: Observe managed bind mount consumers after publication
+  ansible.builtin.script:
+    cmd: >-
+      {{ compose_native_controller_root }}/scripts/compose-mounts.py
+      --project {{ compose_native_project_name }}
+      --source-root {{ compose_native_current_dir }}
+      --credentials-root /etc/docker-compose/credentials
+    executable: /usr/bin/python3
+  become: true
+  changed_when: false
+  register: compose_native_mounts_after
+  no_log: true
+
+- name: Initialize explicit bind mount recreation set
+  ansible.builtin.set_fact:
+    compose_native_recreate_services: []
+
+- name: Select only declared consumers of changed bind mounts
+  ansible.builtin.set_fact:
+    compose_native_recreate_services: "{{ compose_native_recreate_services + [item.key] }}"
+  loop: "{{ (compose_native_mounts_before.stdout | from_json) | dict2items }}"
+  when:
+    - item.key in compose_native_new_services.stdout_lines
+    - item.value != (compose_native_mounts_after.stdout | from_json)[item.key]
+  no_log: true
+
+- name: Recreate only consumers of changed managed bind mounts
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    services: "{{ compose_native_recreate_services }}"
+    dependencies: false
+    state: present
+    pull: never
+    build: never
+    recreate: always
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: true
+    wait_timeout: "{{ compose_native_wait_timeout }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  when: compose_native_recreate_services | length > 0
+  no_log: true
+
+- name: Converge the complete Compose project
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    state: present
+    pull: never
+    build: never
+    # Model/image changes are native; bind-file changes were handled above.
+    recreate: auto
+    remove_orphans: true
+    renew_anon_volumes: false
+    wait: true
+    wait_timeout: "{{ compose_native_wait_timeout }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_convergence
+  no_log: true
+
+- name: Require the expected Compose service count
+  ansible.builtin.assert:
+    that:
+      - compose_native_convergence.containers | length == compose_native_expected_service_count | int
+    fail_msg: Native Compose convergence did not return the expected service count.
+  no_log: true
+
+- name: Sync Shelfmark consumers from the existing encrypted credential authorities
+  ansible.builtin.include_role:
+    name: shelfmark
+
+- name: Verify the complete deployed model and required health before accepting source
+  ansible.builtin.include_tasks: observe.yml
+
+- name: Publish the converged Compose artifact identity
+  ansible.builtin.copy:
+    content: "{{ compose_native_source_archives.results[1].stat.checksum }}\n"
+    dest: "{{ compose_native_artifact_identity_path }}"
+    owner: root
+    group: root
+    mode: "0444"
+  become: true
+
+- name: Accept the converged source archive
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mv
+      - --force
+      - --
+      - "{{ compose_native_source_candidate_path }}"
+      - "{{ compose_native_source_archive_path }}"
+  become: true
+  changed_when: compose_native_source_changed | bool
+
+- name: Remove the superseded source after successful convergence
+  ansible.builtin.file:
+    path: "{{ compose_native_previous_dir }}"
+    state: absent
+  become: true
+  when: compose_native_source_changed | bool
+
+- name: Report native Compose convergence
+  ansible.builtin.debug:
+    msg:
+      project: "{{ compose_native_project_name }}"
+      source_changed: "{{ compose_native_source_changed }}"
+      bind_mount_recreations: "{{ compose_native_recreate_services }}"
+      services: "{{ compose_native_convergence.containers | length }}"
+      remove_orphans: true

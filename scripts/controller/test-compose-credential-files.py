@@ -134,8 +134,8 @@ class NativeFileRendering(unittest.TestCase):
             target.mkdir(mode=0o755)
             deploy = yaml.safe_load((ROOT / "ansible/roles/compose_native/tasks/deploy.yml").read_text())
             block = next(t["block"] for t in deploy if t["name"] == "Archive and converge committed Compose source")
-            publish = next(t["block"] for t in block if t["name"] == "Publish changed Compose source")
-            task = copy.deepcopy(next(t for t in publish if t["name"] == "Extract committed Compose source"))
+            prepare = next(t["block"] for t in block if t["name"] == "Prepare changed source without publishing it")
+            task = copy.deepcopy(next(t for t in prepare if t["name"] == "Extract committed Compose source"))
             task["become"] = False
             task["ansible.builtin.unarchive"].update(src=str(archive), dest=str(target), owner=str(os.getuid()), group=str(os.getgid()))
             playbook = [{"name": "Test native source permissions", "hosts": "localhost", "gather_facts": False,
