@@ -96,19 +96,20 @@ services:
       TZ: $TZ
       VPN_PORT_FORWARDING_UP_COMMAND: /bin/sh /scripts/gluetun_up.sh
       MAM_ID_FILE: /run/secrets/mam_initial_id
-      VPN_TYPE: openvpn
-      OPENVPN_USER_SECRETFILE: /run/secrets/openvpn_user
-      OPENVPN_PASSWORD_SECRETFILE: /run/secrets/openvpn_password
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY_SECRETFILE: /run/secrets/wireguard_private_key
+      WIREGUARD_ADDRESSES_SECRETFILE: /run/secrets/wireguard_addresses
+      PORT_FORWARD_ONLY: "on"
       VPN_SERVICE_PROVIDER: $VPN_PROVIDER
       VPN_PORT_FORWARDING_PROVIDER: $VPN_PROVIDER
       VPN_PORT_FORWARDING: on
       # Use DoH instead of DoT — port 853 gets reset by ProtonVPN (gluetun#3121)
       DNS_UPSTREAM_RESOLVER_TYPE: doh
-      # Needed to maintain consistent ASN for MAM session
+      # Keep the region stable; a country filter alone does not guarantee MAM's ASN.
       SERVER_COUNTRIES: $SERVER_COUNTRIES
     secrets:
-      - openvpn_user
-      - openvpn_password
+      - wireguard_private_key
+      - wireguard_addresses
       - mam_initial_id
     networks:
       - proxy
@@ -372,10 +373,10 @@ services:
       - ${MEDIA_PATH}:/data
 
 secrets:
-  openvpn_user:
-    file: /etc/docker-compose/credentials/openvpn-user
-  openvpn_password:
-    file: /etc/docker-compose/credentials/openvpn-password
+  wireguard_private_key:
+    file: /etc/docker-compose/credentials/wireguard-private-key
+  wireguard_addresses:
+    file: /etc/docker-compose/credentials/wireguard-addresses
   mam_initial_id:
     file: /etc/docker-compose/credentials/mam-initial-id
   sonarr_api_key:

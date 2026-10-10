@@ -74,6 +74,8 @@ jobs:
           python scripts/test-compose-mounts.py
           python scripts/test-qbittorrent-password.py
           python scripts/test-mam-seedbox.py
+          python scripts/test-gluetun-hooks.py
+          python scripts/controller/test-compose-credential-files.py ComposeDelivery NativeFileRendering
           python scripts/test-servarr-variables.py
           scripts/test-recovery-tools
 

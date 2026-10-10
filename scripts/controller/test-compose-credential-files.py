@@ -87,6 +87,12 @@ class ComposeDelivery(unittest.TestCase):
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", private["environment"])
         self.assertNotIn("secrets", services["traefik"])
         gluetun = services["gluetun"]
+        self.assertEqual(gluetun["environment"]["VPN_TYPE"], "wireguard")
+        self.assertEqual(gluetun["environment"]["PORT_FORWARD_ONLY"], "on")
+        for name in ("private_key", "addresses"):
+            self.assertEqual(gluetun["environment"]["WIREGUARD_" + name.upper() + "_SECRETFILE"],
+                             "/run/secrets/wireguard_" + name)
+            self.assertNotIn("WIREGUARD_" + name.upper(), gluetun["environment"])
         self.assertEqual(gluetun["environment"]["MAM_ID_FILE"], "/run/secrets/mam_initial_id")
         self.assertNotIn("MAM_ID", gluetun["environment"])
         self.assertEqual([name for name, service in services.items()
@@ -157,6 +163,8 @@ class NativeFileRendering(unittest.TestCase):
                 item.update(path=str(work / Path(item["path"]).name), owner=uid, group=gid)
             production = {key: "synthetic-" + key for key in credentials["environment_keys"]}
             production.update({item["key"]: 'synthetic-$value-"quoted"-\\tail' for item in credentials["files"] if "key" in item and item["key"] not in {"VAULTWARDEN_SSO_CLIENT_SECRET", "MAM_INITIAL_ID"}})
+            production["WIREGUARD_PRIVATE_KEY"] = "A" * 43 + "="
+            production["WIREGUARD_ADDRESSES"] = "10.2.0.2/32"
             production["TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID"] = "ASYNTHETICKEY12345678"
             production["TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY"] = "SyntheticKey/With+Base64=Characters12345678"
             tasks = yaml.safe_load((ROOT / "ansible/roles/compose_native/tasks/credentials.yml").read_text())[1:]
@@ -249,6 +257,16 @@ class NativeFileRendering(unittest.TestCase):
             for duplicate in ["MAM_ID", "MAM_INITIAL_ID"]:
                 render({**production, duplicate: "duplicate-id"}, expected_status=2)
                 self.assertEqual(mam_path.read_text(), "replacement-mam-id")
+            for key, invalid in [
+                ("WIREGUARD_ADDRESSES", "10.2.0.2/32,2a07:b944::2:2/128"),
+                ("WIREGUARD_ADDRESSES", "2a07:b944::2:2/128"),
+                ("WIREGUARD_ADDRESSES", "bad-address"),
+                ("WIREGUARD_PRIVATE_KEY", "bad-key"),
+            ]:
+                credential = next(item for item in credentials["files"] if item.get("key") == key)
+                before = Path(credential["path"]).read_bytes()
+                render({**production, key: invalid}, expected_status=2)
+                self.assertEqual(Path(credential["path"]).read_bytes(), before)
             # Unsafe existing file metadata must be refused before any rewriting.
             raw_path.chmod(0o644)
             variable_path.write_text(json.dumps({"test_source_values": production,
