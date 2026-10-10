@@ -75,6 +75,22 @@ Focused backup/recovery checks are `scripts/test-recovery-tools`,
 `python3 scripts/test-restic-runtime.py`, and
 `python3 scripts/test-restic-observer.py`.
 
+### Controller dependency updates
+
+Renovate tracks shared Ansible tooling in
+[`controller/requirements.txt`](../controller/requirements.txt) and additional
+validation dependencies in
+[`controller/requirements-ci.txt`](../controller/requirements-ci.txt).
+Workflow annotations track the Renovate validator and Tailscale CLI pins.
+GitHub Actions retain full commit SHA pins with version comments; the native
+manager also tracks Python and OpenTofu setup inputs. SOPS uses the
+`github-release-attachments` datasource to update its release tag and Linux
+amd64 SHA-256 together; keep that annotated version/checksum pair adjacent.
+Review the release asset and checksum before merging, and preserve download-time
+checksum verification. Controller tooling PRs remain manually reviewed and
+separate from routine Compose automerge. Restic/rclone host pins remain coordinated
+manual changes, not independent Renovate updates.
+
 ## Observe before deciding
 
 ```sh

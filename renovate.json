@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    "group:allNonMajor"
+    "group:allNonMajor",
+    "helpers:pinGitHubActionDigests"
   ],
   "labels": [
     "dependencies"
@@ -89,6 +90,13 @@
       "enabled": true
     },
     {
+      "description": "Keep controller tooling separately reviewed, outside routine Compose automerge",
+      "matchManagers": ["github-actions", "pip_requirements", "custom.regex"],
+      "matchFileNames": [".github/workflows/**", "controller/*requirements*.txt"],
+      "groupName": null,
+      "automerge": false
+    },
+    {
       "description": "Keep OpenTofu provider locks candidate-only and separately reviewed",
       "matchManagers": [
         "terraform"
@@ -102,6 +110,25 @@
     }
   ],
   "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track annotated workflow tooling versions not extracted by native managers",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>npm|github-tags) depName=(?<depName>[^\\s]+)\\s+(?:[A-Z_]+_VERSION|version): (?<currentValue>[^\\s]+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Update the SOPS release tag and Linux amd64 asset checksum together",
+      "managerFilePatterns": ["/^\\.github/workflows/deploy-compose\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=github-release-attachments depName=getsops/sops\\s+SOPS_VERSION: (?<currentValue>v[0-9.]+)\\s+SOPS_SHA256: (?<currentDigest>[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "getsops/sops",
+      "datasourceTemplate": "github-release-attachments",
+      "versioningTemplate": "semver"
+    },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^services/data/wolf/security\\.json$/"],

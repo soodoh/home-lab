@@ -24,17 +24,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out reviewed source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
 
       - name: Set up OpenTofu
-        uses: opentofu/setup-opentofu@v2
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
           tofu_version: 1.13.1
           # Fixture helpers intentionally omit action-only environment variables.
@@ -44,9 +44,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes bzip2 curl jq openssl rsync shellcheck nftables iproute2 util-linux ffmpeg
-          python -m pip install --disable-pip-version-check \
-            ansible-core==2.21.2 ansible-lint==26.8.0 yamllint==1.38.0 \
-            jsonschema==4.25.1 requests==2.34.2
+          python -m pip install --disable-pip-version-check -r controller/requirements-ci.txt
           ansible-galaxy collection install -r ansible/collections/requirements.yml
 
       - name: Enforce disposable-controller boundaries
@@ -56,11 +54,14 @@ jobs:
         run: python scripts/check-compose-image-pins.py
 
       - name: Validate Renovate configuration natively
+        env:
+          # renovate: datasource=npm depName=renovate
+          RENOVATE_VERSION: 44.149.0
         run: |
           umask 077
           work=$(mktemp -d)
           trap 'rm -rf -- "$work"' EXIT
-          npm exec --cache "$work/npm-cache" --yes --package renovate@44.149.0 -- \
+          npm exec --cache "$work/npm-cache" --yes --package "renovate@$RENOVATE_VERSION" -- \
             renovate-config-validator --strict renovate.json
 
       - name: Validate automatic Compose upgrade admission

@@ -1,0 +1,2 @@
+# Shared controller tooling for validation and deployment.
+ansible-core==2.21.2
