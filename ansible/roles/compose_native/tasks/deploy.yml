@@ -138,7 +138,7 @@
              compose_native_source_archives.results[0].stat.checksum !=
              compose_native_source_archives.results[1].stat.checksum }}
 
-    - name: Refuse automatic changes other than non-major versioned service images
+    - name: Admit only routine versioned images and the approved Wolf stable digest exception
       ansible.builtin.script:
         cmd: >-
           {{ compose_native_controller_root }}/scripts/compose-upgrade-admission.py

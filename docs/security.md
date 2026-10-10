@@ -250,9 +250,12 @@ It stops only Wolf, retains a protected complete configuration before-image,
 changes only the declared image fields, preserves application ownership and
 checks the complete changed settings again after healthy startup. Unknown, duplicated
 or retargeted images refuse admission. It does not launch Steam or an emulator
-or prove first-use application compatibility. Image digest updates are reviewed
-changes, including Renovate candidates; changing tags also requires reviewing
-the declared source identity.
+or prove first-use application compatibility. Spawned application image digest
+updates are reviewed changes, including Renovate candidates; changing tags also
+requires reviewing the declared source identity. The separate Compose Wolf server
+image has an approved automatic `stable` digest-only exception under the
+[automatic upgrade policy](operations.md#automatic-compose-updates); it does not
+authorize changes to these spawned application assignments.
 
 ## OpenTofu state and plans
 

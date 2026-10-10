@@ -46,6 +46,19 @@
       "addLabels": ["compose-routine"]
     },
     {
+      "description": "Include digest-only updates to the existing Wolf stable Compose image in the routine batch",
+      "matchManagers": ["docker-compose"],
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["services/gaming.yml"],
+      "matchPackageNames": ["ghcr.io/games-on-whales/wolf"],
+      "matchCurrentValue": "stable",
+      "matchUpdateTypes": ["digest"],
+      "groupName": "routine Compose images",
+      "groupSlug": "routine-compose-images",
+      "automerge": true,
+      "addLabels": ["compose-routine"]
+    },
+    {
       "description": "Retain the longer FlareSolverr release age where registry timestamps exist",
       "matchDatasources": [
         "docker"

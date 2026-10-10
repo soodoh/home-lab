@@ -23,6 +23,10 @@ IMAGE_LINE = re.compile(
     rb"(?m)^(?P<prefix>(?: {4}image: |x-nextcloud-image: &nextcloud-image ))"
     rb"(?P<image>[^\s]+@sha256:[a-f0-9]{64})(?P<suffix>[ \t]*\r?)$"
 )
+# Explicit standing exception: only the existing Wolf stable image in gaming.yml.
+WOLF_STABLE_IMAGE = re.compile(
+    rb"ghcr\.io/games-on-whales/wolf:stable@sha256:[a-f0-9]{64}"
+)
 VERSIONED_IMAGE = re.compile(
     r"(?P<name>.+):v?(?P<version>[0-9]+(?:\.[0-9]+){1,3})"
     r"(?P<variant>-(?:alpine[0-9.]*|apache|ubi[0-9]+|openssl))?"
@@ -99,7 +103,10 @@ def admit_archives(active: Path, candidate: Path) -> int:
             raise ValueError("non_image_compose_change")
         for left, right in zip(old_images, new_images):
             if left["image"] != right["image"]:
-                admit_image(left["image"], right["image"])
+                if not (name == "services/gaming.yml"
+                        and WOLF_STABLE_IMAGE.fullmatch(left["image"])
+                        and WOLF_STABLE_IMAGE.fullmatch(right["image"])):
+                    admit_image(left["image"], right["image"])
                 count += 1
     return count
 

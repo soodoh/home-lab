@@ -610,11 +610,15 @@ staging, not production activation.
 ### Automatic Compose updates
 
 The approved standing policy groups **all versioned Compose minor, patch and
-digest updates, including databases**, into one Renovate PR. Major releases,
-`latest`/`stable`, development/prerelease tags, Wolf custom-manager images and
-non-Compose dependencies remain manual. Version tags and exact digests stay pinned.
-This broad policy explicitly accepts non-major application/database startup risk:
-version classification is not proof that a release is migration-free or reversible.
+digest updates, including databases**, plus digest-only updates to
+`ghcr.io/games-on-whales/wolf:stable` in `services/gaming.yml`, into one Renovate PR.
+Major releases, other `latest`/`stable` images, development/prerelease tags, Wolf
+custom-manager spawned application images and non-Compose dependencies remain
+manual. Version/channel tags and exact digests stay pinned.
+This broad policy explicitly accepts non-major application/database startup risk
+and unclassified release risk from Wolf's `stable` channel: a Wolf digest change
+can contain breaking behavior without a version signal. Neither classification
+nor a pinned digest proves that a release is migration-free or reversible.
 Exclude a known migration from the automatic lane and review recovery separately.
 There is no automatic data rollback; production recovery activation remains unqualified.
 
@@ -647,10 +651,16 @@ A start window cannot guarantee a failed service recovers before the window ends
 Automatic deployment compares the host's accepted source archive with the selected
 Git archive, under production ownership. It refuses additions/deletions, configuration
 or secret changes, image identity/variant changes, majors, downgrades and floating
-or prerelease image updates. Only versioned non-major image-field changes (or
-unchanged source) qualify for routine backup admission. Thus a manually merged
+or prerelease image updates, except for the exact Wolf `stable` digest-only
+exception above. Both old and new Wolf images must retain the same repository and
+`stable` tag in `services/gaming.yml`; spawned image assignments remain manual.
+Only versioned non-major image-field changes, this Wolf exception or unchanged
+source qualify for routine backup admission. Thus a manually merged
 major/configuration change mixed into latest main does not inherit routine approval.
-The read-only adapter never extracts archives or prints source contents.
+Moving an existing floating/prerelease image to a versioned stable tag still needs
+a separately reviewed manual deployment to establish the accepted baseline; it
+does not inherit routine approval. The read-only adapter never extracts archives
+or prints source contents.
 
 The daily backup remains at 05:00 host-local Pacific time. No per-PR full backup
 is added. Fresh local coverage under the current scope/policy admits routine
