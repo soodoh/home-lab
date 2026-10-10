@@ -73,7 +73,7 @@ services:
       - proxy
 
   traefik:
-    image: traefik:v3.7.0@sha256:eb328e2c806c53aafbbace6c451fa54d268961261a85452fcf0fb752a30c17be
+    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
     container_name: traefik
     restart: always
     logging: *default-logging
@@ -92,7 +92,7 @@ services:
         ipv4_address: 172.23.0.250
 
   traefik-tailnet:
-    image: traefik:v3.7.0@sha256:eb328e2c806c53aafbbace6c451fa54d268961261a85452fcf0fb752a30c17be
+    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
     container_name: traefik-tailnet
     restart: always
     logging: *default-logging
