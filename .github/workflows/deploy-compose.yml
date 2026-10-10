@@ -29,7 +29,7 @@ jobs:
       admitted: ${{ steps.window.outputs.admitted }}
     steps:
       - name: Select current main inside production serialization
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
@@ -74,7 +74,7 @@ jobs:
       ANSIBLE_CONFIG: ansible/ansible.cfg
     steps:
       - name: Check out exactly the validated revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.select.outputs.source_ref }}
           persist-credentials: false
