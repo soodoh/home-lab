@@ -4,8 +4,9 @@ This repository describes the desired state of an **existing** two-host home lab
 OpenTofu manages provider resources, Ansible converges the adopted hosts, and
 Docker Compose defines applications. It is not a bare-metal bootstrap or an
 automated disaster-recovery system. CI validates source and automatically
-converges qualified non-major Compose image updates during the Pacific maintenance
-window. Provider and data/configuration changes remain separately approved.
+converges qualified non-major Compose image updates and approved Wolf `stable`
+digest updates during the Pacific maintenance window. Provider and data/configuration
+changes remain separately approved.
 
 Git defines desired state, not proof of what is running. Base decisions on fresh
 host and provider observations and remote OpenTofu state. The approved

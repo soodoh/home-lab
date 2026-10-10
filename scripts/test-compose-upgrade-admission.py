@@ -52,9 +52,9 @@ class AdmissionTests(unittest.TestCase):
                 archive.addfile(entry, io.BytesIO(content))
         return path
 
-    def compare(self, new, old=None, extra=None):
+    def compare(self, new, old=None, extra=None, old_extra=None):
         return MODULE.admit_archives(
-            self.archive("active.tar", old), self.archive("candidate.tar", new, extra)
+            self.archive("active.tar", old, old_extra), self.archive("candidate.tar", new, extra)
         )
 
     def test_unchanged_source_is_idempotent(self):
@@ -94,6 +94,54 @@ class AdmissionTests(unittest.TestCase):
             with self.subTest(tag=tag):
                 with self.assertRaises(ValueError):
                     self.compare(source(tag, "b"), source(tag))
+
+    def test_wolf_stable_digest_update_joins_routine_batch(self):
+        wolf = "ghcr.io/games-on-whales/wolf"
+        old = {"services/gaming.yml": source("stable", name=wolf)}
+        new = {"services/gaming.yml": source("stable", "b", wolf)}
+        self.assertEqual(self.compare(source("1.3.0", "b"), extra=new, old_extra=old), 2)
+        self.assertEqual(self.compare(source(), extra=old, old_extra=old), 0)
+
+    def test_wolf_exception_does_not_admit_other_tags_images_or_paths(self):
+        wolf = "ghcr.io/games-on-whales/wolf"
+        candidates = [
+            ("stable", "latest", wolf, "services/gaming.yml"),
+            ("latest", "stable", wolf, "services/gaming.yml"),
+            ("latest", "latest", wolf, "services/gaming.yml"),
+            ("stable", "stable", "other/wolf", "services/gaming.yml"),
+            ("stable", "stable", "ghcr.io/games-on-whales/steam", "services/gaming.yml"),
+            ("stable", "stable", wolf, "services/other.yml"),
+        ]
+        for old_tag, new_tag, name, path in candidates:
+            with self.subTest(old_tag=old_tag, new_tag=new_tag, name=name, path=path):
+                with self.assertRaises(ValueError):
+                    self.compare(source(), extra={path: source(new_tag, "b", name)},
+                                 old_extra={path: source(old_tag, name=name)})
+        with self.assertRaises(ValueError):
+            self.compare(source(),
+                         old_extra={"services/gaming.yml": source("stable", name=wolf)},
+                         extra={"services/gaming.yml": source("stable", "b", "other/wolf")})
+
+    def test_wolf_digest_update_does_not_admit_configuration_or_spawned_image_changes(self):
+        wolf = "ghcr.io/games-on-whales/wolf"
+        old = {"services/gaming.yml": source("stable", name=wolf)}
+        new = {"services/gaming.yml": source("stable", "b", wolf)}
+        for extra, old_extra in (
+            ({**new, "services/gaming.yml": new["services/gaming.yml"].replace(
+                b"unless-stopped", b"always")}, old),
+            ({**new, "services/data/wolf/security.json": b"new spawned image"},
+             {**old, "services/data/wolf/security.json": b"old spawned image"}),
+            ({**new, "secrets/production.sops.yaml": b"other ciphertext"}, old),
+        ):
+            with self.subTest(paths=sorted(extra)):
+                with self.assertRaises(ValueError):
+                    self.compare(source(), extra=extra, old_extra=old_extra)
+
+    def test_floating_and_prerelease_tag_transitions_require_manual_deployment(self):
+        for old_tag, new_tag in (("latest", "0.6.6"), ("2.6.5-develop", "2.6.5")):
+            with self.subTest(old_tag=old_tag, new_tag=new_tag):
+                with self.assertRaises(ValueError):
+                    self.compare(source(new_tag, "b"), source(old_tag))
 
     def test_configuration_secret_scope_and_anchor_changes_refuse(self):
         changes = [
