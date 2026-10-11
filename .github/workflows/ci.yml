@@ -56,7 +56,7 @@ jobs:
       - name: Validate Renovate configuration natively
         env:
           # renovate: datasource=npm depName=renovate
-          RENOVATE_VERSION: 44.149.0
+          RENOVATE_VERSION: 44.149.3
         run: |
           umask 077
           work=$(mktemp -d)
