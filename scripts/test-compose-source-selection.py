@@ -299,10 +299,7 @@ class InstallationDownloadTests(unittest.TestCase):
     def install(self, *, check=False, checksum=None):
         # Exercise the real role tasks, replacing only the release endpoint and
         # root ownership with a local fixture. No controller/host installation.
-        role_tasks = yaml.safe_load((ROOT / "ansible/roles/compose_schedule/tasks/main.yml").read_text())
-        installation = next(task["block"] for task in role_tasks if "block" in task)
-        tasks = [deepcopy(task) for task in installation
-                 if "ansible.builtin.get_url" in task or "ansible.builtin.debug" in task]
+        tasks = deepcopy(yaml.safe_load((ROOT / "ansible/roles/compose_schedule/tasks/sops.yml").read_text()))
         download = next(task["ansible.builtin.get_url"] for task in tasks if "ansible.builtin.get_url" in task)
         download.update(url=f"http://127.0.0.1:{self.http.server_port}/sops",
                         owner=str(os.getuid()), group=str(os.getgid()))

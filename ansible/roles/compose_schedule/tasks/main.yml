@@ -143,25 +143,8 @@
         - not ansible_check_mode
         - compose_schedule_collections_need_update
 
-    - name: Install checksum-pinned SOPS without exporting or logging plaintext
-      ansible.builtin.get_url:
-        url: "https://github.com/getsops/sops/releases/download/{{ compose_schedule_sops_version }}/sops-{{ compose_schedule_sops_version }}.linux.amd64"
-        dest: "{{ compose_schedule_bin }}/sops"
-        checksum: "sha256:{{ compose_schedule_sops_sha256 }}"
-        use_netrc: false
-        owner: root
-        group: root
-        mode: "0755"
-      # get_url validates the destination parent before its check-mode branch;
-      # directory creation above is only simulated on a first-install check.
-      when: not ansible_check_mode
-
-    - name: Report the SOPS installation check-mode boundary
-      ansible.builtin.debug:
-        msg: >-
-          SOPS download and checksum verification are deferred to apply
-          ({{ compose_schedule_sops_version }} at {{ compose_schedule_bin }}/sops).
-      when: ansible_check_mode
+    - name: Install the checksum-pinned controller decryption tool
+      ansible.builtin.import_tasks: sops.yml
 
     - name: Inspect existing decryption authority without reading it
       ansible.builtin.stat:
