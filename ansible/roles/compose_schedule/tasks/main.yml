@@ -78,6 +78,16 @@
         GIT_CONFIG_NOSYSTEM: "1"
         GIT_TERMINAL_PROMPT: "0"
         GIT_ASKPASS: /bin/false
+      # First-install check mode cannot use the only-simulated Git prerequisite.
+      when: not ansible_check_mode
+
+    - name: Report the immutable controller installation check-mode boundary
+      ansible.builtin.debug:
+        msg: >-
+          Fetch and checkout of {{ compose_schedule_revision.stdout }} at
+          {{ compose_schedule_controller_root }} are deferred to apply after
+          installing native prerequisites. Dependencies remain pinned by that commit.
+      when: ansible_check_mode
 
     - name: Install pinned Ansible into the managed controller environment
       ansible.builtin.pip:
@@ -183,6 +193,16 @@
         mode: "0400"
       diff: false
       no_log: true
+      # The protected destination parent only exists after real directory creation.
+      when: not ansible_check_mode
+
+    - name: Report the approved decryption provisioning check-mode boundary
+      ansible.builtin.debug:
+        msg: >-
+          Source and existing destination key metadata were admitted; provisioning
+          root-only decryption authority at {{ compose_schedule_age_key }} is deferred
+          to apply. No key bytes are read or copied by this check.
+      when: ansible_check_mode
 
     - name: Install native schedule-level composition without backup completion hooks
       ansible.builtin.template:

@@ -722,6 +722,12 @@ ansible-playbook ansible/playbooks/configure-compose-schedule.yml \
   -e compose_schedule_apply_confirmed=true
 ```
 
+Check mode admits platform, clean revision, live state and protected key metadata,
+and simulates packages, directories and units. Fetching the controller, installing
+pinned dependencies/SOPS and copying the decryption identity are explicit apply-only
+boundaries: first-install prerequisites and protected parent directories do not yet
+exist during a check. A passed check is not proof those deferred installs succeeded.
+
 The configuration interface installs native Git, pinned Ansible/collections/SOPS,
 root-only decryption authority and the systemd composition; it reloads definitions
 but never starts a backup or deployment. `compose_schedule_enabled=false` removes
