@@ -119,7 +119,6 @@ run "management_disabled_has_no_resources" {
   assert {
     condition = (
       length(tailscale_acl.policy) == 0 &&
-      length(tailscale_federated_identity.ci_deploy) == 0 &&
       length(tailscale_dns_configuration.tailnet) == 0 &&
       length(tailscale_tailnet_settings.tailnet) == 0 &&
       length(tailscale_device_tags.servers) == 0 &&

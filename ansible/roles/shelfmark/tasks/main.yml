@@ -35,7 +35,7 @@
 
     - name: Verify the source qBittorrent login matches its encrypted authority
       ansible.builtin.command:
-        argv: [python3, "{{ shelfmark_controller_root }}/scripts/check-qbittorrent-password.py"]
+        argv: [python3, "{{ shelfmark_implementation_root }}/scripts/check-qbittorrent-password.py"]
         stdin: >-
           {{ {'config': shelfmark_qbit_config.content | b64decode,
               'username': shelfmark_client_secrets.qbittorrent_username,

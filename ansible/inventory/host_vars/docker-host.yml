@@ -1,4 +1,7 @@
 ---
+# Scheduled-only backup/deployment composition; manual backup units remain independent.
+compose_schedule_enabled: true
+
 # Native ownership of unit configuration on the existing server, not backup bootstrap.
 restic_systemd_existing_host: true
 restic_proton_uid: 60000

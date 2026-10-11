@@ -1,0 +1,223 @@
+---
+# The caller owns production exclusion and strict admission for installation.
+- name: Validate reviewed controller installation inputs
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Require existing native backup scheduling before attaching deployment
+  ansible.builtin.command:
+    argv: [systemctl, show, --property=LoadState, --property=ActiveState, home-lab-restic-daily.timer]
+  changed_when: false
+  check_mode: false
+  register: compose_schedule_backup_timer
+
+- name: Require the adopted daily timer to remain enabled and active
+  ansible.builtin.assert:
+    that:
+      - "'LoadState=loaded' in compose_schedule_backup_timer.stdout_lines"
+      - "'ActiveState=active' in compose_schedule_backup_timer.stdout_lines"
+    fail_msg: Local deployment attaches to the existing daily backup schedule; it never bootstraps backups.
+
+- name: Install the manually reviewed local controller
+  when: compose_schedule_enabled
+  block:
+    - name: Inspect existing controller and credential directories
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - /opt/home-lab
+        - "{{ compose_schedule_controller_root }}"
+        - "{{ compose_schedule_venv }}"
+        - "{{ compose_schedule_collections }}"
+        - "{{ compose_schedule_bin }}"
+        - /etc/home-lab/compose-deploy
+      register: compose_schedule_existing_directories
+
+    - name: Refuse unknown controller directory ownership or symlinks
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.exists | default(false)) or item.stat.isdir | default(false)
+          - not (item.stat.islnk | default(false))
+          - not (item.stat.exists | default(false)) or item.stat.uid == 0
+          - not (item.stat.exists | default(false)) or item.stat.gid == 0
+        fail_msg: Inspect unexpected local controller path metadata before installation.
+      loop: "{{ compose_schedule_existing_directories.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Install native Git and Python controller prerequisites
+      ansible.builtin.apt:
+        name: [git, python3-venv, rsync]
+        state: present
+
+    - name: Protect installed controller software and its credential authority
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      loop:
+        - /opt/home-lab
+        - "{{ compose_schedule_collections }}"
+        - "{{ compose_schedule_bin }}"
+        - /etc/home-lab/compose-deploy
+
+    - name: Install exactly the independently reviewed controller commit
+      ansible.builtin.git:
+        repo: "{{ compose_schedule_git_url }}"
+        dest: "{{ compose_schedule_controller_root }}"
+        version: "{{ compose_schedule_revision.stdout }}"
+        force: false
+      environment:
+        HOME: /var/empty
+        GIT_CONFIG_COUNT: "0"
+        GIT_CONFIG_GLOBAL: /dev/null
+        GIT_CONFIG_NOSYSTEM: "1"
+        GIT_TERMINAL_PROMPT: "0"
+        GIT_ASKPASS: /bin/false
+
+    - name: Install pinned Ansible into the managed controller environment
+      ansible.builtin.pip:
+        requirements: "{{ compose_schedule_controller_root }}/controller/requirements.txt"
+        virtualenv: "{{ compose_schedule_venv }}"
+        virtualenv_command: /usr/bin/python3 -m venv
+      when: not ansible_check_mode
+
+    - name: Inspect installed collection versions using native Galaxy
+      ansible.builtin.command:
+        argv:
+          - "{{ compose_schedule_venv }}/bin/ansible-galaxy"
+          - collection
+          - list
+          - --collections-path
+          - "{{ compose_schedule_collections }}"
+          - --format=json
+      changed_when: false
+      register: compose_schedule_installed_collections
+      when: not ansible_check_mode
+
+    - name: Initialize the controller collection update decision
+      ansible.builtin.set_fact:
+        compose_schedule_collections_need_update: false
+      when: not ansible_check_mode
+
+    - name: Compare declared collection versions rather than reinstalling unchanged tooling
+      ansible.builtin.set_fact:
+        compose_schedule_collections_need_update: true
+      loop: >-
+        {{ (lookup('ansible.builtin.file', compose_schedule_source_root ~ '/ansible/collections/requirements.yml') | from_yaml).collections }}
+      when:
+        - not ansible_check_mode
+        - >-
+          (compose_schedule_installed_collections.stdout | from_json)
+          .get(compose_schedule_collections ~ '/ansible_collections', {})
+          .get(item.name, {}).get('version', '') != item.version
+
+    - name: Install independently pinned controller collections
+      ansible.builtin.command:
+        argv:
+          - "{{ compose_schedule_venv }}/bin/ansible-galaxy"
+          - collection
+          - install
+          - --force
+          - --requirements-file
+          - "{{ compose_schedule_controller_root }}/ansible/collections/requirements.yml"
+          - --collections-path
+          - "{{ compose_schedule_collections }}"
+      register: compose_schedule_galaxy_install
+      changed_when: "'Installing' in compose_schedule_galaxy_install.stdout"
+      when:
+        - not ansible_check_mode
+        - compose_schedule_collections_need_update
+
+    - name: Install checksum-pinned SOPS without exporting or logging plaintext
+      ansible.builtin.get_url:
+        url: "https://github.com/getsops/sops/releases/download/{{ compose_schedule_sops_version }}/sops-{{ compose_schedule_sops_version }}.linux.amd64"
+        dest: "{{ compose_schedule_bin }}/sops"
+        checksum: "sha256:{{ compose_schedule_sops_sha256 }}"
+        use_netrc: false
+        owner: root
+        group: root
+        mode: "0755"
+      # get_url validates the destination parent before its check-mode branch;
+      # directory creation above is only simulated on a first-install check.
+      when: not ansible_check_mode
+
+    - name: Report the SOPS installation check-mode boundary
+      ansible.builtin.debug:
+        msg: >-
+          SOPS download and checksum verification are deferred to apply
+          ({{ compose_schedule_sops_version }} at {{ compose_schedule_bin }}/sops).
+      when: ansible_check_mode
+
+    - name: Inspect existing decryption authority without reading it
+      ansible.builtin.stat:
+        path: "{{ compose_schedule_age_key }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      register: compose_schedule_existing_age
+      no_log: true
+
+    - name: Refuse unexpected existing key metadata
+      ansible.builtin.assert:
+        that:
+          - not (compose_schedule_existing_age.stat.islnk | default(false))
+          - not (compose_schedule_existing_age.stat.exists | default(false)) or compose_schedule_existing_age.stat.isreg | default(false)
+          - not (compose_schedule_existing_age.stat.exists | default(false)) or compose_schedule_existing_age.stat.uid == 0
+          - not (compose_schedule_existing_age.stat.exists | default(false)) or compose_schedule_existing_age.stat.gid == 0
+          - not (compose_schedule_existing_age.stat.exists | default(false)) or compose_schedule_existing_age.stat.nlink == 1
+          - not (compose_schedule_existing_age.stat.exists | default(false)) or compose_schedule_existing_age.stat.mode in ['0400', '0600']
+        fail_msg: Inspect existing host decryption authority before replacing it.
+      no_log: true
+
+    - name: Provision approved decryption authority for systemd credential delivery
+      ansible.builtin.copy:
+        src: "{{ compose_schedule_age_source }}"
+        dest: "{{ compose_schedule_age_key }}"
+        owner: root
+        group: root
+        mode: "0400"
+      diff: false
+      no_log: true
+
+    - name: Install native schedule-level composition without backup completion hooks
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - home-lab-morning.target
+        - home-lab-compose-routine.service
+      notify: Reload Compose schedule definitions
+
+- name: Select the scheduled or backup-only workflow through the shared timer renderer
+  ansible.builtin.include_role:
+    name: restic_backup
+    tasks_from: daily-timer
+  vars:
+    restic_backup_daily_timer_target: "{{ 'home-lab-morning.target' if compose_schedule_enabled else 'home-lab-restic-daily.target' }}"
+
+- name: Apply definition reloads without starting a backup or deployment
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the effective native daily timer destination
+  ansible.builtin.command:
+    argv: [systemctl, show, --property=Unit, home-lab-restic-daily.timer]
+  changed_when: false
+  check_mode: false
+  register: compose_schedule_effective_timer
+
+- name: Require the intended scheduled workflow after installation
+  ansible.builtin.assert:
+    that:
+      - >-
+        compose_schedule_effective_timer.stdout ==
+        'Unit=' ~ ('home-lab-morning.target' if compose_schedule_enabled else 'home-lab-restic-daily.target')
+    fail_msg: The daily timer destination differs from the reviewed scheduling configuration.
+  when: not ansible_check_mode

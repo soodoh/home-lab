@@ -1,6 +1,11 @@
 {
-  "timezone": "America/Los_Angeles",
-  "start_hour": 6,
-  "end_hour": 9,
-  "minimum_remaining_minutes": 30
+  "repository": {
+    "full_name": "soodoh/home-lab",
+    "id": 751127419,
+    "owner_id": 18269267,
+    "branch": "main"
+  },
+  "ci": {
+    "workflow_id": 363140209
+  }
 }

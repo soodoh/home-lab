@@ -1,5 +1,7 @@
 ---
 compose_native_controller_root: "{{ playbook_dir }}/../.."
+# Candidate data and installed controller code are distinct in local automatic runs.
+compose_native_implementation_root: "{{ playbook_dir }}/../.."
 compose_native_project_name: docker-compose
 compose_native_home: /home/docker
 compose_native_deployment_root: /srv/docker-compose
@@ -14,9 +16,8 @@ compose_native_expected_service_count: 0
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
-# Only the approved CI routine lane enforces archive classification and the host-clock window.
+# The approved scheduled routine lane enforces image-only archive classification.
 compose_native_automated: false
-compose_native_upgrade_policy: "{{ lookup('ansible.builtin.file', compose_native_controller_root ~ '/controller/compose-updates.json') | from_json }}"
 # Choosing routine attests release review or the explicitly approved automatic upgrade policy.
 compose_native_change_class: data
 compose_native_apply_operation: compose-native-deploy

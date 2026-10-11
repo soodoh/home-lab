@@ -2,30 +2,18 @@ locals {
   tags           = var.tailscale_policy_identity.tags
   owner_identity = var.tailscale_policy_identity.owner_identity
   wolf_security  = jsondecode(file("${path.module}/../../../services/data/wolf/security.json"))
-  github_subject = "repo:${var.tailscale_policy_identity.github_repository}:environment:${var.tailscale_policy_identity.github_environment}"
 
   policy = {
     tagOwners = {
       (local.tags.docker_host) = ["autogroup:admin"]
       (local.tags.proxmox)     = ["autogroup:admin"]
-      (local.tags.ci_deploy)   = ["autogroup:admin"]
     }
 
     grants = [
       {
-        src = ["autogroup:owner", "autogroup:admin", local.tags.ci_deploy]
-        dst = [local.tags.docker_host]
-        ip  = ["tcp:22"]
-      },
-      {
-        src = ["autogroup:owner", "autogroup:admin", local.tags.ci_deploy]
-        dst = [local.tags.docker_host]
-        ip  = ["tcp:443"]
-      },
-      {
         src = ["autogroup:owner", "autogroup:admin"]
         dst = [local.tags.docker_host]
-        ip  = ["tcp:8043"]
+        ip  = ["tcp:22", "tcp:443", "tcp:8043"]
       },
       {
         src = ["autogroup:owner"]
@@ -41,7 +29,7 @@ locals {
         ip  = ["tcp:22"]
       },
       {
-        src = ["autogroup:owner", "autogroup:admin", local.tags.ci_deploy]
+        src = ["autogroup:owner", "autogroup:admin"]
         dst = [local.tags.proxmox]
         ip  = ["tcp:22", "tcp:8006"]
       },
@@ -61,7 +49,7 @@ locals {
       },
       {
         action = "accept"
-        src    = ["autogroup:owner", "autogroup:admin", local.tags.ci_deploy]
+        src    = ["autogroup:owner", "autogroup:admin"]
         dst    = [local.tags.docker_host]
         users  = ["ansible-deploy"]
       },
@@ -79,7 +67,7 @@ locals {
       },
       {
         action = "accept"
-        src    = ["autogroup:owner", "autogroup:admin", local.tags.ci_deploy]
+        src    = ["autogroup:owner", "autogroup:admin"]
         dst    = [local.tags.proxmox]
         users  = ["ansible-deploy"]
       },
@@ -111,32 +99,10 @@ locals {
         ]
       },
       {
-        src   = local.tags.ci_deploy
-        proto = "tcp"
-        accept = [
-          "${local.tags.docker_host}:22",
-          "${local.tags.docker_host}:443",
-          "${local.tags.proxmox}:22",
-          "${local.tags.proxmox}:8006",
-        ]
-        deny = concat([
-          "${local.tags.docker_host}:8088",
-          "${local.tags.docker_host}:8043",
-          "${local.tags.docker_host}:8443",
-          "${local.tags.docker_host}:8444",
-          "${local.tags.proxmox}:8007",
-        ], [for port in local.wolf_security.tcp_ports : "${local.tags.docker_host}:${port}"])
-      },
-      {
         src    = local.owner_identity
         proto  = "udp"
         accept = [for port in local.wolf_security.udp_ports : "${local.tags.docker_host}:${port}"]
         deny   = ["${local.tags.docker_host}:5353"]
-      },
-      {
-        src   = local.tags.ci_deploy
-        proto = "udp"
-        deny  = [for port in local.wolf_security.udp_ports : "${local.tags.docker_host}:${port}"]
       },
       {
         src   = local.tags.proxmox
@@ -172,18 +138,6 @@ locals {
         accept = ["proxmox", "ansible-deploy"]
         deny   = ["docker", "root"]
       },
-      {
-        src    = local.tags.ci_deploy
-        dst    = [local.tags.docker_host]
-        accept = ["ansible-deploy"]
-        deny   = ["docker", "proxmox", "root"]
-      },
-      {
-        src    = local.tags.ci_deploy
-        dst    = [local.tags.proxmox]
-        accept = ["ansible-deploy"]
-        deny   = ["docker", "proxmox", "root"]
-      },
     ]
   }
 
@@ -196,27 +150,4 @@ resource "tailscale_acl" "policy" {
   acl                        = local.policy_json
   overwrite_existing_content = false
   reset_acl_on_destroy       = false
-}
-
-resource "tailscale_federated_identity" "ci_deploy" {
-  count = var.tailscale_enable_management ? 1 : 0
-
-  description = "home-lab GitHub deployment"
-  issuer      = "https://token.actions.githubusercontent.com"
-  subject     = local.github_subject
-  custom_claim_rules = {
-    repository_id       = var.tailscale_policy_identity.github_repository_id
-    repository_owner_id = var.tailscale_policy_identity.github_owner_id
-    ref                 = var.tailscale_policy_identity.github_ref
-  }
-  scopes = ["auth_keys"]
-  tags   = [local.tags.ci_deploy]
-}
-
-output "ci_deploy_client_id" {
-  value = try(tailscale_federated_identity.ci_deploy[0].id, null)
-}
-
-output "ci_deploy_audience" {
-  value = try(tailscale_federated_identity.ci_deploy[0].audience, null)
 }

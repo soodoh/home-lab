@@ -7,5 +7,8 @@
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ restic_systemd_unit_names }}"
+  loop: "{{ restic_systemd_unit_names | reject('equalto', 'home-lab-restic-daily.timer') | list }}"
   notify: Reload Restic systemd definitions
+
+- name: Render the shared daily timer while preserving approved scheduling
+  ansible.builtin.import_tasks: daily-timer.yml

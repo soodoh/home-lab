@@ -81,9 +81,10 @@ Renovate tracks shared Ansible tooling in
 [`controller/requirements.txt`](../controller/requirements.txt) and additional
 validation dependencies in
 [`controller/requirements-ci.txt`](../controller/requirements-ci.txt).
-Workflow annotations track the Renovate validator and Tailscale CLI pins.
-GitHub Actions retain full commit SHA pins with version comments; the native
-manager also tracks Python and OpenTofu setup inputs. SOPS uses the
+Workflow annotations track the Renovate validator. GitHub Actions retain full
+commit SHA pins with version comments; the native manager also tracks Python and
+OpenTofu setup inputs. The local controller's SOPS pin in
+`ansible/roles/compose_schedule/defaults/main.yml` uses the
 `github-release-attachments` datasource to update its release tag and Linux
 amd64 SHA-256 together; keep that annotated version/checksum pair adjacent.
 Review the release asset and checksum before merging, and preserve download-time
@@ -638,31 +639,51 @@ nor a pinned digest proves that a release is migration-free or reversible.
 Exclude a known migration from the automatic lane and review recovery separately.
 There is no automatic data rollback; production recovery activation remains unqualified.
 
-Renovate automerges only 06:00–08:00 in `America/Los_Angeles`, after required CI
-and an up-to-date base. `platformAutomerge=false` keeps GitHub from merging later
-outside that window. Registry age checks are best-effort: Docker Hub supports them,
+Renovate may automerge routine updates at any hour, after required CI and an
+up-to-date base. Deployment is a separate once-daily host operation, not a push
+side effect. Registry age checks are best-effort: Docker Hub supports them,
 whereas GHCR and other registries without timestamps do not. The explicit
 `timestamp-optional` setting avoids indefinitely blocking those updates; it does
 **not** provide a three/seven-day cooldown there.
 
-[Deploy Compose](../.github/workflows/deploy-compose.yml) is a separate,
-non-cancelling production workflow. One constant GitHub concurrency group covers
-**selection, validation and deployment**. Pending runs may be replaced; the next
-run checks out current main inside that group, freezes its SHA and runs the same
-CI against exactly that revision. This intentionally coalesces intermediate
-commits, never applies an old event SHA, and never interrupts an active deployment.
-The host production/backup locks also exclude manual applies and backup writers.
-Do not add another production workflow outside this concurrency group.
+The existing 05:00 host-local Pacific backup timer activates
+`home-lab-morning.target` through the shared full timer definition. Systemd does
+not allow its `Unit=` trigger dependency to be replaced through a drop-in. Backup
+reconfiguration preserves the installed destination; the separately approved
+scheduler interface selects the morning or backup-only target. This native
+systemd target composes the unchanged daily local/NFS and Proton units followed
+by `home-lab-compose-routine.service`. Only this scheduled composition includes
+deployment: starting `home-lab-restic-daily.target`, either backup service or the
+backup runner manually never starts routine convergence. No `OnSuccess` or
+completion hook is attached to a shared backup unit.
 
-[`compose-updates.json`](../controller/compose-updates.json) defines the 06:00–09:00
-Pacific deployment window and a 30-minute start reserve (last admission before
-08:30). Main pushes trigger convergence; UTC scheduled retries cover both DST
-offsets. Outside the window, the run defers without waiting overnight. Images are
-pre-pulled from staged source without stopping services, then the host clock is
-rechecked before publishing production source. Closed-window deferral discards
-only staging and releases this run's exact owner. Failures retain ownership and
-any source before-image for inspection; never automatically clear a failed lock.
-A start window cannot guarantee a failed service recovers before the window ends.
+Deployment begins after the scheduled backup chain terminates, **at whatever time
+that is**, without a separate clock window, cutoff or missed-run alert. A terminal
+Proton failure does not fail the dependency path to routine admission; the existing
+observer still refuses failed local units, active writers, journals, unknown owners,
+missing/freshness-deficient local coverage and inconsistent identities. During this
+exact owned scheduled apply, the daily timer itself may be `running` because its
+target includes deployment; only that known target and validated production owner
+receive this exception. The actual backup units must still be terminal. The daily
+backup's existing `Persistent=false` behavior is unchanged: an offline host does
+not replay missed daily cycles merely because it boots.
+
+The root-owned installed controller executes
+[`deploy-compose-automatic.yml`](../ansible/playbooks/deploy-compose-automatic.yml)
+locally. Native Ansible Git fetches current main into a private disposable checkout,
+freezes its SHA and uses anonymous GitHub API reads to require the newest successful
+completed main-push CI run for **exactly** that revision. Numeric repository, owner
+and workflow identities in [`compose-updates.json`](../controller/compose-updates.json)
+are independently reviewed, not discovered and silently accepted. API errors or
+unqualified CI leave production unchanged until a later daily cycle.
+
+The installed controller implementation, inventory, scripts and dependencies never
+self-update from the selected checkout. Only admitted application source is read
+there. The existing production/backup locks exclude manual applies and backup
+writers; source images are pre-pulled without stopping services. Failures retain
+production ownership and any source before-image for inspection; never automatically
+clear a failed lock. Controller scratch and systemd credential copies are cleaned
+without deleting host recovery material.
 
 Automatic deployment compares the host's accepted source archive with the selected
 Git archive, under production ownership. It refuses additions/deletions, configuration
@@ -687,16 +708,42 @@ chain proves three-copy coverage of the changed artifact.
 
 For an independently reviewed major, data or configuration change, use the existing
 manual playbook interface with strict admission and explicit approval bound to the
-reviewed checkout. The workflow's manual dispatch only retries the routine lane;
-it never bypasses the window or source classifier. Use
-`COMPOSE_AUTO_APPLY_ENABLED=false` to disable this workflow, including scheduled
-retries and dispatches. See
-[deployment setup](deployment-access.md#github-hosted-runners) for environment,
-credential and required-check configuration.
+reviewed checkout. Host tooling, controller code, scheduler, credential authority,
+OS packages, network/storage/firewall configuration and provider changes remain
+separately approved; do not schedule `site.yml` or OpenTofu applies.
 
-Focused behavior tests are `python3 scripts/test-compose-upgrade-admission.py`;
-use native Renovate validation, actionlint, Ansible syntax/lint and Compose validation
-for related configuration changes.
+Install or refresh the pinned controller only from clean, reviewed, **committed and
+published** source, after fresh host/Compose/strict-backup observation:
+
+```sh
+ansible-playbook ansible/playbooks/configure-compose-schedule.yml --check
+# Review and separately approve the host changes and decryption grant:
+ansible-playbook ansible/playbooks/configure-compose-schedule.yml \
+  -e compose_schedule_apply_confirmed=true
+```
+
+The configuration interface installs native Git, pinned Ansible/collections/SOPS,
+root-only decryption authority and the systemd composition; it reloads definitions
+but never starts a backup or deployment. `compose_schedule_enabled=false` removes
+only deployment from the timer, returning its destination to the backup-only daily target.
+An approved runtime `systemctl mask --runtime home-lab-compose-routine.service` can
+inhibit automatic deployment without disabling daily backups; preserve and inspect
+any existing production owner before interrupting or retrying a running apply.
+See [local controller setup](deployment-access.md#host-local-scheduled-deployment).
+
+Focused tests are `python3 scripts/test-compose-upgrade-admission.py` and
+`python3 scripts/test-compose-source-selection.py` (source selection and controller
+installation admission). `python3 scripts/test-apply-lock-clearance.py` checks
+clearance inputs locally; CI also exercises root-owned manual and scheduled lock
+clearance on synthetic paths with `HOME_LAB_LOCK_TEST_DISPOSABLE=true`.
+CI additionally runs
+`sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python3)" scripts/test-compose-schedule-systemd.py`
+on its disposable Linux runner, exercising actual timer ordering, manual-backup
+independence, credential/runtime cleanup, existing unit-state admission and the
+shared Ansible timer renderer. Rendering backup configuration never silently
+activates deployment from an inventory flag or detaches an installed schedule. Never run that fixture on a managed
+host. Use native Renovate validation, actionlint, Ansible syntax/lint, systemd unit
+verification and Compose validation for related configuration changes.
 
 ### Backup runtime and downtime
 
@@ -802,7 +849,13 @@ nor an old adoption report is permission to repeat an import.
 backup writers use `/run/lock/home-lab-backup.lock`. Never delete an owner just
 because its controller has gone: inspect its process and journal first.
 [`clear-failed-apply-lock.yml`](../ansible/playbooks/clear-failed-apply-lock.yml)
-removes only one separately inspected terminal owner.
+removes only one separately inspected terminal owner. Supply its exact
+`iac_failed_lock_expected_operation` and review a check run before confirming
+clearance with `iac_lock_clear_confirmed=true`. Manual controller records default
+to `iac_failed_lock_expected_controller=ansible-deploy`; for an inspected scheduled
+controller record, explicitly set `iac_failed_lock_expected_controller=root` in
+both the check and confirmed run. First verify the owning process/service is
+terminal and resolve any journal or source before-image; never clear a live owner.
 
 Controller caches and `.local/` / `.reconcile/` are scratch, not evidence. Before
 removing ignored state, confirm no live owner/journal remains, every active

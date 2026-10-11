@@ -4,18 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_call:
-    inputs:
-      source_ref:
-        description: Immutable source revision selected inside the production concurrency lane
-        type: string
-        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ inputs.source_ref || github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,7 +20,7 @@ jobs:
       - name: Check out reviewed source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -64,8 +58,16 @@ jobs:
           npm exec --cache "$work/npm-cache" --yes --package "renovate@$RENOVATE_VERSION" -- \
             renovate-config-validator --strict renovate.json
 
-      - name: Validate automatic Compose upgrade admission
-        run: python scripts/test-compose-upgrade-admission.py
+      - name: Validate routine Compose source admission and native local source selection
+        run: |
+          python scripts/test-compose-upgrade-admission.py
+          python scripts/test-compose-source-selection.py
+
+      - name: Test scheduled backup and deployment ordering through native systemd
+        run: sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python)" scripts/test-compose-schedule-systemd.py
+
+      - name: Test inspected production lock recovery through native Ansible
+        run: sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-apply-lock-clearance.py
 
       - name: Validate backup and recovery behavior
         run: |

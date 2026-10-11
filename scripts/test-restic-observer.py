@@ -116,6 +116,36 @@ class ResticObserverTests(unittest.TestCase):
             with self.assertRaises(OBSERVER.ObservationError):
                 OBSERVER.validate_unit_state(unit, failed, routine=routine)
 
+    def test_scheduled_deployment_can_observe_its_own_running_morning_timer(self):
+        values = {"ActiveState": "active", "SubState": "running",
+                  "Unit": "home-lab-morning.target", "LastTriggerUSec": "scheduled",
+                  "NextElapseUSecRealtime": ""}
+        OBSERVER.validate_timer_state("home-lab-restic-daily.timer", values, scheduled_deployment=True)
+
+    def test_running_timer_exception_is_not_a_generic_routine_or_writer_exception(self):
+        values = {"ActiveState": "active", "SubState": "running",
+                  "Unit": "home-lab-morning.target", "LastTriggerUSec": "scheduled"}
+        with self.assertRaisesRegex(OBSERVER.ObservationError, "timer_state"):
+            OBSERVER.validate_timer_state("home-lab-restic-daily.timer", values)
+        for unit, changed in [
+            ("home-lab-restic-maintenance.timer", {}),
+            ("home-lab-restic-daily.timer", {"Unit": "unknown.target"}),
+            ("home-lab-restic-daily.timer", {"ActiveState": "activating"}),
+            ("home-lab-restic-daily.timer", {"SubState": "unknown"}),
+            ("home-lab-restic-daily.timer", {"LastTriggerUSec": ""}),
+        ]:
+            with self.subTest(unit=unit, changed=changed), self.assertRaises(OBSERVER.ObservationError):
+                OBSERVER.validate_timer_state(unit, {**values, **changed}, scheduled_deployment=True)
+
+    def test_scheduled_observation_requires_routine_admission_and_exact_owner_input(self):
+        flags = [f"--{name}" for name in ["runner-sha256", "policy-sha256", "files-from-sha256",
+                 "excludes-sha256", "restic-sha256", "rclone-sha256", "games-id", "nfs-id", "proton-id"]]
+        base = ["observer", *[item for flag in flags for item in [flag, POLICY]], "--scheduled-deployment"]
+        for arguments in (["--admission", "routine"], ["--apply-owner-sha256", POLICY]):
+            with patch.object(sys, "argv", base + arguments):
+                with self.assertRaisesRegex(OBSERVER.ObservationError, "scheduled_deployment_owner"):
+                    OBSERVER.main()
+
     def test_unknown_owners_and_interruption_are_never_routine_exceptions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

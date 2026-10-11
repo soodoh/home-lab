@@ -1,0 +1,44 @@
+---
+- name: Install the reviewed local controller and schedule-level deployment composition
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Refuse unapproved installation inputs before acquiring ownership
+      ansible.builtin.import_role:
+        name: compose_schedule
+        tasks_from: validate
+
+    - name: Observe the current Compose project before controller installation
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire production ownership for controller installation
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: compose-schedule-convergence
+  tasks:
+    - name: Require strict backup admission for host and credential changes
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: admission
+      vars:
+        compose_native_change_class: data
+        compose_native_apply_operation: compose-schedule-convergence
+
+    - name: Converge the explicitly approved local controller and scheduled workflow
+      ansible.builtin.import_role:
+        name: compose_schedule
+  post_tasks:
+    - name: Release exact production ownership after successful configuration
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: compose-schedule-convergence

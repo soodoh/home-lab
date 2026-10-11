@@ -141,7 +141,7 @@
     - name: Admit only routine versioned images and the approved Wolf stable digest exception
       ansible.builtin.script:
         cmd: >-
-          {{ compose_native_controller_root }}/scripts/compose-upgrade-admission.py
+          {{ compose_native_implementation_root }}/scripts/compose-upgrade-admission.py
           --active-archive {{ compose_native_source_archive_path | quote }}
           --candidate-archive {{ compose_native_source_candidate_path | quote }}
         executable: /usr/bin/python3
@@ -196,38 +196,8 @@
       no_log: true
       when: compose_native_automated | bool
 
-    - name: Recheck the host-clock window immediately before production publication
-      ansible.builtin.script:
-        cmd: >-
-          {{ compose_native_controller_root }}/scripts/compose-upgrade-admission.py
-          --policy-json {{ compose_native_upgrade_policy | to_json | quote }}
-        executable: /usr/bin/python3
-      become: true
-      changed_when: false
-      register: compose_native_window
-      when: compose_native_automated | bool
-
     - name: Publish and converge admitted source
       ansible.builtin.include_tasks: converge.yml
-      when: >-
-        not (compose_native_automated | bool)
-        or (compose_native_window.stdout | from_json).window_open
-
-    - name: Report deferred convergence without clearing another owner or restarting services
-      ansible.builtin.debug:
-        msg: Compose deployment deferred to the next maintenance window; running services and accepted source are unchanged.
-      when:
-        - compose_native_automated | bool
-        - not (compose_native_window.stdout | from_json).window_open
-
-    - name: Remove an unadmitted candidate archive
-      ansible.builtin.file:
-        path: "{{ compose_native_source_candidate_path }}"
-        state: absent
-      become: true
-      when:
-        - compose_native_automated | bool
-        - not (compose_native_window.stdout | from_json).window_open
   always:
     - name: Clear protected credential facts after convergence or failure
       ansible.builtin.set_fact:

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Exercise admission with real source archives, not workflow/source-text assertions."""
 
-from datetime import datetime, timezone
 import importlib.util
 import io
-import json
 from pathlib import Path
 import subprocess
 import tarfile
@@ -16,7 +14,6 @@ SCRIPT = ROOT / "scripts/compose-upgrade-admission.py"
 SPEC = importlib.util.spec_from_file_location("compose_upgrade", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
-POLICY = json.loads((ROOT / "controller/compose-updates.json").read_text())
 
 
 def image(tag="1.2.3", digest="a", name="example/app"):
@@ -160,20 +157,6 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.read_archive(path)
         self.assertFalse((self.directory.parent / "escape").exists())
-
-    def test_window_boundaries_in_both_dst_offsets(self):
-        for day, utc_start in (("2026-07-01", 13), ("2026-12-01", 14)):
-            for offset, allowed in ((-1, False), (0, True), (149, True), (150, False), (180, False)):
-                from datetime import timedelta
-                moment = datetime.fromisoformat(f"{day}T{utc_start:02}:00:00+00:00") + timedelta(minutes=offset)
-                with self.subTest(day=day, offset=offset):
-                    self.assertEqual(MODULE.window_open(POLICY, moment), allowed)
-
-    def test_invalid_window_fails_closed(self):
-        for settings in ({**POLICY, "end_hour": 5}, {**POLICY, "minimum_remaining_minutes": 0},
-                         {**POLICY, "start_hour": True}):
-            with self.assertRaises(ValueError):
-                MODULE.window_open(settings, datetime.now(timezone.utc))
 
     def test_cli_refusal_does_not_disclose_source(self):
         active = self.archive("active.tar")

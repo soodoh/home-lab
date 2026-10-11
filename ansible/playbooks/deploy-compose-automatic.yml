@@ -1,0 +1,46 @@
+---
+- name: Deploy CI-qualified routine Compose updates after the scheduled backup chain
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  vars:
+    shelfmark_controller_root: "{{ compose_schedule_workspace.path }}/source"
+    grimmory_controller_root: "{{ compose_schedule_workspace.path }}/source"
+  tasks:
+    - name: Require execution on the existing Docker host rather than a remote controller
+      ansible.builtin.assert:
+        that:
+          - ansible_connection == 'local'
+          - ansible_user == 'root'
+          - not ansible_check_mode
+        fail_msg: The scheduled deployment interface runs locally as root, never as a remote apply or check.
+
+    - name: Create one private disposable candidate workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: home-lab-compose-
+      register: compose_schedule_workspace
+
+    - name: Select admitted source and use the installed deployment implementation
+      block:
+        - name: Select and verify exactly one immutable CI-qualified revision
+          ansible.builtin.include_role:
+            name: compose_schedule
+            tasks_from: select
+
+        - name: Converge routine images through the shared deployment interface
+          ansible.builtin.include_role:
+            name: compose_native
+            tasks_from: apply
+          vars:
+            compose_native_controller_root: "{{ compose_schedule_workspace.path }}/source"
+            compose_native_apply_confirmed: true
+            compose_native_change_class: routine
+            compose_native_automated: true
+      always:
+        - name: Remove only this run's controller checkout and scratch
+          ansible.builtin.file:
+            path: "{{ compose_schedule_workspace.path }}"
+            state: absent
+          # Production locks, journals and source before-images are not controller scratch.

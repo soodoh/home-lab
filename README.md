@@ -3,10 +3,10 @@
 This repository describes the desired state of an **existing** two-host home lab.
 OpenTofu manages provider resources, Ansible converges the adopted hosts, and
 Docker Compose defines applications. It is not a bare-metal bootstrap or an
-automated disaster-recovery system. CI validates source and automatically
+automated disaster-recovery system. CI validates source. The Docker host
 converges qualified non-major Compose image updates and approved Wolf `stable`
-digest updates during the Pacific maintenance window. Provider and data/configuration
-changes remain separately approved.
+digest updates after its scheduled daily backup chain; manual backups do not
+trigger deployment. Provider and data/configuration changes remain separately approved.
 
 Git defines desired state, not proof of what is running. Base decisions on fresh
 host and provider observations and remote OpenTofu state. The approved
@@ -20,7 +20,7 @@ roll back configuration, **not application data**.
 - [Recovery](recovery/README.md): discover snapshots and stage a private restore;
   production activation is not yet qualified.
 - [Security](docs/security.md): protect credentials, state and recovery material.
-- [Deployment access](docs/deployment-access.md): Tailscale SSH, GitHub environment setup and controller access.
+- [Deployment access](docs/deployment-access.md): manual Tailscale SSH and the pinned host-local controller.
 - [Omada mail](docs/omada-mail.md): encrypted SMTP authority and approval-gated native convergence.
 
 ## Initial manual setup (or a new controller)

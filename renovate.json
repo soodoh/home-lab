@@ -13,7 +13,6 @@
   "platformAutomerge": false,
   "automergeType": "pr",
   "automergeStrategy": "squash",
-  "automergeSchedule": ["* 6-7 * * *"],
   "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
@@ -92,7 +91,7 @@
     {
       "description": "Keep controller tooling separately reviewed, outside routine Compose automerge",
       "matchManagers": ["github-actions", "pip_requirements", "custom.regex"],
-      "matchFileNames": [".github/workflows/**", "controller/*requirements*.txt"],
+      "matchFileNames": [".github/workflows/**", "controller/*requirements*.txt", "ansible/roles/compose_schedule/**"],
       "groupName": null,
       "automerge": false
     },
@@ -121,9 +120,9 @@
     {
       "customType": "regex",
       "description": "Update the SOPS release tag and Linux amd64 asset checksum together",
-      "managerFilePatterns": ["/^\\.github/workflows/deploy-compose\\.yml$/"],
+      "managerFilePatterns": ["/^ansible/roles/compose_schedule/defaults/main\\.yml$/"],
       "matchStrings": [
-        "# renovate: datasource=github-release-attachments depName=getsops/sops\\s+SOPS_VERSION: (?<currentValue>v[0-9.]+)\\s+SOPS_SHA256: (?<currentDigest>[a-f0-9]{64})"
+        "# renovate: datasource=github-release-attachments depName=getsops/sops\\s+compose_schedule_sops_version: (?<currentValue>v[0-9.]+)\\s+compose_schedule_sops_sha256: (?<currentDigest>[a-f0-9]{64})"
       ],
       "depNameTemplate": "getsops/sops",
       "datasourceTemplate": "github-release-attachments",

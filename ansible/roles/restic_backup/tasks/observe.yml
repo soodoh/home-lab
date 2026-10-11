@@ -25,6 +25,7 @@
       --nfs-id {{ restic_backup_reviewed_policy.repositories.nfs.id }}
       --proton-id {{ restic_backup_reviewed_policy.repositories.proton.id }}
       --admission {{ restic_backup_admission | default('strict') }}
+      {{ '--scheduled-deployment' if restic_backup_observation_scheduled_deployment | default(false) | bool else '' }}
       {{ ('--apply-owner-sha256 ' ~ restic_backup_observation_apply_owner_sha256) if restic_backup_observation_apply_owner_sha256 | default('') | length > 0 else '' }}
     executable: /usr/bin/python3
   register: restic_backup_observation_command

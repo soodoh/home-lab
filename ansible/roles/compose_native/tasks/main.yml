@@ -1,4 +1,4 @@
 ---
 - name: Refuse an implicit Compose role action
   ansible.builtin.fail:
-    msg: Import compose_native with tasks_from=observe or tasks_from=deploy.
+    msg: Import compose_native with tasks_from=observe, tasks_from=apply or tasks_from=deploy.

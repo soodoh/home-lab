@@ -1,0 +1,65 @@
+---
+- name: Require explicit approval for local controller installation or scheduling changes
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_enabled is boolean
+      - ansible_check_mode or compose_schedule_apply_confirmed | bool
+    fail_msg: Review a fresh check and explicitly approve local controller and scheduler changes.
+
+- name: Require the reviewed native controller platform before installing amd64 tooling
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['architecture'] == 'x86_64'
+      - ansible_facts['python']['version']['major'] == 3
+      - ansible_facts['python']['version']['minor'] >= 12
+    fail_msg: The pinned native controller requires the reviewed amd64 host and Python 3.12 or newer.
+  when: compose_schedule_enabled
+
+- name: Inspect the reviewed controller checkout
+  ansible.builtin.command:
+    argv: [git, --no-optional-locks, status, --porcelain=v1, --untracked-files=all]
+    chdir: "{{ compose_schedule_source_root }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  register: compose_schedule_checkout
+
+- name: Refuse an uncommitted controller implementation
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_checkout.stdout == ''
+    fail_msg: Commit reviewed controller changes and remove untracked files before installing a pinned host implementation.
+
+- name: Select the exact reviewed controller implementation revision
+  ansible.builtin.command:
+    argv: [git, rev-parse, HEAD]
+    chdir: "{{ compose_schedule_source_root }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  register: compose_schedule_revision
+
+- name: Inspect the independently protected controller age identity
+  ansible.builtin.stat:
+    path: "{{ compose_schedule_age_source }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  delegate_to: localhost
+  become: false
+  register: compose_schedule_age_identity
+  no_log: true
+  when: compose_schedule_enabled
+
+- name: Require protected decryption authority before enabling autonomous deployment
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_age_source | length > 0
+      - compose_schedule_age_identity.stat.isreg | default(false)
+      - not (compose_schedule_age_identity.stat.islnk | default(false))
+      - compose_schedule_age_identity.stat.mode in ['0400', '0600']
+    fail_msg: Host-local deployment needs an independently approved protected age identity.
+  no_log: true
+  when: compose_schedule_enabled

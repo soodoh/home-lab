@@ -1,0 +1,16 @@
+---
+compose_schedule_enabled: false
+compose_schedule_apply_confirmed: false
+compose_schedule_source_root: "{{ playbook_dir }}/../.."
+compose_schedule_controller_root: /opt/home-lab/compose-controller
+compose_schedule_venv: /opt/home-lab/compose-venv
+compose_schedule_collections: /opt/home-lab/collections
+compose_schedule_bin: /opt/home-lab/bin
+compose_schedule_age_key: /etc/home-lab/compose-deploy/age-key
+compose_schedule_age_source: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
+compose_schedule_policy: "{{ lookup('ansible.builtin.file', compose_schedule_source_root ~ '/controller/compose-updates.json') | from_json }}"
+compose_schedule_api_base: https://api.github.com
+compose_schedule_git_url: "https://github.com/{{ compose_schedule_policy.repository.full_name }}.git"
+# renovate: datasource=github-release-attachments depName=getsops/sops
+compose_schedule_sops_version: v3.13.3
+compose_schedule_sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b

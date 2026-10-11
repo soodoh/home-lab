@@ -1,5 +1,6 @@
 ---
 shelfmark_controller_root: "{{ playbook_dir }}/../.."
+shelfmark_implementation_root: "{{ playbook_dir }}/../.."
 shelfmark_config_root: /srv/home-lab-state/shelfmark-data
 shelfmark_uid: 1000
 shelfmark_gid: 1000

@@ -1,0 +1,98 @@
+---
+# Native Git freezes main; the public GitHub API admits only that exact revision.
+# These tasks never execute code or inventory from the candidate checkout.
+- name: Verify the public repository identity before selecting source
+  ansible.builtin.uri:
+    url: "{{ compose_schedule_api_base }}/repos/{{ compose_schedule_policy.repository.full_name }}"
+    return_content: true
+    use_netrc: false
+    follow_redirects: none
+    timeout: 30
+    headers:
+      Accept: application/vnd.github+json
+  register: compose_schedule_repository
+
+- name: Require the independently reviewed repository and owner identities
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_repository.json.id == compose_schedule_policy.repository.id
+      - compose_schedule_repository.json.owner.id == compose_schedule_policy.repository.owner_id
+      - compose_schedule_repository.json.full_name == compose_schedule_policy.repository.full_name
+      - compose_schedule_repository.json.default_branch == compose_schedule_policy.repository.branch
+      - not compose_schedule_repository.json.private
+      - not compose_schedule_repository.json.archived
+    fail_msg: The source repository identity or public-read boundary changed; inspect it before deploying.
+
+- name: Fetch current main into this run's disposable checkout without credentials
+  ansible.builtin.git:
+    repo: "{{ compose_schedule_git_url }}"
+    dest: "{{ compose_schedule_workspace.path }}/source"
+    version: "{{ compose_schedule_policy.repository.branch }}"
+    single_branch: true
+    depth: 1
+    force: false
+  environment:
+    HOME: "{{ compose_schedule_workspace.path }}"
+    GIT_CONFIG_COUNT: "0"
+    GIT_CONFIG_GLOBAL: /dev/null
+    GIT_CONFIG_NOSYSTEM: "1"
+    GIT_TERMINAL_PROMPT: "0"
+    GIT_ASKPASS: /bin/false
+  register: compose_schedule_source
+
+- name: Freeze the selected revision
+  ansible.builtin.set_fact:
+    compose_schedule_selected_ref: "{{ compose_schedule_source.after }}"
+    cacheable: false
+
+- name: Require an immutable selected Git revision
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_selected_ref is match('^(?:[0-9a-f]{40}|[0-9a-f]{64})$')
+    fail_msg: Source selection did not return an immutable Git revision.
+
+- name: Observe the newest main-push CI run for exactly the frozen revision
+  ansible.builtin.uri:
+    url: >-
+      {{ compose_schedule_api_base ~ '/repos/' ~ compose_schedule_policy.repository.full_name
+         ~ '/actions/workflows/' ~ (compose_schedule_policy.ci.workflow_id | string)
+         ~ '/runs?head_sha=' ~ compose_schedule_selected_ref ~ '&event=push&branch='
+         ~ compose_schedule_policy.repository.branch ~ '&per_page=1' }}
+    return_content: true
+    use_netrc: false
+    follow_redirects: none
+    timeout: 30
+    headers:
+      Accept: application/vnd.github+json
+  register: compose_schedule_ci
+
+- name: Require a CI run for this revision before any production ownership or mutation
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_ci.json.workflow_runs | length > 0
+    fail_msg: The selected main revision has no qualifying CI run; leave production unchanged until a later daily cycle.
+
+- name: Require completed successful CI from the exact repository workflow and revision
+  ansible.builtin.assert:
+    that:
+      - compose_schedule_run.head_sha == compose_schedule_selected_ref
+      - compose_schedule_run.head_branch == compose_schedule_policy.repository.branch
+      - compose_schedule_run.event == 'push'
+      - compose_schedule_run.workflow_id == compose_schedule_policy.ci.workflow_id
+      - compose_schedule_run.path == '.github/workflows/ci.yml'
+      - compose_schedule_run.repository.id == compose_schedule_policy.repository.id
+      - compose_schedule_run.repository.owner.id == compose_schedule_policy.repository.owner_id
+      - compose_schedule_run.head_repository.id == compose_schedule_policy.repository.id
+      - compose_schedule_run.head_repository.owner.id == compose_schedule_policy.repository.owner_id
+      - compose_schedule_run.status == 'completed'
+      - compose_schedule_run.conclusion == 'success'
+    fail_msg: The selected revision has not passed its trusted main CI workflow; production is unchanged.
+  vars:
+    compose_schedule_run: "{{ compose_schedule_ci.json.workflow_runs[0] }}"
+
+- name: Report the admitted immutable source selection
+  ansible.builtin.debug:
+    msg:
+      repository: "{{ compose_schedule_policy.repository.full_name }}"
+      revision: "{{ compose_schedule_selected_ref }}"
+      ci: success

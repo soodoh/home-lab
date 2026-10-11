@@ -78,7 +78,8 @@ No new credential authority, secret environment variables or OpenTofu state fiel
 
 Compose deployment decrypts SOPS inputs through `community.sops` on the controller; provide
 the age identity through `SOPS_AGE_KEY_FILE`. The identity is never copied into Git
-or to deployment artifacts. For a local controller, separate plan/apply provider
+or to deployment artifacts. For scheduled local deployment the approved Docker-host
+controller receives a separately protected root-only age file through systemd credentials. For a local controller, separate plan/apply provider
 identities may be exported from a mode-0600 gitignored `.env` or a protected
 credential store. The local file is persistent plaintext: protect it independently,
 never commit or log it, and rotate credentials if it is exposed. The dedicated
@@ -172,15 +173,33 @@ of this network boundary and revoke it as described below.
 
 ## Automatic Compose deployment credentials
 
-The approved routine deployment lane stores the operator-authorized age identity
-only in the main-restricted `infrastructure-deploy` environment's `SOPS_AGE_KEY`
-secret. This grants trusted main deployment jobs decryption authority for every
-SOPS file covered by that identity. PR validation receives neither that secret
-nor an OIDC grant. The deploy job uses private mode-0600 controller files and
-removes them on every exit; never upload decrypted files or source/state archives.
-Tailscale access uses the exact federated environment subject and ephemeral nodes,
-not a stored auth key, OAuth secret or native SSH key. See
-[deployment access](deployment-access.md#github-hosted-runners).
+The scheduled Docker-host controller is privileged installed software, not a
+container or a mutable checkout of main. Its Ansible implementation, collection
+versions and SOPS binary change only through separately approved installation.
+Each run selects application source into a new private disposable checkout and
+requires successful main-push CI for its exact immutable SHA and independently
+reviewed numeric repository, owner and workflow identities. Candidate playbooks,
+scripts and inventory are never executed. Source classification still refuses
+configuration, secret, major and other non-routine changes.
+
+The approved age identity lives at `/etc/home-lab/compose-deploy/age-key`, root-owned
+mode 0400 inside a mode-0700 directory. Systemd `LoadCredential` supplies a private
+per-service copy through `SOPS_AGE_KEY_FILE`; neither key bytes nor resolved Compose
+enter arguments, logs, Git or container mounts. This explicitly grants the host
+controller decryption authority for **every** ciphertext covered by that identity;
+a runtime secret set is not equivalent to this grant. Preserve independent custody.
+Deleting a GitHub secret is not key rotation or approval to revoke a shared identity.
+
+The source repository is public. Anonymous HTTPS Git and GitHub API reads require
+no GitHub token, deploy key or dispatch permission. API unavailability, rate limits,
+unknown identities or unqualified CI refuse deployment rather than bypassing checks.
+GitHub Actions validates source without deployment secrets or Tailscale federation.
+The observer admits the scheduled timer's own `running` state only for the known
+morning target under exact validated production ownership and routine admission;
+this never admits another owner's lock, an active backup service or an interruption
+journal. Systemd removes controller scratch and its credential/runtime scope on exit;
+failed production ownership, journals and source before-images remain for inspection.
+See [local deployment access](deployment-access.md#host-local-scheduled-deployment).
 
 ## SSH and privilege
 

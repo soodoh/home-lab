@@ -265,10 +265,27 @@ def validate_owners(journal: Path, apply_owner_sha256: str | None) -> None:
         require_regular(path / "owner", 0o600, apply_owner_sha256)
 
 
-def validate_units(policy: dict[str, Any], *, routine: bool = False) -> dict[str, list[str]]:
+def validate_timer_state(unit: str, values: dict[str, str], *, scheduled_deployment: bool = False) -> None:
+    # The timer remains running while its scheduled target includes this deployment.
+    # Only the caller with independently validated exact production ownership may
+    # admit that state; all actual backup services/targets are still checked below.
+    own_workflow = (
+        scheduled_deployment and unit == "home-lab-restic-daily.timer"
+        and values.get("Unit") == "home-lab-morning.target"
+        and values.get("SubState") == "running"
+    )
+    if values.get("ActiveState") != "active" or not (values.get("SubState") == "waiting" or own_workflow):
+        raise ObservationError("timer_state")
+    if not values.get("LastTriggerUSec" if own_workflow else "NextElapseUSecRealtime"):
+        raise ObservationError("timer_schedule")
+
+
+def validate_units(
+    policy: dict[str, Any], *, routine: bool = False, scheduled_deployment: bool = False,
+) -> dict[str, list[str]]:
     properties = [
         "LoadState", "ActiveState", "SubState", "Result", "NextElapseUSecRealtime",
-        "LastTriggerUSec", "ExecMainStartTimestamp", "ExecMainExitTimestamp",
+        "LastTriggerUSec", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "Unit",
     ]
     observed: dict[str, list[str]] = {}
     parsed: dict[str, dict[str, str]] = {}
@@ -280,10 +297,7 @@ def validate_units(policy: dict[str, Any], *, routine: bool = False) -> dict[str
         if values.get("LoadState") != "loaded":
             raise ObservationError("unit_load_state")
     for timer in ("home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"):
-        if parsed[timer].get("ActiveState") != "active" or parsed[timer].get("SubState") != "waiting":
-            raise ObservationError("timer_state")
-        if not parsed[timer].get("NextElapseUSecRealtime"):
-            raise ObservationError("timer_schedule")
+        validate_timer_state(timer, parsed[timer], scheduled_deployment=scheduled_deployment)
     if not routine and not daily_history_present(parsed):
         raise ObservationError("daily_cadence_history")
     for unit in UNITS:
@@ -316,8 +330,12 @@ def main() -> None:
     parser.add_argument("--proton-id", required=True)
     parser.add_argument("--admission", choices=("strict", "routine"), default="strict")
     parser.add_argument("--apply-owner-sha256")
+    parser.add_argument("--scheduled-deployment", action="store_true")
     arguments = parser.parse_args()
-    expected_hex = {key: value for key, value in vars(arguments).items() if key != "admission" and value is not None}
+    if arguments.scheduled_deployment and (arguments.admission != "routine" or not arguments.apply_owner_sha256):
+        raise ObservationError("scheduled_deployment_owner")
+    expected_hex = {key: value for key, value in vars(arguments).items()
+                    if key not in ("admission", "scheduled_deployment") and value is not None}
     if any(HEX.fullmatch(value) is None for value in expected_hex.values()):
         raise ObservationError("expected_identity")
 
@@ -355,7 +373,8 @@ def main() -> None:
         policy_sha256 = hashlib.sha256(raw_policy).hexdigest()
 
         expected_ids = {"games": arguments.games_id, "nfs": arguments.nfs_id, "proton": arguments.proton_id}
-        units = validate_units(policy, routine=arguments.admission == "routine")
+        units = validate_units(policy, routine=arguments.admission == "routine",
+                               scheduled_deployment=arguments.scheduled_deployment)
         warnings = []
         inventories = {}
         for name in ("games", "nfs", "proton"):

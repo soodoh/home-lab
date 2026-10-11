@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 """Read-only admission for scheduled, image-only Compose upgrades.
 
-GitHub concurrency and the existing production lock own serialization. This adapter
-only fills the gap between Renovate's update classification and the actual deployed
-source, and evaluates a timezone-aware start window. It never extracts an archive,
-prints source contents, clears ownership, or changes production.
+Native systemd scheduling and the existing production lock own serialization.
+This adapter fills the gap between Renovate's classification and deployed source.
+It never extracts an archive, prints source contents or changes production.
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path, PurePosixPath
 import re
 import tarfile
-from zoneinfo import ZoneInfo
 
 # Restrict edits to the existing service-image fields and shared Nextcloud image.
 # Preserve every other byte, including anchors, comments and formatting.
@@ -32,23 +29,6 @@ VERSIONED_IMAGE = re.compile(
     r"(?P<variant>-(?:alpine[0-9.]*|apache|ubi[0-9]+|openssl))?"
     r"@sha256:[a-f0-9]{64}"
 )
-
-
-def window_open(policy: dict, now: datetime | None = None) -> bool:
-    zone = ZoneInfo(policy["timezone"])
-    start, end, reserve = (
-        policy["start_hour"], policy["end_hour"], policy["minimum_remaining_minutes"]
-    )
-    if (any(type(value) is not int for value in (start, end, reserve))
-            or not 0 <= start < end <= 23 or not 0 < reserve < (end - start) * 60):
-        raise ValueError("invalid_window")
-    instant = now if now is not None else datetime.now(timezone.utc)
-    if instant.tzinfo is None:
-        raise ValueError("timezone_required")
-    local = instant.astimezone(zone)
-    beginning = local.replace(hour=start, minute=0, second=0, microsecond=0)
-    cutoff = local.replace(hour=end, minute=0, second=0, microsecond=0) - timedelta(minutes=reserve)
-    return beginning <= local < cutoff
 
 
 def read_archive(path: Path) -> dict:
@@ -113,31 +93,18 @@ def admit_archives(active: Path, candidate: Path) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    policy = parser.add_mutually_exclusive_group(required=False)
-    policy.add_argument("--policy", type=Path)
-    policy.add_argument("--policy-json")
-    parser.add_argument("--active-archive", type=Path)
-    parser.add_argument("--candidate-archive", type=Path)
+    parser.add_argument("--active-archive", type=Path, required=True)
+    parser.add_argument("--candidate-archive", type=Path, required=True)
     args = parser.parse_args()
     try:
-        if bool(args.active_archive) != bool(args.candidate_archive):
-            raise ValueError("archive_pair_required")
-        result = {}
-        if args.policy or args.policy_json:
-            settings = json.loads(args.policy.read_text() if args.policy else args.policy_json)
-            result["window_open"] = window_open(settings)
-        if args.active_archive:
-            result["changed_images"] = admit_archives(args.active_archive, args.candidate_archive)
-        if not result:
-            raise ValueError("admission_request_missing")
-        print(json.dumps(result))
+        print(json.dumps({"changed_images": admit_archives(args.active_archive, args.candidate_archive)}))
     except (OSError, ValueError, KeyError, TypeError, UnicodeError, tarfile.TarError) as error:
         # Never render archive data, parser input, paths, or private exception text.
         reason = str(error) if type(error) is ValueError and str(error) in {
-            "invalid_window", "timezone_required", "archive_shape", "archive_source_missing",
+            "archive_shape", "archive_source_missing",
             "unversioned_or_prerelease_image", "image_identity_changed", "major_upgrade",
             "version_downgrade", "source_set_changed", "non_image_source_change",
-            "non_image_compose_change", "archive_pair_required", "admission_request_missing",
+            "non_image_compose_change",
         } else "invalid_admission_input"
         raise SystemExit(f"compose_upgrade=refused reason={reason}") from None
 

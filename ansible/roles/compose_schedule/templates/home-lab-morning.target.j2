@@ -1,0 +1,6 @@
+[Unit]
+Description=Home Lab scheduled backup then routine Compose convergence
+Wants=home-lab-restic-daily-local.service home-lab-restic-daily-proton.service
+Requires=home-lab-compose-routine.service
+After=home-lab-restic-daily-local.service home-lab-restic-daily-proton.service home-lab-compose-routine.service
+StopWhenUnneeded=yes

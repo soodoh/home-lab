@@ -64,10 +64,24 @@ or be intentionally suppressed. Its recipient policy is outside the Authentik
 adoption scope. Reobserve the live rule, event-user destination and policy bindings
 before proposing a separately approved notification change.
 
-## CI and deployment integration
+## Host-local deployment qualification
 
-CI deployment and broader operational integration are still in progress. As part
-of that work, wire the useful dormant controller tests into CI:
+The scheduled local controller needs approval-gated live installation and a
+qualified daily backup/deployment cycle, including manual-backup independence,
+exact-SHA CI admission, failed-Proton routine behavior and preservation of failed
+production ownership. Installing source or passing synthetic tests does not prove
+this operational path. Provisioning the host age identity is a separate explicit
+decryption grant; preserve independent custody.
+
+Only after successful local qualification, inspect remaining GitHub deployment
+inputs and Tailscale federation consumers. Retire unneeded GitHub inputs under
+owner approval and require a fresh remote-backed Tailscale destroy plan with
+exact-plan deletion review and separately approved apply; do not orphan state or
+revoke independent provider credentials. These live approval gates remain open.
+
+## CI operational integration
+
+Wire the useful dormant controller tests into CI:
 
 - `scripts/controller/test-gost-private-subdomain-boundary.test.cjs`;
 - `scripts/controller/test-mindwtr-service.test.cjs`;
@@ -89,8 +103,7 @@ and source identities before choosing an owner and qualifying recovery behavior.
 
 ## Deferred ingress qualifications
 
-Actual ephemeral CI/application access, isolated authenticated GOST destination
-denials (without a client-side bypass), and private-route UDP/HTTP3 negatives
-were not qualified as part of the prior ingress change. Test these against
+Isolated authenticated GOST destination denials (without a client-side bypass)
+and private-route UDP/HTTP3 negatives remain unqualified. Test these against
 fresh live state before relying on those boundaries. System PAC on the work Mac
 is off; its reported CLIProxyAPI/Omada access is not a browser-path test.

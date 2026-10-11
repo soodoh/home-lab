@@ -2,7 +2,7 @@
 - name: Observe managed bind mount consumers before publication
   ansible.builtin.script:
     cmd: >-
-      {{ compose_native_controller_root }}/scripts/compose-mounts.py
+      {{ compose_native_implementation_root }}/scripts/compose-mounts.py
       --project {{ compose_native_project_name }}
       --source-root {{ compose_native_current_dir }}
       --credentials-root /etc/docker-compose/credentials
@@ -107,7 +107,7 @@
 - name: Observe managed bind mount consumers after publication
   ansible.builtin.script:
     cmd: >-
-      {{ compose_native_controller_root }}/scripts/compose-mounts.py
+      {{ compose_native_implementation_root }}/scripts/compose-mounts.py
       --project {{ compose_native_project_name }}
       --source-root {{ compose_native_current_dir }}
       --credentials-root /etc/docker-compose/credentials

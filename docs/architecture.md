@@ -30,6 +30,11 @@ A digest in Git identifies desired bytes. It does not prove those bytes are live
 A controller checkout and its caches are disposable. A valid workflow works from a
 fresh clone with current credentials and network access. `.local/`, `.reconcile/`,
 provider caches and captured browser output are never inputs to another run.
+The Docker host also has a root-owned, manually installed controller software
+release: its pinned implementation and dependencies are managed host software,
+not a mutable per-run checkout or a historical observation. Each scheduled run
+fetches application source into fresh disposable scratch and executes only the
+installed implementation.
 
 ### Managed hosts
 
@@ -53,8 +58,10 @@ credentials and encrypted bundles live outside Git.
 
 - The existing hosts are adopted through Tailscale SSH and Ansible privilege
   escalation; there is no custom controller state machine or native deployment key.
-  GitHub workload identity federation can create a narrowly tagged ephemeral CI node
-  without a reusable Tailscale credential.
+  Scheduled Compose convergence runs locally on the Docker host; GitHub Actions
+  validates source but holds no deployment secrets or host-access identity.
+  The existing 05:00 timer composes native backup units followed by routine
+  deployment. Manual backup units have no deployment completion hook.
 - Compose convergence archives committed Git source and reconciles the complete
   project with the native Compose module. Git revert followed by convergence is
   configuration rollback.

@@ -1,0 +1,30 @@
+[Unit]
+Description=Converge CI-qualified routine Compose images after the scheduled backup chain
+Wants=network-online.target
+After=network-online.target home-lab-restic-daily.target home-lab-restic-daily-local.service home-lab-restic-daily-proton.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+RuntimeDirectory=home-lab-compose-deploy
+RuntimeDirectoryMode=0700
+LoadCredential=age-key:{{ compose_schedule_age_key }}
+Environment="SOPS_AGE_KEY_FILE=%d/age-key"
+Environment="TMPDIR=%t/home-lab-compose-deploy"
+Environment="HOME=%t/home-lab-compose-deploy"
+Environment="ANSIBLE_LOCAL_TEMP=%t/home-lab-compose-deploy/ansible"
+Environment="ANSIBLE_CONFIG={{ compose_schedule_controller_root }}/ansible/ansible.cfg"
+Environment="ANSIBLE_COLLECTIONS_PATH={{ compose_schedule_collections }}"
+Environment="PATH={{ compose_schedule_bin }}:{{ compose_schedule_venv }}/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+ExecStart={{ compose_schedule_venv }}/bin/ansible-playbook {{ compose_schedule_controller_root }}/ansible/playbooks/deploy-compose-automatic.yml --limit docker-host -e ansible_connection=local -e ansible_user=root -e ansible_become=false
+TimeoutStartSec=4h
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true

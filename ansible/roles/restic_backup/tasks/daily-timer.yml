@@ -1,0 +1,36 @@
+---
+# Unit= is a trigger dependency: systemd cannot replace it through a drop-in.
+# Backup convergence preserves the installed destination; only the separately
+# approved scheduler interface supplies an explicit replacement.
+- name: Observe the adopted daily timer destination before rendering
+  ansible.builtin.command:
+    argv: [systemctl, show, --property=Unit, home-lab-restic-daily.timer]
+  changed_when: false
+  check_mode: false
+  register: restic_backup_observed_daily_timer
+
+- name: Refuse an unknown daily timer trigger
+  ansible.builtin.assert:
+    that:
+      - restic_backup_observed_daily_timer.stdout in ['Unit=home-lab-restic-daily.target', 'Unit=home-lab-morning.target']
+    fail_msg: Inspect unexpected backup scheduling before changing timer definitions.
+
+- name: Select the preserved or explicitly approved daily timer destination
+  ansible.builtin.set_fact:
+    restic_backup_daily_timer_destination: >-
+      {{ restic_backup_daily_timer_target | default(restic_backup_observed_daily_timer.stdout | regex_replace('^Unit=', '')) }}
+
+- name: Require a reviewed native daily workflow
+  ansible.builtin.assert:
+    that:
+      - restic_backup_daily_timer_destination in ['home-lab-restic-daily.target', 'home-lab-morning.target']
+    fail_msg: Only the backup-only or approved scheduled-deployment workflow may own the daily timer.
+
+- name: Render the shared daily timer without changing its active or enabled state
+  ansible.builtin.template:
+    src: home-lab-restic-daily.timer.j2
+    dest: /etc/systemd/system/home-lab-restic-daily.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Restic systemd definitions

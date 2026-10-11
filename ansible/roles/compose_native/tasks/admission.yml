@@ -10,4 +10,5 @@
           'operation=' ~ compose_native_apply_operation ~ restic_backup_owner_newline ~
           'started=' ~ ansible_facts['date_time']['iso8601'] ~ restic_backup_owner_newline) | hash('sha256') }}
     restic_backup_owner_newline: "\n"
+    restic_backup_observation_scheduled_deployment: "{{ compose_native_automated | bool and ansible_connection == 'local' }}"
   when: not ansible_check_mode
