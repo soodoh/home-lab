@@ -732,9 +732,9 @@ The configuration interface installs native Git, pinned Ansible/collections/SOPS
 root-only decryption authority and the systemd composition; it reloads definitions
 but never starts a backup or deployment. `compose_schedule_enabled=false` removes
 only deployment from the timer, returning its destination to the backup-only daily target.
-An approved runtime `systemctl mask --runtime home-lab-compose-routine.service` can
-inhibit automatic deployment without disabling daily backups; preserve and inspect
-any existing production owner before interrupting or retrying a running apply.
+Use that approved backup-only configuration to inhibit automatic deployment
+without disabling daily backups; preserve and inspect any existing production
+owner before interrupting or retrying a running apply.
 See [local controller setup](deployment-access.md#host-local-scheduled-deployment).
 
 Focused tests are `python3 scripts/test-compose-upgrade-admission.py` and

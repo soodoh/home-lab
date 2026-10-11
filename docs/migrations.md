@@ -66,18 +66,18 @@ before proposing a separately approved notification change.
 
 ## Host-local deployment qualification
 
-The scheduled local controller needs approval-gated live installation and a
-qualified daily backup/deployment cycle, including manual-backup independence,
-exact-SHA CI admission, failed-Proton routine behavior and preservation of failed
-production ownership. Installing source or passing synthetic tests does not prove
-this operational path. Provisioning the host age identity is a separate explicit
-decryption grant; preserve independent custody.
+A real timer-triggered daily backup/deployment cycle remains to be qualified.
+A successful installed-controller pilot and synthetic ordering/failure tests do
+not prove that complete operational path. Verify terminal backup phases, exact-SHA
+CI admission, unchanged manual-backup behavior, healthy convergence and cleanup
+without automatically clearing failed production ownership. Preserve independent
+custody of the approved host decryption identity.
 
-Only after successful local qualification, inspect remaining GitHub deployment
+Only after successful daily-cycle qualification, inspect remaining GitHub deployment
 inputs and Tailscale federation consumers. Retire unneeded GitHub inputs under
 owner approval and require a fresh remote-backed Tailscale destroy plan with
 exact-plan deletion review and separately approved apply; do not orphan state or
-revoke independent provider credentials. These live approval gates remain open.
+revoke independent provider credentials. These retirement gates remain open.
 
 ## CI operational integration
 
