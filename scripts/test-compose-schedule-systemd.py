@@ -59,6 +59,14 @@ def event(value):
 if phase == 'deploy':
     assert sys.argv[2:] == [{str(ROOT / 'ansible/playbooks/deploy-compose-automatic.yml')!r}, '--limit', 'docker-host', '-e', 'ansible_connection=local', '-e', 'ansible_user=root', '-e', 'ansible_become=false']
     assert pathlib.Path(os.environ['SOPS_AGE_KEY_FILE']).read_text() == 'SYNTHETIC\\n'
+    # Exercise real local-connection module scratch under ProtectHome, not only
+    # the stand-in deployment executable. A default /root/.ansible/tmp is refused.
+    result = subprocess.run([sys.executable, '-m', 'ansible.cli.adhoc', 'localhost',
+                             '-i', 'localhost,', '-c', 'local', '-m', 'ansible.builtin.setup'],
+                            text=True, capture_output=True)
+    if result.returncode:
+        print(result.stdout, result.stderr, flush=True); sys.exit(result.returncode)
+    assert pathlib.Path(os.environ['ANSIBLE_REMOTE_TEMP']).is_relative_to(pathlib.Path(os.environ['TMPDIR']))
     event('admission')
     spec = importlib.util.spec_from_file_location('observer', {str(ROOT / 'scripts/observe-restic-backups.py')!r})
     observer = importlib.util.module_from_spec(spec); spec.loader.exec_module(observer)
