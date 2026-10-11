@@ -49,7 +49,9 @@
 
     - name: Install native Git and Python controller prerequisites
       ansible.builtin.apt:
-        name: [git, python3-venv, rsync]
+        # The native pip module imports packaging in the system interpreter,
+        # independently of packages installed into the managed virtualenv.
+        name: [git, python3-venv, python3-packaging, rsync]
         state: present
 
     - name: Protect installed controller software and its credential authority
