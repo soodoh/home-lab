@@ -5,7 +5,6 @@
       - docker_maintenance_prune_helper_path == '/usr/local/libexec/home-lab-docker-image-prune'
       - docker_maintenance_prune_service == 'home-lab-docker-image-prune.service'
       - docker_maintenance_prune_timer == 'home-lab-docker-image-prune.timer'
-      - docker_maintenance_prune_until is match('^[0-9]+h$')
       - docker_maintenance_reconciliation_locks | length > 0
       - >-
         docker_maintenance_reconciliation_locks | unique | length ==
@@ -71,7 +70,7 @@
       staging=
       owned=true
 
-      /usr/bin/docker image prune --all --force --filter until={{ docker_maintenance_prune_until | quote }}
+      /usr/bin/docker image prune --all --force
       success=true
   become: true
 

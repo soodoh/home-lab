@@ -657,6 +657,20 @@ before retrying. Do not delete host-local artifacts merely because a controller
 session ended. [Recovery](../recovery/README.md) currently supports private
 staging, not production activation.
 
+### Docker image cleanup
+
+`home-lab-docker-image-prune.timer` runs weekly on Sunday at 04:00 host-local
+Pacific time, with up to 30 minutes of randomized delay and persistent catch-up.
+Under the production and backup locks, it delegates to native
+`docker image prune --all --force`: all images unreferenced by any container
+are eligible, regardless of age. Containers, volumes and build cache are not
+pruned. Missing deployment images are pulled by digest from their registry;
+unused images are not a rollback archive. Registry availability is required
+for a cache miss, and restoring an older image does not restore application data.
+Image downgrades still require a reviewed manual deployment; the automatic lane
+refuses them. The host maintenance role is installed through `site.yml`, not
+the daily Compose-only convergence.
+
 ### Automatic Compose updates
 
 The approved standing policy groups **all versioned Compose minor, patch and
