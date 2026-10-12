@@ -103,6 +103,18 @@ groups, each requiring an up-to-date successful combined CI check:
   same checks locally with `bun install --frozen-lockfile --ignore-scripts` and
   `bun run test:javascript`.
 
+Renovate assigns exactly one category label per PR; it does not add a generic
+`dependencies` label. Labels classify updates without changing group membership
+or approval requirements:
+
+| Label | Scope | Merge policy |
+| --- | --- | --- |
+| `compose-routine` | Admitted non-major Compose images and the Wolf server `stable` digest exception | Grouped, automatic |
+| `tooling-routine` | Admitted development and CI tooling above | Grouped, automatic |
+| `compose-manual` | Image majors, floating/prerelease and other unadmitted image updates, including Wolf spawned images | Ungrouped, manual |
+| `tooling-manual` | Tooling majors, shared controller/collections, language runtimes, OpenTofu, SOPS and otherwise unadmitted non-image dependencies | Ungrouped, manual |
+| `tofu-provider` | OpenTofu providers, not runtime version constraints | Ungrouped, manual |
+
 Unadmitted updates and major releases remain separate manual PRs. Shared
 Ansible-core/collections, Python/Node/Bun runtimes, OpenTofu, SOPS and provider
 updates are manual; installing or refreshing the host controller still needs
@@ -668,10 +680,14 @@ nor a pinned digest proves that a release is migration-free or reversible.
 Exclude a known migration from the automatic lane and review recovery separately.
 There is no automatic data rollback; production recovery activation remains unqualified.
 
-Renovate may automerge routine updates at any hour, after required CI and an
-up-to-date base. Deployment is a separate once-daily host operation, not a push
-side effect. Registry age checks are best-effort: Docker Hub supports them,
-whereas GHCR and other registries without timestamps do not. The explicit
+Renovate requests GitHub-native squash auto-merge for the two admitted routine
+groups. GitHub may merge at any hour once the required `validate` CI check passes
+and the branch is up-to-date, without waiting for another Renovate run. Keep the
+repository's Allow auto-merge setting and strict required-check rules enabled;
+Renovate configuration alone does not enforce those platform gates. Deployment
+is a separate once-daily host operation, not a push side effect. Registry age
+checks are best-effort: Docker Hub supports them, whereas GHCR and other registries
+without timestamps do not. The explicit
 `timestamp-optional` setting avoids indefinitely blocking those updates; it does
 **not** provide a three-day cooldown there.
 

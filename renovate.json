@@ -5,11 +5,11 @@
     "helpers:pinGitHubActionDigests"
   ],
   "labels": [
-    "dependencies"
+    "tooling-manual"
   ],
   "prConcurrentLimit": 5,
   "timezone": "America/Los_Angeles",
-  "platformAutomerge": false,
+  "platformAutomerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
   "rebaseWhen": "behind-base-branch",
@@ -36,6 +36,7 @@
       "groupName": null,
       "minimumReleaseAge": "3 days",
       "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "labels": ["compose-manual"],
       "automerge": false
     },
     {
@@ -47,7 +48,7 @@
       "groupName": "routine Compose images",
       "groupSlug": "routine-compose-images",
       "automerge": true,
-      "addLabels": ["compose-routine"]
+      "labels": ["compose-routine"]
     },
     {
       "description": "Include digest-only updates to the existing Wolf stable Compose image in the routine batch",
@@ -60,7 +61,7 @@
       "groupName": "routine Compose images",
       "groupSlug": "routine-compose-images",
       "automerge": true,
-      "addLabels": ["compose-routine"]
+      "labels": ["compose-routine"]
     },
     {
       "description": "Track qBittorrent application releases: strict SemVer rejects zero-padded Ubuntu tags; exclude year-style tags and the obsolete 14.3.9 alias",
@@ -82,7 +83,7 @@
       "groupName": "development and CI tooling",
       "groupSlug": "development-ci-tooling",
       "automerge": true,
-      "addLabels": ["tooling-routine"]
+      "labels": ["tooling-routine"]
     },
     {
       "description": "Include non-major updates to the CI Renovate validator",
@@ -94,7 +95,7 @@
       "groupName": "development and CI tooling",
       "groupSlug": "development-ci-tooling",
       "automerge": true,
-      "addLabels": ["tooling-routine"]
+      "labels": ["tooling-routine"]
     },
     {
       "description": "Include versioned GitHub Action references, not runtime inputs, runners or branch refs",
@@ -107,7 +108,7 @@
       "groupName": "development and CI tooling",
       "groupSlug": "development-ci-tooling",
       "automerge": true,
-      "addLabels": ["tooling-routine"]
+      "labels": ["tooling-routine"]
     },
     {
       "description": "Include non-major local JavaScript development dependencies exercised by CI",
@@ -119,30 +120,27 @@
       "groupName": "development and CI tooling",
       "groupSlug": "development-ci-tooling",
       "automerge": true,
-      "addLabels": ["tooling-routine"]
+      "labels": ["tooling-routine"]
     },
     {
       "description": "Keep shared controller, collection and scheduler dependencies separately reviewed",
       "matchFileNames": ["controller/requirements.txt", "ansible/collections/requirements.yml", "ansible/roles/compose_schedule/**"],
+      "labels": ["tooling-manual"],
       "groupName": null,
       "automerge": false
     },
     {
       "description": "Keep language runtimes, OpenTofu, decryption and backup tools manual even if encountered in an admitted file",
       "matchPackageNames": ["ansible-core", "python", "node", "bun", "opentofu", "opentofu/opentofu", "getsops/sops", "restic/restic", "rclone/rclone"],
+      "labels": ["tooling-manual"],
       "groupName": null,
       "automerge": false
     },
     {
       "description": "Keep OpenTofu provider locks candidate-only and separately reviewed",
-      "matchManagers": [
-        "terraform"
-      ],
-      "labels": [
-        "dependencies",
-        "host-maintenance-candidate",
-        "tofu-provider"
-      ],
+      "matchManagers": ["terraform"],
+      "matchDatasources": ["terraform-provider"],
+      "labels": ["tofu-provider"],
       "automerge": false
     }
   ],

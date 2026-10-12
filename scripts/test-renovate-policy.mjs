@@ -25,6 +25,19 @@ await (await native('logger/index.js')).init();
 const repositoryConfig = JSON.parse(readFileSync(new URL('../renovate.json', import.meta.url)));
 const resolved = await presets.resolveConfigPresets(repositoryConfig);
 const config = utils.mergeChildConfig(defaults.getConfig(), resolved.config);
+assert.equal(config.platformAutomerge, true);
+assert.equal(config.automergeType, 'pr');
+assert.equal(config.automergeStrategy, 'squash');
+
+function verifyLabels(update, expected, message = update.depName) {
+  const labels = [...new Set([...(update.labels ?? []), ...(update.addLabels ?? [])])];
+  assert.deepEqual(labels, [expected], message);
+}
+
+function manualLabel(dep) {
+  if (dep.datasource === 'terraform-provider') return 'tofu-provider';
+  return dep.datasource === 'docker' ? 'compose-manual' : 'tooling-manual';
+}
 
 async function dependency(packageName, currentValue, attributes = {}) {
   return rules.applyPackageRules({
@@ -53,15 +66,18 @@ async function verifyUpdate(dep, newVersion, expectedType) {
   if (expectedType === 'major') {
     assert.equal(update.automerge, false, `${dep.depName}: major must remain manual`);
     assert.equal(update.groupName, null, `${dep.depName}: major must remain ungrouped`);
+    verifyLabels(update, 'compose-manual');
     assert.equal(buckets.getBucket(dep, dep.currentVersion, newVersion, api), 'major');
   } else {
     assert.equal(update.automerge, true);
     assert.equal(update.groupName, 'routine Compose images');
+    verifyLabels(update, 'compose-routine');
     assert.equal(buckets.getBucket(dep, dep.currentVersion, newVersion, api), 'non-major');
   }
 }
 
 for (const [packageName, current, updates] of [
+  ['ghcr.io/linuxserver/sonarr', '4.0.20', [['4.0.21', 'patch'], ['5.0.0', 'major']]],
   ['postgres', '18.6-alpine', [['18.7-alpine', 'minor'], ['19.0-alpine', 'major']]],
   ['postgres', '19.0-alpine', [['19.1-alpine', 'minor'], ['20.0-alpine', 'major']]],
   ['ghcr.io/linuxserver/qbittorrent', '5.2.4', [
@@ -80,6 +96,7 @@ for (const [packageName, current, updates] of [
   const digest = await rules.applyPackageRules({ ...dep, updateType: 'digest' });
   assert.equal(digest.automerge, true);
   assert.equal(digest.groupName, 'routine Compose images');
+  verifyLabels(digest, 'compose-routine');
 }
 
 const qbit = await dependency('ghcr.io/linuxserver/qbittorrent', '5.2.4');
@@ -99,7 +116,7 @@ assert.deepEqual(grouped.major.map((release) => release.version), ['6.0.0']);
 
 // Native extraction proves that real workflow inputs and package-manager pins
 // do not accidentally inherit the Action/devDependency automerge permissions.
-const [globalConfig, githubActions, pip, npm, bun, regex, matching] = await Promise.all([
+const [globalConfig, githubActions, pip, npm, bun, regex, matching, terraform] = await Promise.all([
   native('config/global.js'),
   native('modules/manager/github-actions/extract.js'),
   native('modules/manager/pip_requirements/extract.js'),
@@ -107,6 +124,7 @@ const [globalConfig, githubActions, pip, npm, bun, regex, matching] = await Prom
   native('modules/manager/bun/extract.js'),
   native('modules/manager/custom/regex/index.js'),
   native('util/string-match.js'),
+  native('modules/manager/terraform/extract.js'),
 ]);
 globalConfig.GlobalConfig.set({ localDir: fileURLToPath(new URL('../', import.meta.url)) });
 const readRepository = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
@@ -121,8 +139,8 @@ async function verifyPolicy(dep, manager, packageFile, updateType, automatic) {
   assert.equal(updated.groupName, automatic ? 'development and CI tooling' : null, label);
   if (automatic) {
     assert.equal(updated.groupSlug, 'development-ci-tooling', label);
-    assert(updated.addLabels.includes('tooling-routine'), label);
   }
+  verifyLabels(updated, automatic ? 'tooling-routine' : manualLabel(dep), label);
 }
 
 const ciPackages = pip.extractPackageFile(readRepository('controller/requirements-ci.txt')).deps;
@@ -187,6 +205,16 @@ assert(validator, 'the annotated Renovate validator must be extracted');
 for (const type of ['minor', 'patch']) await verifyPolicy(validator, 'custom.regex', workflowFile, type, true);
 await verifyPolicy(validator, 'custom.regex', workflowFile, 'major', false);
 
+const tofuFile = 'infrastructure/tofu/servarr/versions.tf';
+const tofuDependencies = (await terraform.extractPackageFile(readRepository(tofuFile), tofuFile, config)).deps;
+assert(tofuDependencies.some((dep) => dep.datasource === 'terraform-provider'));
+assert(tofuDependencies.some((dep) => dep.depType === 'required_version'));
+for (const dep of tofuDependencies) {
+  for (const type of ['minor', 'patch', 'major']) {
+    await verifyPolicy(dep, 'terraform', tofuFile, type, false);
+  }
+}
+
 const sopsFile = 'ansible/roles/compose_schedule/defaults/main.yml';
 const sops = customDependencies(sopsFile);
 assert.equal(sops.length, 1);
@@ -222,12 +250,25 @@ for (const type of ['minor', 'patch', 'digest']) {
   assert.equal(update.automerge, true);
   assert.equal(update.groupName, 'routine Compose images');
   assert.equal(update.minimumReleaseAge, '3 days');
+  verifyLabels(update, 'compose-routine');
 }
 const wolfServer = await dependency('ghcr.io/games-on-whales/wolf', 'stable', { packageFile: 'services/gaming.yml' });
 const wolfDigest = await rules.applyPackageRules({ ...wolfServer, updateType: 'digest' });
 assert.equal(wolfDigest.automerge, true);
 assert.equal(wolfDigest.groupName, 'routine Compose images');
-const floating = await dependency('radrootllc/karaoke-eternal', 'latest');
-assert.equal((await rules.applyPackageRules({ ...floating, updateType: 'digest' })).automerge, false);
+verifyLabels(wolfDigest, 'compose-routine');
+for (const [name, value, attributes, type] of [
+  ['radrootllc/karaoke-eternal', 'latest', {}, 'digest'],
+  ['ghcr.io/linuxserver/sonarr', '5.0.0-rc.1', {}, 'digest'],
+  ['ghcr.io/linuxserver/sonarr', '4.0.20', {}, 'pinDigest'],
+  ['ghcr.io/games-on-whales/wolf', 'stable', {}, 'digest'],
+  ['ghcr.io/games-on-whales/wolf', 'stable', { packageFile: 'services/gaming.yml' }, 'major'],
+]) {
+  const dep = await dependency(name, value, attributes);
+  const update = await rules.applyPackageRules({ ...dep, updateType: type });
+  assert.equal(update.automerge, false);
+  assert.equal(update.groupName, null);
+  verifyLabels(update, 'compose-manual');
+}
 
-console.log('Native Renovate policy: Compose admission, tooling grouping, manual boundaries and tag filtering passed');
+console.log('Native Renovate policy: platform automerge, single-category labels, Compose/tooling admission, manual boundaries and tag filtering passed');
