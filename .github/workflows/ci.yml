@@ -15,12 +15,30 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install and test local JavaScript tooling
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/home-lab-bun-cache
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run test:javascript
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -55,8 +73,13 @@ jobs:
           umask 077
           work=$(mktemp -d)
           trap 'rm -rf -- "$work"' EXIT
+          # The inner shell expands command -v, not the outer workflow shell.
+          # shellcheck disable=SC2016
           npm exec --cache "$work/npm-cache" --yes --package "renovate@$RENOVATE_VERSION" -- \
-            renovate-config-validator --strict renovate.json
+            sh -eu -c '
+              renovate-config-validator --strict renovate.json
+              node scripts/test-renovate-policy.mjs "$(command -v renovate)"
+            '
 
       - name: Validate routine Compose source admission and native local source selection
         run: |

@@ -126,8 +126,9 @@ Actual import behavior requires a live remote-backed plan.
 `controller/github-compose-ruleset.json` preserves default-branch deletion
 protection and requires a PR, an up-to-date successful Actions `validate` check,
 resolved review threads and no force pushes. Zero mandatory human approvals permits
-routine automerge; major/data changes still require operator review and explicit
-deployment. Keep repository squash merge and auto-merge enabled.
+routine Compose and development/CI tooling automerge; major/data changes still
+require operator review and explicit deployment. Keep repository squash merge and
+auto-merge enabled.
 
 GitHub Actions validates source only. It requires no deployment environment,
 SOPS secret, OIDC deployment grant or Tailscale federation. Changes to host-local

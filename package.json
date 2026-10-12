@@ -14,7 +14,8 @@
   "license": "MIT",
   "packageManager": "bun@1.4.3",
   "scripts": {
-    "test:boundaries": "python3 scripts/check-source-boundaries.py"
+    "test:boundaries": "python3 scripts/check-source-boundaries.py",
+    "test:javascript": "tsc && node --test scripts/controller/*.test.cjs scripts/test-javascript-tooling.test.cjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
@@ -22,6 +23,7 @@
     "@commitlint/types": "^21.2.3",
     "@types/node": "^26.6.5",
     "js-yaml": "^5.4.3",
-    "lefthook": "^2.2.1"
+    "lefthook": "^2.2.1",
+    "typescript": "^5.9.3"
   }
 }
