@@ -99,11 +99,12 @@ assert.deepEqual(grouped.major.map((release) => release.version), ['6.0.0']);
 
 // Native extraction proves that real workflow inputs and package-manager pins
 // do not accidentally inherit the Action/devDependency automerge permissions.
-const [globalConfig, githubActions, pip, npm, regex, matching] = await Promise.all([
+const [globalConfig, githubActions, pip, npm, bun, regex, matching] = await Promise.all([
   native('config/global.js'),
   native('modules/manager/github-actions/extract.js'),
   native('modules/manager/pip_requirements/extract.js'),
   native('modules/manager/npm/extract/common/package-file.js'),
+  native('modules/manager/bun/extract.js'),
   native('modules/manager/custom/regex/index.js'),
   native('util/string-match.js'),
 ]);
@@ -140,13 +141,19 @@ for (const dep of pip.extractPackageFile(readRepository('controller/requirements
   }
 }
 
-const jsPackages = npm.extractPackageJson(JSON.parse(readRepository('package.json')), 'package.json').deps;
+const bunFiles = await bun.extractAllPackageFiles(config, ['bun.lock', 'package.json']);
+assert.equal(bunFiles.length, 1);
+assert.deepEqual(bunFiles[0].lockFiles, ['bun.lock']);
+const jsPackages = bunFiles[0].deps;
+assert.deepEqual(jsPackages, npm.extractPackageJson(JSON.parse(readRepository('package.json')), 'package.json').deps);
 assert(jsPackages.some((dep) => dep.depName === 'bun' && dep.depType === 'packageManager'));
 assert(jsPackages.some((dep) => dep.depName === '@types/node' && dep.depType === 'devDependencies'));
-for (const dep of jsPackages) {
-  const development = dep.depType === 'devDependencies';
-  for (const type of ['minor', 'patch']) await verifyPolicy(dep, 'npm', 'package.json', type, development);
-  await verifyPolicy(dep, 'npm', 'package.json', 'major', false);
+for (const manager of ['npm', 'bun']) {
+  for (const dep of jsPackages) {
+    const development = dep.depType === 'devDependencies';
+    for (const type of ['minor', 'patch']) await verifyPolicy(dep, manager, 'package.json', type, development);
+    await verifyPolicy(dep, manager, 'package.json', 'major', false);
+  }
 }
 
 const workflowFile = '.github/workflows/ci.yml';

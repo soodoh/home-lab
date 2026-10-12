@@ -111,7 +111,7 @@
     },
     {
       "description": "Include non-major local JavaScript development dependencies exercised by CI",
-      "matchManagers": ["npm"],
+      "matchManagers": ["npm", "bun"],
       "matchDatasources": ["npm"],
       "matchFileNames": ["package.json"],
       "matchDepTypes": ["devDependencies"],
