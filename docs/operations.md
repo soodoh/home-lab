@@ -811,8 +811,8 @@ Keep private and public ACME stores protected; neither is in the Restic
 files-from set and reissuance is subject to CA limits. GOST is an authenticated
 transport, **not** authorization for private backends: test its allowlist with an
 isolated authenticated client without a local bypass as well as testing real
-client credentials. Actual ephemeral CI access, isolated GOST denials and
-UDP/HTTP3 private-route negatives must not be called verified until exercised
+client credentials. Isolated GOST denials and UDP/HTTP3 private-route negatives
+must not be called verified until exercised
 in the current environment. Before revoking any credential, inspect independent
 consumers rather than relying on age or past migrations.
 

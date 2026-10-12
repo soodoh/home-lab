@@ -66,18 +66,12 @@ before proposing a separately approved notification change.
 
 ## Host-local deployment qualification
 
-A real timer-triggered daily backup/deployment cycle remains to be qualified.
-A successful installed-controller pilot and synthetic ordering/failure tests do
-not prove that complete operational path. Verify terminal backup phases, exact-SHA
-CI admission, unchanged manual-backup behavior, healthy convergence and cleanup
-without automatically clearing failed production ownership. Preserve independent
-custody of the approved host decryption identity.
-
-Only after successful daily-cycle qualification, inspect remaining GitHub deployment
-inputs and Tailscale federation consumers. Retire unneeded GitHub inputs under
-owner approval and require a fresh remote-backed Tailscale destroy plan with
-exact-plan deletion review and separately approved apply; do not orphan state or
-revoke independent provider credentials. These retirement gates remain open.
+Observe the first wall-clock timer activation as operational follow-up. Native
+timer tests and a successful live composed backup/deployment chain establish
+ordering and execution, but do not themselves observe the scheduled activation.
+Verify terminal backup phases, exact-SHA CI admission, unchanged manual-backup
+behavior, healthy convergence and cleanup without automatically clearing failed
+production ownership. Preserve independent custody of the host decryption identity.
 
 ## CI operational integration
 

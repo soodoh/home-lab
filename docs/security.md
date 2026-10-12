@@ -207,8 +207,8 @@ See [local deployment access](deployment-access.md#host-local-scheduled-deployme
 MagicDNS names, `ansible-deploy` users, host-key aliases and credential-free OpenSSH
 client policy. Tailscale authenticates the source identity and Tailscale SSH maps it
 to the local account; native authorized keys remain absent. Host changes use Ansible
-become. See [deployment access](deployment-access.md) for the local path and the
-narrow GitHub workload-identity boundary.
+become. See [deployment access](deployment-access.md) for the manual controller
+path and the protected host-local scheduled controller.
 
 Observe independent console access before work that can change Tailscale, networking,
 firewall, storage or boot behavior.
