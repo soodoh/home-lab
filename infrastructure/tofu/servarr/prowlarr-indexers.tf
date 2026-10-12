@@ -39,7 +39,7 @@ resource "prowlarr_indexer" "myanonamouse" {
     { name = "searchInDescription", bool_value = false },
     { name = "searchInSeries", bool_value = false },
     { name = "searchInFilenames", bool_value = false },
-    { name = "useFreeleechWedge", bool_value = true },
+    { name = "useFreeleechWedge", bool_value = false },
     { name = "baseSettings.limitsUnit", number_value = 0 },
     { name = "torrentBaseSettings.preferMagnetUrl", bool_value = false },
   ]
