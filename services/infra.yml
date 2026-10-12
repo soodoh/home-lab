@@ -7,7 +7,7 @@ x-logging: &default-logging
 
 services:
   omada:
-    image: mbentley/omada-controller:6.3.0.45@sha256:bf81f0456f74c6ceb84d1bf708141f42423a1b1eb74f3b187a12f5965af8a818
+    image: mbentley/omada-controller:6.3.0.45@sha256:c16db69ab8326bbb4d180987fa2a298277e17ad9e3fe9bc55b06722edd300a4b
     container_name: omada
     restart: always
     logging: *default-logging
@@ -73,7 +73,7 @@ services:
       - proxy
 
   traefik:
-    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
     container_name: traefik
     restart: always
     logging: *default-logging
@@ -92,7 +92,7 @@ services:
         ipv4_address: 172.23.0.250
 
   traefik-tailnet:
-    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
     container_name: traefik-tailnet
     restart: always
     logging: *default-logging
