@@ -88,9 +88,30 @@ OpenTofu setup inputs. The local controller's SOPS pin in
 `github-release-attachments` datasource to update its release tag and Linux
 amd64 SHA-256 together; keep that annotated version/checksum pair adjacent.
 Review the release asset and checksum before merging, and preserve download-time
-checksum verification. Controller tooling PRs remain manually reviewed and
-separate from routine Compose automerge. Restic/rclone host pins remain coordinated
-manual changes, not independent Renovate updates.
+checksum verification. Renovate uses two explicit automatic source-maintenance
+groups, each requiring an up-to-date successful combined CI check:
+
+- **Routine Compose images:** the approved application-image policy described below.
+- **Development and CI tooling:** non-major updates to the CI-only `ansible-lint`,
+  `yamllint`, `jsonschema` and `requests` pins; the annotated Renovate validator;
+  versioned GitHub Action references (including same-version digest refreshes); and
+  JavaScript development dependencies in `package.json`. Action `with:` runtime
+  inputs, runner changes, reusable workflows and branch refs are not admitted by
+  the Action rule. CI installs the pinned Node/Bun runtimes and frozen Bun lockfile
+  without install scripts, then runs TypeScript checks, commit-message acceptance/
+  rejection, native Lefthook validation and the YAML/configuration tests. Run the
+  same checks locally with `bun install --frozen-lockfile --ignore-scripts` and
+  `bun run test:javascript`.
+
+Unadmitted updates and major releases remain separate manual PRs. Shared
+Ansible-core/collections, Python/Node/Bun runtimes, OpenTofu, SOPS and provider
+updates are manual; installing or refreshing the host controller still needs
+separate review and approval even if other tooling source has automerged.
+Restic/rclone host pins remain coordinated manual changes, not independent Renovate
+updates. The tooling group is separate from Compose admission: its files are not
+application source, but a merged revision whose exact main-push CI is incomplete
+or unsuccessful makes that daily deployment skip; the scheduler never falls back
+to an older green revision.
 
 ## Observe before deciding
 
@@ -629,9 +650,17 @@ staging, not production activation.
 The approved standing policy groups **all versioned Compose minor, patch and
 digest updates, including databases**, plus digest-only updates to
 `ghcr.io/games-on-whales/wolf:stable` in `services/gaming.yml`, into one Renovate PR.
-Major releases, other `latest`/`stable` images, development/prerelease tags, Wolf
-custom-manager spawned application images and non-Compose dependencies remain
-manual. Version/channel tags and exact digests stay pinned.
+Major releases, other `latest`/`stable` images, development/prerelease tags and Wolf
+custom-manager spawned application images remain manual. Non-Compose development/
+CI dependencies may automerge only under the separate tooling policy above; host
+runtime/deployment tooling remains separately reviewed and installed.
+Version/channel tags and exact digests stay pinned. PostgreSQL and
+qBittorrent non-major updates join the routine group; genuine major updates remain
+separate manual PRs rather than being suppressed by a current-major ceiling.
+qBittorrent uses strict semantic versioning to reject legacy Ubuntu tags such as
+`20.04.1`, plus exclusions for year-style tags such as `2026.10.1` and the obsolete
+`14.3.9` alias (last pushed in 2022). These are not application upgrades. The narrow
+alias exclusion is not a v5/v6 ceiling; other genuine major releases remain eligible.
 This broad policy explicitly accepts non-major application/database startup risk
 and unclassified release risk from Wolf's `stable` channel: a Wolf digest change
 can contain breaking behavior without a version signal. Neither classification
@@ -644,7 +673,7 @@ up-to-date base. Deployment is a separate once-daily host operation, not a push
 side effect. Registry age checks are best-effort: Docker Hub supports them,
 whereas GHCR and other registries without timestamps do not. The explicit
 `timestamp-optional` setting avoids indefinitely blocking those updates; it does
-**not** provide a three/seven-day cooldown there.
+**not** provide a three-day cooldown there.
 
 The existing 05:00 host-local Pacific backup timer activates
 `home-lab-morning.target` through the shared full timer definition. Systemd does

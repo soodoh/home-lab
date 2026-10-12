@@ -2,7 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    "group:allNonMajor",
     "helpers:pinGitHubActionDigests"
   ],
   "labels": [
@@ -15,6 +14,12 @@
   "automergeStrategy": "squash",
   "rebaseWhen": "behind-base-branch",
   "packageRules": [
+    {
+      "description": "Keep unadmitted updates manual and ungrouped, overriding inherited monorepo grouping",
+      "matchPackageNames": ["*"],
+      "groupName": null,
+      "automerge": false
+    },
     {
       "matchDepTypes": [
         "dependencies",
@@ -29,7 +34,6 @@
       ],
       "pinDigests": true,
       "groupName": null,
-      "separateMinorPatch": false,
       "minimumReleaseAge": "3 days",
       "minimumReleaseAgeBehaviour": "timestamp-optional",
       "automerge": false
@@ -59,39 +63,73 @@
       "addLabels": ["compose-routine"]
     },
     {
-      "description": "Retain the longer FlareSolverr release age where registry timestamps exist",
-      "matchDatasources": [
-        "docker"
-      ],
-      "matchPackageNames": [
-        "ghcr.io/flaresolverr/flaresolverr"
-      ],
-      "minimumReleaseAge": "7 days"
-    },
-    {
-      "description": "Require an explicit migration for PostgreSQL major releases",
-      "matchDatasources": [
-        "docker"
-      ],
-      "matchPackageNames": [
-        "postgres"
-      ],
-      "allowedVersions": "/^18(?:$|\\.|-)/"
-    },
-    {
+      "description": "Track qBittorrent application releases: strict SemVer rejects zero-padded Ubuntu tags; exclude year-style tags and the obsolete 14.3.9 alias",
       "matchDatasources": [
         "docker"
       ],
       "matchPackageNames": [
         "/linuxserver/qbittorrent/"
       ],
-      "allowedVersions": "/^5\\.[0-9]+\\.[0-9]+$/",
-      "enabled": true
+      "versioning": "semver",
+      "allowedVersions": "!/^v?(?:[0-9]{4,}\\.|14\\.3\\.9$)/"
     },
     {
-      "description": "Keep controller tooling separately reviewed, outside routine Compose automerge",
-      "matchManagers": ["github-actions", "pip_requirements", "custom.regex"],
-      "matchFileNames": [".github/workflows/**", "controller/*requirements*.txt", "ansible/roles/compose_schedule/**"],
+      "description": "Group non-major CI-only Python validators without admitting shared deployment dependencies",
+      "matchManagers": ["pip_requirements"],
+      "matchFileNames": ["controller/requirements-ci.txt"],
+      "matchPackageNames": ["ansible-lint", "yamllint", "jsonschema", "requests"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "addLabels": ["tooling-routine"]
+    },
+    {
+      "description": "Include non-major updates to the CI Renovate validator",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["npm"],
+      "matchFileNames": [".github/workflows/**"],
+      "matchPackageNames": ["renovate"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "addLabels": ["tooling-routine"]
+    },
+    {
+      "description": "Include versioned GitHub Action references, not runtime inputs, runners or branch refs",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "matchDatasources": ["github-tags"],
+      "matchFileNames": [".github/workflows/**"],
+      "matchCurrentValue": "/^v?[0-9]+(?:\\.[0-9]+){0,2}$/",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "addLabels": ["tooling-routine"]
+    },
+    {
+      "description": "Include non-major local JavaScript development dependencies exercised by CI",
+      "matchManagers": ["npm"],
+      "matchDatasources": ["npm"],
+      "matchFileNames": ["package.json"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "addLabels": ["tooling-routine"]
+    },
+    {
+      "description": "Keep shared controller, collection and scheduler dependencies separately reviewed",
+      "matchFileNames": ["controller/requirements.txt", "ansible/collections/requirements.yml", "ansible/roles/compose_schedule/**"],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "description": "Keep language runtimes, OpenTofu, decryption and backup tools manual even if encountered in an admitted file",
+      "matchPackageNames": ["ansible-core", "python", "node", "bun", "opentofu", "opentofu/opentofu", "getsops/sops", "restic/restic", "rclone/rclone"],
       "groupName": null,
       "automerge": false
     },

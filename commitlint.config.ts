@@ -7,6 +7,7 @@ const Configuration: UserConfig = {
     "scope-enum": [
       RuleConfigSeverity.Error,
       "never",
+      [],
     ],
   },
 };
