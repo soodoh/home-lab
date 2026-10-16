@@ -1,0 +1,152 @@
+---
+# Real stopped-writer orchestration with an inert container, no production mounts,
+# network, ports, GPU or Docker socket. Does not qualify Wolf streaming behavior.
+- name: Exercise Wolf image updates when the first assignment is already current
+  hosts: docker-host
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    wolf_security_assignment_check: false
+    wolf_security_policy:
+      image_pins:
+        - source: ghcr.io/games-on-whales/es-de:edge
+          image: "ghcr.io/games-on-whales/es-de:edge@sha256:{{ 'a' * 64 }}"
+        - source: ghcr.io/games-on-whales/steam:edge
+          image: "ghcr.io/games-on-whales/steam:edge@sha256:{{ 'b' * 64 }}"
+    wolf_restart_fixture: |
+      config_version = 7
+      hostname = "synthetic"
+      [[profiles.apps]]
+      image = 'ghcr.io/games-on-whales/es-de:edge@sha256:{{ 'a' * 64 }}'
+      [[profiles.apps]]
+      image = 'ghcr.io/games-on-whales/steam:edge@sha256:{{ 'c' * 64 }}'
+  tasks:
+    - name: Require explicit isolated Docker fixture approval
+      ansible.builtin.assert:
+        that: wolf_image_restart_runtime_test | default(false) | bool
+        fail_msg: This test requires explicit approval for an isolated Docker fixture.
+
+    - name: Allocate a private synthetic fixture
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: wolf-image-restart-test.
+      register: wolf_restart_dir
+
+    - name: Select only disposable fixture paths and a unique Compose project
+      ansible.builtin.set_fact:
+        compose_native_current_dir: '{{ wolf_restart_dir.path }}'
+        compose_native_home: '{{ wolf_restart_dir.path }}'
+        compose_native_project_name: "wolf-restart-{{ wolf_restart_dir.path | basename | hash('sha256') | truncate(12, true, '') }}"
+        compose_native_runtime_env_path: '{{ wolf_restart_dir.path }}/fixture.env'
+        wolf_security_config_path: '{{ wolf_restart_dir.path }}/config.toml'
+        wolf_security_before_image_parent: '{{ wolf_restart_dir.path }}'
+
+    - name: Exercise the actual stopped-writer caller
+      block:
+        - name: Write an empty fixture environment
+          ansible.builtin.copy:
+            dest: '{{ compose_native_runtime_env_path }}'
+            content: ''
+            mode: '0600'
+
+        - name: Write one current assignment followed by one stale assignment
+          ansible.builtin.copy:
+            dest: '{{ wolf_security_config_path }}'
+            content: '{{ wolf_restart_fixture }}'
+            mode: '0600'
+
+        - name: Write an inert service using an existing pinned Redis image
+          ansible.builtin.copy:
+            dest: '{{ wolf_restart_dir.path }}/compose.yml'
+            mode: '0600'
+            content: >-
+              {{ {'services': {'wolf': {
+                'image': (lookup('ansible.builtin.file', playbook_dir + '/../../services/authentik.yml') | from_yaml).services.redis.image,
+                'entrypoint': ['/bin/sh', '-c', 'exec sleep 86400'],
+                'network_mode': 'none',
+                'healthcheck': {'test': ['CMD', 'true'], 'interval': '1s', 'timeout': '1s', 'retries': 10}
+              }}} | to_nice_yaml }}
+
+        - name: Start only the disposable writer
+          community.docker.docker_compose_v2:
+            project_src: '{{ compose_native_current_dir }}'
+            project_name: '{{ compose_native_project_name }}'
+            env_files: ['{{ compose_native_runtime_env_path }}']
+            state: present
+            wait: true
+            wait_timeout: 60
+          environment:
+            HOME: '{{ compose_native_home }}'
+
+        - name: Read the synthetic pre-change document
+          ansible.builtin.slurp:
+            src: '{{ wolf_security_config_path }}'
+          register: wolf_security_config_before
+
+        - name: Observe initial synthetic document metadata
+          ansible.builtin.stat:
+            path: '{{ wolf_security_config_path }}'
+          register: wolf_security_config_metadata
+
+        - name: Preview the real assignment seam
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: assignments
+          vars:
+            wolf_security_assignment_check: true
+
+        - name: Require the stale second assignment to request an update
+          ansible.builtin.assert:
+            that: wolf_security_assignments.changed
+
+        - name: Execute the real stopped-writer and restart orchestration
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: image-pins
+
+        - name: Read the actual updated document
+          ansible.builtin.slurp:
+            src: '{{ wolf_security_config_path }}'
+          register: wolf_restart_loaded
+
+        - name: Require every pin and all unrelated settings to be preserved
+          ansible.builtin.assert:
+            that:
+              - item.image in (wolf_restart_loaded.content | b64decode)
+              - >-
+                (wolf_restart_loaded.content | b64decode | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', '')) ==
+                (wolf_restart_fixture | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', ''))
+          loop: '{{ wolf_security_policy.image_pins }}'
+
+        - name: Observe the real synthetic service after image replacement
+          community.docker.docker_compose_v2:
+            project_src: '{{ compose_native_current_dir }}'
+            project_name: '{{ compose_native_project_name }}'
+            env_files: ['{{ compose_native_runtime_env_path }}']
+            state: present
+            pull: never
+            wait: true
+            wait_timeout: 60
+          check_mode: true
+          register: wolf_restart_observation
+          environment:
+            HOME: '{{ compose_native_home }}'
+
+        - name: Require the caller to have restarted its stopped writer
+          ansible.builtin.assert:
+            that: not wolf_restart_observation.changed
+      always:
+        - name: Remove only the synthetic Compose project and its anonymous volumes
+          community.docker.docker_compose_v2:
+            project_src: '{{ compose_native_current_dir }}'
+            project_name: '{{ compose_native_project_name }}'
+            env_files: ['{{ compose_native_runtime_env_path }}']
+            state: absent
+            remove_volumes: true
+          environment:
+            HOME: '{{ compose_native_home }}'
+
+        - name: Remove only the private synthetic fixture directory
+          ansible.builtin.file:
+            path: '{{ wolf_restart_dir.path }}'
+            state: absent
