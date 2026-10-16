@@ -1,0 +1,11 @@
+---
+# Read-only integration test against both hosts' effective native SSH policy.
+# ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/tests/tailscale-deploy-access.yml
+- name: Verify native authentication stays disabled on the Tailscale-managed hosts
+  hosts: home_lab
+  gather_facts: false
+  tasks:
+    - name: Verify native authentication without changing host configuration
+      ansible.builtin.import_role:
+        name: tailscale_deploy_access
+        tasks_from: verify

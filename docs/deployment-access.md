@@ -10,9 +10,12 @@ Ansible.
 
 The hosts do not accept a deployment public key through native OpenSSH. The
 `tailscale_deploy_access` role preserves the local account and sudo policy and
-ensures native deployment keys are not active. Password, keyboard-interactive and
-root login remain disabled. Keep independent console access available before
-changing Tailscale, networking or host SSH policy.
+verifies that native public-key, password, keyboard-interactive and root login
+remain disabled, including in check mode. It does not manage authorized keys or
+SSH daemon configuration. Keep independent console access available before
+changing Tailscale, networking or host SSH policy. The read-only integration test
+`ansible/tests/tailscale-deploy-access.yml` checks both hosts' effective native SSH
+policy through the same verifier.
 
 The desired deployment network policy is limited to:
 

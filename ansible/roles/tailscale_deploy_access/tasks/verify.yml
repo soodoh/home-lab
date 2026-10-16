@@ -1,0 +1,20 @@
+---
+- name: Read effective native deployment-account SSH policy
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/sshd
+      - -T
+      - -C
+      - user=ansible-deploy,host={{ inventory_hostname }},addr=127.0.0.1,laddr=127.0.0.1,lport=22
+  register: tailscale_deploy_access_effective
+  changed_when: false
+  check_mode: false
+
+- name: Verify native authentication stays disabled
+  ansible.builtin.assert:
+    that:
+      - "'pubkeyauthentication no' in tailscale_deploy_access_effective.stdout_lines"
+      - "'passwordauthentication no' in tailscale_deploy_access_effective.stdout_lines"
+      - "'kbdinteractiveauthentication no' in tailscale_deploy_access_effective.stdout_lines"
+      - "'permitrootlogin no' in tailscale_deploy_access_effective.stdout_lines"
+    fail_msg: Native OpenSSH authentication must remain disabled for Tailscale deployment access.

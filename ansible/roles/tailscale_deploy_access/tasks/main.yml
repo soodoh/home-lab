@@ -6,28 +6,12 @@
       - ansible_connection == 'ssh'
       - ansible_become | bool
       - tailscale_deploy_access_user == 'ansible-deploy'
-      - >-
-        tailscale_deploy_access_native_key_fingerprint ==
-        'SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA'
-      - >-
-        tailscale_deploy_access_sshd_dropin ==
-        '/etc/ssh/sshd_config.d/70-home-lab-native-deploy.conf'
       - tailscale_deploy_access_sudoers_path == '/etc/sudoers.d/ansible-deploy'
     fail_msg: Tailscale deployment access requires the reviewed hosts and account.
 
-- name: Define exact deployment access files
+- name: Define the deployment sudo policy
   ansible.builtin.set_fact:
     tailscale_deploy_access_sudoers_content: "{{ tailscale_deploy_access_user }} ALL=(root) NOPASSWD: ALL\n"
-    tailscale_deploy_access_retired_sshd_content: |
-      Match User {{ tailscale_deploy_access_user }}
-          PubkeyAuthentication yes
-          AuthenticationMethods publickey
-          PasswordAuthentication no
-          KbdInteractiveAuthentication no
-          AllowTcpForwarding no
-          X11Forwarding no
-          PermitTunnel no
-          GatewayPorts no
   no_log: true
 
 - name: Read the deployment account
@@ -38,71 +22,42 @@
   check_mode: false
   no_log: true
 
-- name: Inspect deployment access paths
+- name: Inspect the deployment sudo policy path
   ansible.builtin.stat:
-    path: "{{ item }}"
+    path: "{{ tailscale_deploy_access_sudoers_path }}"
     follow: false
     get_checksum: false
     get_mime: false
     get_attributes: false
-  loop:
-    - "/home/{{ tailscale_deploy_access_user }}/.ssh/authorized_keys"
-    - "{{ tailscale_deploy_access_sudoers_path }}"
-    - "{{ tailscale_deploy_access_sshd_dropin }}"
-  register: tailscale_deploy_access_existing_paths
+  register: tailscale_deploy_access_existing_sudoers
 
-- name: Read existing managed files without logging access material
+- name: Read the existing deployment sudo policy
   ansible.builtin.slurp:
-    path: "{{ item.item }}"
-  loop: "{{ tailscale_deploy_access_existing_paths.results }}"
+    path: "{{ tailscale_deploy_access_sudoers_path }}"
   when:
-    - item.stat.exists
-    - item.stat.isreg | default(false)
-  register: tailscale_deploy_access_existing_content
+    - tailscale_deploy_access_existing_sudoers.stat.exists
+    - tailscale_deploy_access_existing_sudoers.stat.isreg | default(false)
+  register: tailscale_deploy_access_existing_sudoers_content
   no_log: true
 
-- name: Fingerprint the retiring native deployment key
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/ssh-keygen
-      - -lf
-      - "/home/{{ tailscale_deploy_access_user }}/.ssh/authorized_keys"
-      - -E
-      - sha256
-  when: tailscale_deploy_access_existing_paths.results[0].stat.exists
-  register: tailscale_deploy_access_existing_key
-  changed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Admit only the native-key state being retired or the Tailscale-only state
+- name: Admit only the reviewed deployment account and sudo policy
   ansible.builtin.assert:
     that:
       - tailscale_deploy_access_existing_account.stdout.split(':') | length == 7
       - tailscale_deploy_access_existing_account.stdout.split(':')[5] == '/home/ansible-deploy'
-      - tailscale_deploy_access_existing_account.stdout.split(':')[6] in ['/bin/bash', '/usr/sbin/nologin']
+      - tailscale_deploy_access_existing_account.stdout.split(':')[6] == '/bin/bash'
       - >-
-        not tailscale_deploy_access_existing_paths.results[0].stat.exists or
-        (tailscale_deploy_access_existing_paths.results[0].stat.isreg and
-         tailscale_deploy_access_existing_paths.results[0].stat.pw_name == tailscale_deploy_access_user and
-         tailscale_deploy_access_existing_paths.results[0].stat.gr_name == tailscale_deploy_access_user and
-         tailscale_deploy_access_existing_paths.results[0].stat.mode == '0600' and
-         tailscale_deploy_access_native_key_fingerprint in
-         (tailscale_deploy_access_existing_key.stdout | default('')))
-      - >-
-        not tailscale_deploy_access_existing_paths.results[1].stat.exists or
-        ((tailscale_deploy_access_existing_content.results |
-          selectattr('item.item', 'equalto', tailscale_deploy_access_sudoers_path) |
-          map(attribute='content') | first | b64decode) == tailscale_deploy_access_sudoers_content)
-      - >-
-        not tailscale_deploy_access_existing_paths.results[2].stat.exists or
-        ((tailscale_deploy_access_existing_content.results |
-          selectattr('item.item', 'equalto', tailscale_deploy_access_sshd_dropin) |
-          map(attribute='content') | first | b64decode) == tailscale_deploy_access_retired_sshd_content)
-    fail_msg: Existing deployment access differs from both the reviewed native-key and Tailscale-only states.
+        not tailscale_deploy_access_existing_sudoers.stat.exists or
+        (tailscale_deploy_access_existing_sudoers.stat.isreg and
+         (tailscale_deploy_access_existing_sudoers_content.content | b64decode) ==
+         tailscale_deploy_access_sudoers_content)
+    fail_msg: Existing deployment access differs from the reviewed account and sudo policy.
   no_log: true
 
-- name: Activate the Tailscale SSH deployment account
+- name: Verify native authentication before converging deployment access
+  ansible.builtin.import_tasks: verify.yml
+
+- name: Maintain the Tailscale SSH deployment account
   ansible.builtin.user:
     name: "{{ tailscale_deploy_access_user }}"
     create_home: true
@@ -120,47 +75,10 @@
     follow: false
     validate: /usr/sbin/visudo -cf %s
 
-- name: Remove the retired native deployment key
-  ansible.builtin.file:
-    path: "/home/{{ tailscale_deploy_access_user }}/.ssh/authorized_keys"
-    state: absent
-
-- name: Remove the retired native deployment SSH daemon exception
-  ansible.builtin.file:
-    path: "{{ tailscale_deploy_access_sshd_dropin }}"
-    state: absent
-  notify: Reload OpenSSH after retiring native deployment access
-
-- name: Apply validated native SSH daemon configuration
-  ansible.builtin.meta: flush_handlers
-
-- name: Read effective native deployment-account SSH policy
-  ansible.builtin.command:
-    argv:
-      - /usr/sbin/sshd
-      - -T
-      - -C
-      - user=ansible-deploy,host={{ inventory_hostname }},addr=127.0.0.1,laddr=127.0.0.1,lport=22
-  register: tailscale_deploy_access_effective
-  changed_when: false
-  check_mode: false
-  when: not ansible_check_mode
-
-- name: Verify native authentication stays disabled
-  ansible.builtin.assert:
-    that:
-      - "'pubkeyauthentication no' in tailscale_deploy_access_effective.stdout_lines"
-      - "'passwordauthentication no' in tailscale_deploy_access_effective.stdout_lines"
-      - "'kbdinteractiveauthentication no' in tailscale_deploy_access_effective.stdout_lines"
-      - "'permitrootlogin no' in tailscale_deploy_access_effective.stdout_lines"
-    fail_msg: Native OpenSSH authentication is not disabled after the Tailscale transition.
-  when: not ansible_check_mode
-
 - name: Summarize Tailscale deployment access convergence
   ansible.builtin.debug:
     msg:
       account: ansible-deploy
       authentication: tailscale-ssh-policy
-      native_authorized_key: absent
       native_authentication: disabled
       privilege_escalation: noninteractive-root
