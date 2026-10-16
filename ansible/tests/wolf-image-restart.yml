@@ -26,6 +26,18 @@
         that: wolf_image_restart_runtime_test | default(false) | bool
         fail_msg: This test requires explicit approval for an isolated Docker fixture.
 
+    - name: Read the effective fixture identity
+      ansible.builtin.command:
+        argv: [/usr/bin/id, -u]
+      register: wolf_restart_fixture_uid
+      changed_when: false
+      check_mode: false
+
+    - name: Require root ownership for the real before-image orchestration
+      ansible.builtin.assert:
+        that: wolf_restart_fixture_uid.stdout == '0'
+        fail_msg: This isolated fixture requires root escalation for the production before-image copy.
+
     - name: Allocate a private synthetic fixture
       ansible.builtin.tempfile:
         state: directory
