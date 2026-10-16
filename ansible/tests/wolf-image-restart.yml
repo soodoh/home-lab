@@ -35,6 +35,7 @@
     - name: Select only disposable fixture paths and a unique Compose project
       ansible.builtin.set_fact:
         compose_native_current_dir: '{{ wolf_restart_dir.path }}'
+        compose_native_home: '{{ wolf_restart_dir.path }}'
         compose_native_project_name: "wolf-restart-{{ wolf_restart_dir.path | basename | hash('sha256') | truncate(12, true, '') }}"
         compose_native_runtime_env_path: '{{ wolf_restart_dir.path }}/fixture.env'
         wolf_security_config_path: '{{ wolf_restart_dir.path }}/config.toml'
