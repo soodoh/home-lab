@@ -1,12 +1,19 @@
 ---
+# Inherited block conditions are reevaluated for every task and loop item.
+# The replacement loop overwrites its registered result even for an unchanged
+# first pin; freeze admission so later pins and the writer restart still run.
+- name: Freeze the preview decision before stopping the Wolf writer
+  ansible.builtin.set_fact:
+    wolf_security_image_update_required: '{{ wolf_security_assignments.changed | bool }}'
+
 - name: Update only changed persisted image assignments under writer exclusion
   when:
     - not ansible_check_mode
-    - wolf_security_assignments.changed
+    - wolf_security_image_update_required | bool
   block:
     - name: Allocate a fresh protected host-side before-image directory
       ansible.builtin.tempfile:
-        path: /var/lib
+        path: "{{ wolf_security_before_image_parent | default('/var/lib') }}"
         prefix: home-lab-wolf-security.
         state: directory
       register: wolf_security_before_image
