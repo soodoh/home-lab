@@ -63,7 +63,7 @@ services:
       - grimmory-db
 
   grimmory-db:
-    image: mariadb:11.8.9-ubi9@sha256:6f0cc7ea06050920b78ff8f426f8be68f7c30f8808e00f6e49e118deab2bb184
+    image: mariadb:11.8.9-ubi9@sha256:7c4e9f4a8ca4da7d340cfefb083e13755f9584030016030fae002f2fe9fba23b
     container_name: grimmory-db
     restart: unless-stopped
     logging: *default-logging
