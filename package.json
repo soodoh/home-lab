@@ -18,8 +18,8 @@
     "test:javascript": "tsc && node --test scripts/controller/*.test.cjs scripts/test-javascript-tooling.test.cjs"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.3",
-    "@commitlint/config-conventional": "^21.2.3",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
     "@commitlint/types": "^21.2.3",
     "@types/node": "^26.6.5",
     "js-yaml": "^5.5.0",
