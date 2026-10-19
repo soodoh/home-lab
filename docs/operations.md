@@ -109,9 +109,9 @@ or approval requirements:
 
 | Label | Scope | Merge policy |
 | --- | --- | --- |
-| `compose-routine` | Admitted non-major Compose images and the Wolf server `stable` digest exception | Grouped, automatic |
+| `compose-routine` | Admitted non-major Compose images and digest-only updates to the existing Wolf server/UI/spawned-app channels | Grouped, automatic |
 | `tooling-routine` | Admitted development and CI tooling above | Grouped, automatic |
-| `compose-manual` | Image majors, floating/prerelease and other unadmitted image updates, including Wolf spawned images | Ungrouped, manual |
+| `compose-manual` | Image majors, unadmitted floating/prerelease images and Wolf tag/repository changes | Ungrouped, manual |
 | `tooling-manual` | Tooling majors, shared controller/collections, language runtimes, OpenTofu, SOPS and otherwise unadmitted non-image dependencies | Ungrouped, manual |
 | `tofu-provider` | OpenTofu providers, not runtime version constraints | Ungrouped, manual |
 
@@ -674,12 +674,18 @@ the daily Compose-only convergence.
 ### Automatic Compose updates
 
 The approved standing policy groups **all versioned Compose minor, patch and
-digest updates, including databases**, plus digest-only updates to
-`ghcr.io/games-on-whales/wolf:stable` in `services/gaming.yml`, into one Renovate PR.
-Major releases, other `latest`/`stable` images, development/prerelease tags and Wolf
-custom-manager spawned application images remain manual. Non-Compose development/
-CI dependencies may automerge only under the separate tooling policy above; host
-runtime/deployment tooling remains separately reviewed and installed.
+digest updates, including databases**, plus these **digest-only Wolf channel
+updates**, into one Renovate PR:
+
+- `ghcr.io/games-on-whales/wolf:stable` in `services/gaming.yml`;
+- `ghcr.io/games-on-whales/wolf-ui:main`, `ghcr.io/games-on-whales/steam:edge`
+  and `ghcr.io/games-on-whales/es-de:edge` in `services/data/wolf/security.json`.
+
+The spawned images use Renovate's custom manager but join the same routine group.
+Their repositories and tags remain fixed. Major releases, other floating or
+prerelease images, and Wolf tag/repository changes remain manual. Non-Compose
+development/CI dependencies may automerge only under the separate tooling policy
+above; host runtime/deployment tooling remains separately reviewed and installed.
 Version/channel tags and exact digests stay pinned. PostgreSQL and
 qBittorrent non-major updates join the routine group; genuine major updates remain
 separate manual PRs rather than being suppressed by a current-major ceiling.
@@ -688,9 +694,11 @@ qBittorrent uses strict semantic versioning to reject legacy Ubuntu tags such as
 `14.3.9` alias (last pushed in 2022). These are not application upgrades. The narrow
 alias exclusion is not a v5/v6 ceiling; other genuine major releases remain eligible.
 This broad policy explicitly accepts non-major application/database startup risk
-and unclassified release risk from Wolf's `stable` channel: a Wolf digest change
-can contain breaking behavior without a version signal. Neither classification
-nor a pinned digest proves that a release is migration-free or reversible.
+and unclassified release risk from Wolf's `stable`, UI `main` and spawned-app
+`edge` channels. Their digest updates are treated as routine minor/patch-equivalent
+changes for admission, but can contain breaking behavior without a version signal.
+Neither classification nor a pinned digest proves that a release is migration-free
+or reversible.
 Exclude a known migration from the automatic lane and review recovery separately.
 There is no automatic data rollback; production recovery activation remains unqualified.
 
@@ -739,7 +747,7 @@ unqualified CI leave production unchanged until a later daily cycle.
 The installed controller implementation, inventory, scripts and dependencies never
 self-update from the selected checkout. Only admitted application source is read
 there. The existing production/backup locks exclude manual applies and backup
-writers; source images are pre-pulled without stopping services. Failures retain
+writers; Compose images are pre-pulled without stopping services. Failures retain
 production ownership and any source before-image for inspection; never automatically
 clear a failed lock. Controller scratch and systemd credential copies are cleaned
 without deleting host recovery material.
@@ -747,16 +755,26 @@ without deleting host recovery material.
 Automatic deployment compares the host's accepted source archive with the selected
 Git archive, under production ownership. It refuses additions/deletions, configuration
 or secret changes, image identity/variant changes, majors, downgrades and floating
-or prerelease image updates, except for the exact Wolf `stable` digest-only
-exception above. Both old and new Wolf images must retain the same repository and
-`stable` tag in `services/gaming.yml`; spawned image assignments remain manual.
-Only versioned non-major image-field changes, this Wolf exception or unchanged
-source qualify for routine backup admission. Thus a manually merged
-major/configuration change mixed into latest main does not inherit routine approval.
+or prerelease image updates, except for the exact Wolf channel digest-only
+exceptions above. Both old and new references must retain their approved repository,
+tag and source path. In `security.json`, only the three declared `image` digests may
+change: source identities, pin membership/order, firewall settings and all other
+bytes remain unchanged. Only versioned non-major image-field changes, these Wolf
+exceptions or unchanged source qualify for routine backup admission. Thus a manually
+merged major/configuration change mixed into latest main does not inherit routine approval.
 Moving an existing floating/prerelease image to a versioned stable tag still needs
 a separately reviewed manual deployment to establish the accepted baseline; it
 does not inherit routine approval. The read-only adapter never extracts archives
 or prints source contents.
+
+Before accepting the source archive, Compose convergence applies spawned pins
+through the shared image-only Wolf role, never the firewall installation role.
+Changed assignments require an idle Wolf (no sessions or lobbies), private config
+ownership, a protected before-image and verified stop/edit/restart readback.
+Unchanged assignments do not require an idle writer or restart it. Compose images
+are pre-pulled; spawned images are pulled by Wolf on use. Pin convergence does not
+launch games or qualify first-use compatibility. Failures retain production
+ownership and recovery material rather than accepting unapplied source.
 
 The daily backup remains at 05:00 host-local Pacific time. No per-PR full backup
 is added. Fresh local coverage under the current scope/policy admits routine

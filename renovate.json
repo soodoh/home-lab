@@ -28,7 +28,7 @@
       "rangeStrategy": "bump"
     },
     {
-      "description": "Keep major, floating and custom-manager Docker updates manually reviewed",
+      "description": "Keep unadmitted Docker updates manual; only explicit routine rules override this default",
       "matchDatasources": [
         "docker"
       ],
@@ -57,6 +57,32 @@
       "matchFileNames": ["services/gaming.yml"],
       "matchPackageNames": ["ghcr.io/games-on-whales/wolf"],
       "matchCurrentValue": "stable",
+      "matchUpdateTypes": ["digest"],
+      "groupName": "routine Compose images",
+      "groupSlug": "routine-compose-images",
+      "automerge": true,
+      "labels": ["compose-routine"]
+    },
+    {
+      "description": "Include digest-only updates to the existing Wolf UI main channel in the routine batch",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["services/data/wolf/security.json"],
+      "matchPackageNames": ["ghcr.io/games-on-whales/wolf-ui"],
+      "matchCurrentValue": "main",
+      "matchUpdateTypes": ["digest"],
+      "groupName": "routine Compose images",
+      "groupSlug": "routine-compose-images",
+      "automerge": true,
+      "labels": ["compose-routine"]
+    },
+    {
+      "description": "Include digest-only updates to the existing Wolf spawned application edge channels in the routine batch",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["services/data/wolf/security.json"],
+      "matchPackageNames": ["ghcr.io/games-on-whales/steam", "ghcr.io/games-on-whales/es-de"],
+      "matchCurrentValue": "edge",
       "matchUpdateTypes": ["digest"],
       "groupName": "routine Compose images",
       "groupSlug": "routine-compose-images",

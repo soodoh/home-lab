@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Exercise admission with real source archives, not workflow/source-text assertions."""
 
+import copy
 import importlib.util
 import io
+import json
 from pathlib import Path
 import subprocess
 import tarfile
@@ -22,6 +24,14 @@ def image(tag="1.2.3", digest="a", name="example/app"):
 
 def source(tag="1.2.3", digest="a", name="example/app"):
     return f"services:\n  app:\n    image: {image(tag, digest, name)}\n    restart: unless-stopped\n".encode()
+
+
+WOLF_POLICY_PATH = "services/data/wolf/security.json"
+WOLF_POLICY = json.loads((ROOT / WOLF_POLICY_PATH).read_bytes())
+
+
+def wolf_policy(policy=None):
+    return (json.dumps(WOLF_POLICY if policy is None else policy, indent=2) + "\n").encode()
 
 
 class AdmissionTests(unittest.TestCase):
@@ -119,7 +129,7 @@ class AdmissionTests(unittest.TestCase):
                          old_extra={"services/gaming.yml": source("stable", name=wolf)},
                          extra={"services/gaming.yml": source("stable", "b", "other/wolf")})
 
-    def test_wolf_digest_update_does_not_admit_configuration_or_spawned_image_changes(self):
+    def test_wolf_digest_update_does_not_admit_configuration_or_invalid_pin_changes(self):
         wolf = "ghcr.io/games-on-whales/wolf"
         old = {"services/gaming.yml": source("stable", name=wolf)}
         new = {"services/gaming.yml": source("stable", "b", wolf)}
@@ -133,6 +143,65 @@ class AdmissionTests(unittest.TestCase):
             with self.subTest(paths=sorted(extra)):
                 with self.assertRaises(ValueError):
                     self.compare(source(), extra=extra, old_extra=old_extra)
+
+    def test_each_spawned_digest_and_combined_wolf_updates_join_routine_batch(self):
+        for sources in ([pin["source"]] for pin in WOLF_POLICY["image_pins"]):
+            updated = copy.deepcopy(WOLF_POLICY)
+            for pin in updated["image_pins"]:
+                if pin["source"] in sources:
+                    pin["image"] = pin["source"] + "@sha256:" + "b" * 64
+            with self.subTest(sources=sources):
+                self.assertEqual(self.compare(source(),
+                    old_extra={WOLF_POLICY_PATH: wolf_policy()},
+                    extra={WOLF_POLICY_PATH: wolf_policy(updated)}), 1)
+        updated = copy.deepcopy(WOLF_POLICY)
+        for pin in updated["image_pins"]:
+            pin["image"] = pin["source"] + "@sha256:" + "b" * 64
+        self.assertEqual(self.compare(source("1.3.0", "b"),
+            old_extra={WOLF_POLICY_PATH: wolf_policy(), "services/gaming.yml": source("stable", name="ghcr.io/games-on-whales/wolf")},
+            extra={WOLF_POLICY_PATH: wolf_policy(updated), "services/gaming.yml": source("stable", "b", "ghcr.io/games-on-whales/wolf")}), 5)
+        self.assertEqual(self.compare(source(), old_extra={WOLF_POLICY_PATH: wolf_policy()},
+            extra={WOLF_POLICY_PATH: wolf_policy()}), 0)
+
+    def test_spawned_digest_exception_refuses_security_configuration_and_identity_changes(self):
+        updated = copy.deepcopy(WOLF_POLICY)
+        updated["image_pins"][0]["image"] = updated["image_pins"][0]["source"] + "@sha256:" + "b" * 64
+        candidates = []
+        for key, value in (("tcp_ports", [22]), ("lan_interface", "eth0"), ("unexpected", True)):
+            candidate = copy.deepcopy(updated)
+            candidate[key] = value
+            candidates.append(candidate)
+        for replacement in ("ghcr.io/games-on-whales/wolf-ui:stable", "untrusted/wolf-ui:main"):
+            candidate = copy.deepcopy(updated)
+            candidate["image_pins"][0] = {"source": replacement, "image": replacement + "@sha256:" + "b" * 64}
+            candidates.append(candidate)
+        for pins in (updated["image_pins"][:-1], updated["image_pins"] + [updated["image_pins"][0]],
+                     list(reversed(updated["image_pins"]))):
+            candidates.append({**updated, "image_pins": pins})
+        for candidate in candidates:
+            with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                self.compare(source(), old_extra={WOLF_POLICY_PATH: wolf_policy()},
+                             extra={WOLF_POLICY_PATH: wolf_policy(candidate)})
+        for content in (wolf_policy(updated).replace(b'"image_pins": [', b'"image_pins": [], "image_pins": ['),
+                        wolf_policy(updated).replace(b'"source": ', b'"source": "unknown", "source": ', 1),
+                        wolf_policy(updated).replace(b"b" * 64, b"B" * 64),
+                        wolf_policy(updated).replace(b"@sha256:" + b"b" * 64, b"")):
+            with self.subTest(content=content), self.assertRaises(ValueError):
+                self.compare(source(), old_extra={WOLF_POLICY_PATH: wolf_policy()},
+                             extra={WOLF_POLICY_PATH: content})
+
+    def test_spawned_digest_exception_requires_exact_path_and_accepted_baseline(self):
+        updated = copy.deepcopy(WOLF_POLICY)
+        updated["image_pins"][0]["image"] = updated["image_pins"][0]["source"] + "@sha256:" + "b" * 64
+        for path in ("services/data/wolf/other.json", "services/security.yml"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.compare(source(), old_extra={path: wolf_policy()}, extra={path: wolf_policy(updated)})
+        invalid = copy.deepcopy(WOLF_POLICY)
+        invalid["image_pins"][0]["source"] = "ghcr.io/games-on-whales/wolf-ui:stable"
+        invalid["image_pins"][0]["image"] = invalid["image_pins"][0]["source"] + "@sha256:" + "a" * 64
+        with self.assertRaises(ValueError):
+            self.compare(source(), old_extra={WOLF_POLICY_PATH: wolf_policy(invalid)},
+                         extra={WOLF_POLICY_PATH: wolf_policy(updated)})
 
     def test_floating_and_prerelease_tag_transitions_require_manual_deployment(self):
         for old_tag, new_tag in (("latest", "0.6.6"), ("2.6.5-develop", "2.6.5")):
