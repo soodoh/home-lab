@@ -78,6 +78,7 @@ async function verifyUpdate(dep, newVersion, expectedType) {
 
 for (const [packageName, current, updates] of [
   ['ghcr.io/linuxserver/sonarr', '4.0.20', [['4.0.21', 'patch'], ['5.0.0', 'major']]],
+  ['radrootllc/karaoke-eternal', '2.0.2', [['2.0.3', 'patch'], ['2.1.0', 'minor'], ['3.0.0', 'major']]],
   ['postgres', '18.6-alpine', [['18.7-alpine', 'minor'], ['19.0-alpine', 'major']]],
   ['postgres', '19.0-alpine', [['19.1-alpine', 'minor'], ['20.0-alpine', 'major']]],
   ['ghcr.io/linuxserver/qbittorrent', '5.2.4', [
@@ -224,7 +225,27 @@ for (const type of ['minor', 'patch', 'digest', 'major']) {
 const wolfFile = 'services/data/wolf/security.json';
 const spawnedImages = customDependencies(wolfFile);
 assert.equal(spawnedImages.length, 3);
-for (const dep of spawnedImages) await verifyPolicy(dep, 'custom.regex', wolfFile, 'digest', false);
+for (const dep of spawnedImages) {
+  const update = await rules.applyPackageRules({
+    ...config, ...dep, packageName: dep.depName,
+    manager: 'custom.regex', packageFile: wolfFile, updateType: 'digest',
+  });
+  assert.equal(update.automerge, true, dep.depName);
+  assert.equal(update.groupName, 'routine Compose images');
+  assert.equal(update.groupSlug, 'routine-compose-images');
+  assert.equal(update.minimumReleaseAge, '3 days');
+  verifyLabels(update, 'compose-routine');
+  for (const type of ['minor', 'patch', 'major', 'pinDigest']) {
+    await verifyPolicy(dep, 'custom.regex', wolfFile, type, false);
+  }
+  await verifyPolicy(dep, 'custom.regex', 'services/data/wolf/other.json', 'digest', false);
+  await verifyPolicy(dep, 'docker-compose', wolfFile, 'digest', false);
+  for (const tag of ['latest', 'stable', '1.0.0', dep.currentValue === 'main' ? 'edge' : 'main']) {
+    await verifyPolicy({ ...dep, currentValue: tag }, 'custom.regex', wolfFile, 'digest', false);
+  }
+}
+await verifyPolicy({ datasource: 'docker', depName: 'ghcr.io/games-on-whales/unknown', currentValue: 'edge' },
+  'custom.regex', wolfFile, 'digest', false);
 
 // Boundary fixtures cover categories without a current update and future edits
 // that might otherwise enlarge one of the narrowly scoped admitted groups.

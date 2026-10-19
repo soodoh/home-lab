@@ -65,6 +65,8 @@
           ansible.builtin.copy:
             dest: '{{ wolf_security_config_path }}'
             content: '{{ wolf_restart_fixture }}'
+            owner: '1000'
+            group: '1000'
             mode: '0600'
 
         - name: Write an inert service using an existing pinned Redis image
@@ -147,6 +149,19 @@
         - name: Require the caller to have restarted its stopped writer
           ansible.builtin.assert:
             that: not wolf_restart_observation.changed
+
+        # The real image-only entry must be a no-op without looking up a production
+        # container/socket or touching the firewall when all assignments are current.
+        - name: Repeat through the image-only Compose deployment interface
+          ansible.builtin.import_role:
+            name: wolf_security
+            tasks_from: images
+
+        - name: Require idempotent image-only convergence
+          ansible.builtin.assert:
+            that:
+              - not wolf_security_assignments.changed
+              - not wolf_security_image_update_required
       always:
         - name: Remove only the synthetic Compose project and its anonymous volumes
           community.docker.docker_compose_v2:

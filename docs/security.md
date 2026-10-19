@@ -269,12 +269,15 @@ It stops only Wolf, retains a protected complete configuration before-image,
 changes only the declared image fields, preserves application ownership and
 checks the complete changed settings again after healthy startup. Unknown, duplicated
 or retargeted images refuse admission. It does not launch Steam or an emulator
-or prove first-use application compatibility. Spawned application image digest
-updates are reviewed changes, including Renovate candidates; changing tags also
-requires reviewing the declared source identity. The separate Compose Wolf server
-image has an approved automatic `stable` digest-only exception under the
-[automatic upgrade policy](operations.md#automatic-compose-updates); it does not
-authorize changes to these spawned application assignments.
+or prove first-use application compatibility. The
+[automatic upgrade policy](operations.md#automatic-compose-updates) admits
+digest-only updates for the existing Wolf server `stable`, Wolf UI `main`, and
+Steam/ES-DE `edge` channels, accepting their unclassified breaking-change risk as
+routine. Scheduled Compose convergence uses the shared image-only role before
+accepting source; it never changes firewall rules. Already-current assignments do
+not require idle sessions or a restart. Changed assignments retain the same idle,
+ownership, stopped-writer and before-image safeguards. Tag/repository changes,
+image-set changes and firewall settings still require separate review.
 
 ## OpenTofu state and plans
 

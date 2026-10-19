@@ -138,7 +138,7 @@
              compose_native_source_archives.results[0].stat.checksum !=
              compose_native_source_archives.results[1].stat.checksum }}
 
-    - name: Admit only routine versioned images and the approved Wolf stable digest exception
+    - name: Admit only routine versioned images and approved Wolf channel digest changes
       ansible.builtin.script:
         cmd: >-
           {{ compose_native_implementation_root }}/scripts/compose-upgrade-admission.py
