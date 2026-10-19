@@ -182,6 +182,13 @@
     fail_msg: Native Compose convergence did not return the expected service count.
   no_log: true
 
+- name: Converge Wolf application image pins without changing host firewall policy
+  ansible.builtin.include_role:
+    name: wolf_security
+    tasks_from: images
+    apply:
+      become: true
+
 - name: Sync Shelfmark consumers from the existing encrypted credential authorities
   ansible.builtin.include_role:
     name: shelfmark

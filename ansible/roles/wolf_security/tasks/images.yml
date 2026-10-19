@@ -1,0 +1,15 @@
+---
+# Image-only deployment interface: never installs or changes the host firewall.
+# The caller holds production ownership and has admitted backup/source policy.
+- name: Validate declared application image pins
+  ansible.builtin.import_tasks: validate-images.yml
+
+- name: Admit private configuration and preview persisted image assignments
+  ansible.builtin.import_tasks: config-admission.yml
+
+- name: Observe the idle writer only when its application pins need changing
+  ansible.builtin.include_tasks: observe-writer.yml
+  when: wolf_security_assignments.changed | bool # noqa: no-handler - synchronous admission before the writer stops
+
+- name: Converge only persisted application image references
+  ansible.builtin.import_tasks: image-pins.yml

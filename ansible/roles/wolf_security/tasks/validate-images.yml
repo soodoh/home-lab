@@ -1,0 +1,16 @@
+---
+- name: Require a nonempty unambiguous application image set
+  ansible.builtin.assert:
+    that:
+      - wolf_security_policy.image_pins | length > 0
+      - (wolf_security_policy.image_pins | map(attribute='source') | unique | length) == (wolf_security_policy.image_pins | length)
+    fail_msg: Wolf application images require unique declared source identities.
+
+- name: Require tag-and-digest application pins without changing repositories
+  ansible.builtin.assert:
+    that:
+      - item.source is match('^ghcr.io/games-on-whales/[a-z0-9-]+:[a-zA-Z0-9._-]+$')
+      - item.image is match('^' ~ (item.source | regex_escape) ~ '@sha256:[0-9a-f]{64}$')
+  loop: "{{ wolf_security_policy.image_pins }}"
+  loop_control:
+    label: "{{ item.source }}"
