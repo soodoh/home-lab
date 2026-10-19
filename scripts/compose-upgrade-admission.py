@@ -20,9 +20,18 @@ IMAGE_LINE = re.compile(
     rb"(?m)^(?P<prefix>(?: {4}image: |x-nextcloud-image: &nextcloud-image ))"
     rb"(?P<image>[^\s]+@sha256:[a-f0-9]{64})(?P<suffix>[ \t]*\r?)$"
 )
-# Explicit standing exception: only the existing Wolf stable image in gaming.yml.
+# Standing channel exceptions admit digest changes, never tag/repository changes.
 WOLF_STABLE_IMAGE = re.compile(
     rb"ghcr\.io/games-on-whales/wolf:stable@sha256:[a-f0-9]{64}"
+)
+WOLF_SPAWNED_SOURCES = frozenset({
+    "ghcr.io/games-on-whales/wolf-ui:main",
+    "ghcr.io/games-on-whales/steam:edge",
+    "ghcr.io/games-on-whales/es-de:edge",
+})
+WOLF_PIN_LINE = re.compile(
+    rb'(?m)^(?P<prefix>[ \t]*"image"[ \t]*:[ \t]*"ghcr\.io/games-on-whales/'
+    rb'(?:wolf-ui:main|steam:edge|es-de:edge)@sha256:)[a-f0-9]{64}(?P<suffix>"[ \t]*,?[ \t]*\r?)$'
 )
 VERSIONED_IMAGE = re.compile(
     r"(?P<name>.+):v?(?P<version>[0-9]+(?:\.[0-9]+){1,3})"
@@ -64,6 +73,37 @@ def admit_image(old: bytes, new: bytes) -> None:
         raise ValueError("version_downgrade")
 
 
+def admit_wolf_pins(old: bytes, new: bytes) -> int:
+    """Admit only the three declared channel digests; preserve all other bytes."""
+    def unique_object(pairs):
+        if len(dict(pairs)) != len(pairs):
+            raise ValueError("non_image_source_change")
+        return dict(pairs)
+
+    documents = []
+    for content in (old, new):
+        try:
+            document = json.loads(content, object_pairs_hook=unique_object)
+            pins = document["image_pins"]
+            if len(pins) != len(WOLF_SPAWNED_SOURCES) or {pin["source"] for pin in pins} != WOLF_SPAWNED_SOURCES:
+                raise ValueError("non_image_source_change")
+            for pin in pins:
+                if re.fullmatch(re.escape(pin["source"]) + r"@sha256:[a-f0-9]{64}", pin["image"]) is None:
+                    raise ValueError("non_image_source_change")
+                pin["image"] = pin["source"]
+            documents.append(document)
+        except (ValueError, KeyError, TypeError) as error:
+            raise ValueError("non_image_source_change") from error
+    if documents[0] != documents[1]:
+        raise ValueError("non_image_source_change")
+    before, after = list(WOLF_PIN_LINE.finditer(old)), list(WOLF_PIN_LINE.finditer(new))
+    if (len(before) != len(WOLF_SPAWNED_SOURCES) or len(after) != len(before)
+            or WOLF_PIN_LINE.sub(rb"\g<prefix><digest>\g<suffix>", old)
+            != WOLF_PIN_LINE.sub(rb"\g<prefix><digest>\g<suffix>", new)):
+        raise ValueError("non_image_source_change")
+    return sum(left[0] != right[0] for left, right in zip(before, after))
+
+
 def admit_archives(active: Path, candidate: Path) -> int:
     before, after = read_archive(active), read_archive(candidate)
     if before.keys() != after.keys():
@@ -73,9 +113,14 @@ def admit_archives(active: Path, candidate: Path) -> int:
         new_entry = after[name]
         if old_entry == new_entry:
             continue
-        if old_entry[:3] != new_entry[:3] or re.fullmatch(r"services/[^/]+\.ya?ml", name) is None:
+        if old_entry[:3] != new_entry[:3]:
             raise ValueError("non_image_source_change")
         old, new = old_entry[3], new_entry[3]
+        if name == "services/data/wolf/security.json":
+            count += admit_wolf_pins(old, new)
+            continue
+        if re.fullmatch(r"services/[^/]+\.ya?ml", name) is None:
+            raise ValueError("non_image_source_change")
         old_images, new_images = list(IMAGE_LINE.finditer(old)), list(IMAGE_LINE.finditer(new))
         if (len(old_images) != len(new_images) or not old_images
                 or IMAGE_LINE.sub(rb"\g<prefix><image>\g<suffix>", old)
