@@ -4,9 +4,6 @@
   gather_facts: true
   gather_subset: ["!all", min]
   any_errors_fatal: true
-  vars:
-    shelfmark_controller_root: "{{ compose_schedule_workspace.path }}/source"
-    grimmory_controller_root: "{{ compose_schedule_workspace.path }}/source"
   tasks:
     - name: Require execution on the existing Docker host rather than a remote controller
       ansible.builtin.assert:

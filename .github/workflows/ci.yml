@@ -89,8 +89,10 @@ jobs:
       - name: Test scheduled backup and deployment ordering through native systemd
         run: sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python)" scripts/test-compose-schedule-systemd.py
 
-      - name: Test inspected production lock recovery through native Ansible
-        run: sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-apply-lock-clearance.py
+      - name: Test production ownership and inspected lock recovery through native Ansible
+        run: |
+          sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-deployment-interfaces.py
+          sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-apply-lock-clearance.py
 
       - name: Validate backup and recovery behavior
         run: |

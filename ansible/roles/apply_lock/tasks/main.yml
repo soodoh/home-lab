@@ -1,4 +1,11 @@
 ---
+# This non-cacheable output belongs only to the latest successful acquisition or
+# explicit adoption. Ansible host facts otherwise survive failures and later plays.
+- name: Invalidate any previous acquired-owner identity
+  ansible.builtin.set_fact:
+    apply_lock_owner_sha256: ""
+    cacheable: false
+
 - name: Validate the production apply-lock action
   ansible.builtin.assert:
     that:
@@ -71,9 +78,11 @@
         /usr/bin/chown root:root "$staging" "$staging/owner";
         /usr/bin/chmod 0700 "$staging";
         /usr/bin/chmod 0600 "$staging/owner";
+        owner_sha256=$(/usr/bin/sha256sum "$staging/owner" | /usr/bin/cut --delimiter=' ' --fields=1);
         test ! -e "$lock";
         /usr/bin/mv --no-target-directory -- "$staging" "$lock";
-        trap - EXIT HUP INT TERM
+        trap - EXIT HUP INT TERM;
+        /usr/bin/printf '%s\n' "$owner_sha256"
       - apply-lock-acquire
       - "{{ apply_lock_path }}"
       - "{{ ansible_user | default('unknown') }}"
@@ -82,9 +91,11 @@
       - "{{ '/var/lib/home-lab/reconciliation/apply.lock' if apply_lock_guard_path | length > 0 else '' }}"
   become: true
   changed_when: false
+  register: apply_lock_acquire_result
   when:
     - not ansible_check_mode
     - apply_lock_action == 'acquire'
+
 - name: Adopt only the exact retained production apply lock
   ansible.builtin.command:
     argv:
@@ -109,7 +120,8 @@
         /usr/bin/grep --fixed-strings --line-regexp -- "controller=$expected_controller" "$owner" >/dev/null;
         /usr/bin/grep --fixed-strings --line-regexp -- "operation=$expected_operation" "$owner" >/dev/null;
         test "$(/usr/bin/grep --extended-regexp --count '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$owner")" -eq 1;
-        test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = "$expected_owner_sha256"
+        test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = "$expected_owner_sha256";
+        /usr/bin/printf '%s\n' "$expected_owner_sha256"
       - apply-lock-adopt
       - "{{ apply_lock_path }}"
       - "{{ ansible_user | default('unknown') }}"
@@ -117,9 +129,30 @@
       - "{{ apply_lock_expected_owner_sha256 }}"
   become: true
   changed_when: false
+  register: apply_lock_adopt_result
   when:
     - not ansible_check_mode
     - apply_lock_action == 'adopt'
+
+- name: Publish identity only from successful guarded ownership
+  when:
+    - not ansible_check_mode
+    - apply_lock_action in ['acquire', 'adopt']
+  vars:
+    apply_lock_owner_result: "{{ apply_lock_acquire_result if apply_lock_action == 'acquire' else apply_lock_adopt_result }}"
+  block:
+    - name: Require a successful exact owner digest
+      ansible.builtin.assert:
+        that:
+          - not (apply_lock_owner_result.skipped | default(false))
+          - apply_lock_owner_result.rc == 0
+          - apply_lock_owner_result.stdout is match('^[0-9a-f]{64}$')
+        fail_msg: Ownership did not produce an acquired-owner identity.
+
+    - name: Expose the acquired owner without caching it
+      ansible.builtin.set_fact:
+        apply_lock_owner_sha256: "{{ apply_lock_owner_result.stdout }}"
+        cacheable: false
 
 - name: Atomically detach and release the exact production apply lock
   ansible.builtin.command:

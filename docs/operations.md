@@ -745,9 +745,12 @@ are independently reviewed, not discovered and silently accepted. API errors or
 unqualified CI leave production unchanged until a later daily cycle.
 
 The installed controller implementation, inventory, scripts and dependencies never
-self-update from the selected checkout. Only admitted application source is read
-there. The existing production/backup locks exclude manual applies and backup
-writers; Compose images are pre-pulled without stopping services. Failures retain
+self-update from the selected checkout. The shared Compose module routes selected
+application source to its nested readers; standalone roles retain independent
+source selection. Executable code and backup policy remain installed-controller
+inputs, never selected application source. The existing production/backup locks
+exclude manual applies and backup writers; Compose images are pre-pulled without
+stopping services. Failures retain
 production ownership and any source before-image for inspection; never automatically
 clear a failed lock. Controller scratch and systemd credential copies are cleaned
 without deleting host recovery material.
@@ -819,6 +822,10 @@ Focused tests are `python3 scripts/test-compose-upgrade-admission.py` and
 installation admission). `python3 scripts/test-apply-lock-clearance.py` checks
 clearance inputs locally; CI also exercises root-owned manual and scheduled lock
 clearance on synthetic paths with `HOME_LAB_LOCK_TEST_DISPOSABLE=true`.
+CI also runs `scripts/test-deployment-interfaces.py` as root with
+`HOME_LAB_LOCK_TEST_DISPOSABLE=true` on disposable Linux: it exercises native
+acquisition/adoption, shared admission, failure retention and selected-source wiring
+with synthetic application dependencies. Never run it on a managed host.
 CI additionally runs
 `sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python3)" scripts/test-compose-schedule-systemd.py`
 on its disposable Linux runner, exercising actual timer ordering, manual-backup
@@ -929,8 +936,14 @@ nor an old adoption report is permission to repeat an import.
 ## Operation ownership and cleanup
 
 `/var/lib/iac-ansible-production.lock` serializes production host mutation;
-backup writers use `/run/lock/home-lab-backup.lock`. Never delete an owner just
-because its controller has gone: inspect its process and journal first.
+backup writers use `/run/lock/home-lab-backup.lock`. The `apply_lock` module emits
+`apply_lock_owner_sha256` only after successful guarded acquisition or explicit
+adoption. Shared backup admission consumes that identity and rechecks the live
+owner; callers must not reconstruct it, override it or resume past acquisition.
+The non-cacheable output is cleared on every lock invocation, including refusal,
+check mode and release; it is not a durable receipt. Existing release inputs and
+success-only placement are unchanged. Never delete an owner just because its
+controller has gone: inspect its process and journal first.
 [`clear-failed-apply-lock.yml`](../ansible/playbooks/clear-failed-apply-lock.yml)
 removes only one separately inspected terminal owner. Supply its exact
 `iac_failed_lock_expected_operation` and review a check run before confirming

@@ -192,6 +192,8 @@
 - name: Sync Shelfmark consumers from the existing encrypted credential authorities
   ansible.builtin.include_role:
     name: shelfmark
+  vars:
+    shelfmark_controller_root: "{{ compose_native_controller_root }}"
 
 - name: Verify the complete deployed model and required health before accepting source
   ansible.builtin.include_tasks: observe.yml
