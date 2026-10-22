@@ -18,17 +18,7 @@
     fail_msg: Confirm working Proxmox console access before applying Wolf firewall rules.
   when: not ansible_check_mode
 
-- name: Validate declared application image pins
-  ansible.builtin.import_tasks: validate-images.yml
-
-- name: Observe the idle Wolf writer before firewall or image changes
-  ansible.builtin.import_tasks: observe-writer.yml
-
-- name: Admit existing private configuration and preview all image assignments
-  ansible.builtin.import_tasks: config-admission.yml
-
-- name: Converge the separately owned protocol-port firewall
-  ansible.builtin.import_tasks: firewall.yml
-
-- name: Converge persisted application image references
-  ansible.builtin.import_tasks: image-pins.yml
+- name: Converge the admitted full security lifecycle
+  ansible.builtin.include_tasks: lifecycle.yml
+  vars:
+    wolf_security_full_convergence: true

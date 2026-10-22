@@ -1,0 +1,58 @@
+---
+# Both caller-facing entries share admission and mutation. Full security retains
+# idle -> private configuration -> firewall -> images ordering; image-only no-ops
+# never inspect a writer or touch the firewall.
+- name: Validate declared application image pins
+  ansible.builtin.import_tasks: validate-images.yml
+
+- name: Observe the idle Wolf writer before full security convergence
+  ansible.builtin.include_tasks: observe-writer.yml
+  when: wolf_security_full_convergence | bool
+
+- name: Inspect persisted Wolf configuration ownership
+  ansible.builtin.stat:
+    path: "{{ wolf_security_config_path }}"
+    follow: false
+    get_checksum: false
+  register: wolf_security_config_metadata
+  no_log: true
+
+- name: Require the observed private application-owned configuration
+  ansible.builtin.assert:
+    that:
+      - wolf_security_config_metadata.stat.isreg
+      - not wolf_security_config_metadata.stat.islnk
+      - wolf_security_config_metadata.stat.uid == 1000
+      - wolf_security_config_metadata.stat.gid == 1000
+      - wolf_security_config_metadata.stat.mode == '0600'
+      - wolf_security_config_metadata.stat.nlink == 1
+    fail_msg: Inspect unexpected Wolf configuration metadata before changing images.
+
+- name: Read persisted settings without exposing paired-client data
+  ansible.builtin.slurp:
+    src: "{{ wolf_security_config_path }}"
+  register: wolf_security_config_before
+  no_log: true
+
+- name: Preview only native image-field replacements before any live change
+  ansible.builtin.import_tasks: assignments.yml
+  vars:
+    wolf_security_assignment_check: true
+
+- name: Converge the separately owned protocol-port firewall after configuration admission
+  ansible.builtin.include_tasks: firewall.yml
+  when: wolf_security_full_convergence | bool
+
+- name: Observe the idle writer only for changed image-only convergence
+  ansible.builtin.include_tasks: observe-writer.yml
+  when:
+    - not (wolf_security_full_convergence | bool)
+    - wolf_security_assignments.changed | bool # noqa: no-handler - synchronous writer admission
+
+# include_tasks evaluates this condition once, not on every replacement and
+# restart task. A current first pin cannot cancel later pins or writer restart.
+- name: Converge admitted image changes through verified writer restart
+  ansible.builtin.include_tasks: image-pins.yml
+  when:
+    - not ansible_check_mode
+    - wolf_security_assignments.changed | bool # noqa: no-handler - synchronous admitted lifecycle

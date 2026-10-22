@@ -6,7 +6,6 @@
   gather_facts: false
   any_errors_fatal: true
   vars:
-    wolf_security_assignment_check: false
     wolf_security_policy:
       image_pins:
         - source: ghcr.io/games-on-whales/es-de:edge
@@ -92,31 +91,33 @@
           environment:
             HOME: '{{ compose_native_home }}'
 
-        - name: Read the synthetic pre-change document
-          ansible.builtin.slurp:
-            src: '{{ wolf_security_config_path }}'
-          register: wolf_security_config_before
+        - name: Copy the installed Wolf implementation into the isolated fixture
+          ansible.builtin.copy:
+            src: '{{ playbook_dir }}/../roles/wolf_security/'
+            dest: '{{ wolf_restart_dir.path }}/wolf_security/'
+            mode: preserve
 
-        - name: Observe initial synthetic document metadata
-          ansible.builtin.stat:
-            path: '{{ wolf_security_config_path }}'
-          register: wolf_security_config_metadata
+        # The inert container has no Wolf socket or production mounts. Substitute
+        # only writer observation; private-file admission and the complete changed
+        # image-only entry remain real. Unix-socket admission is covered separately.
+        - name: Supply idle runtime responses for the inert writer adapter
+          ansible.builtin.copy:
+            dest: '{{ wolf_restart_dir.path }}/wolf_security/tasks/observe-writer.yml'
+            mode: '0600'
+            content: |
+              ---
+              - name: Admit the synthetic idle writer
+                ansible.builtin.import_tasks: idle.yml
+                vars:
+                  wolf_security_sessions:
+                    content: '{"success":true,"sessions":[]}'
+                  wolf_security_lobbies:
+                    content: '{"success":true,"lobbies":[]}'
 
-        - name: Preview the real assignment seam
-          ansible.builtin.import_role:
-            name: wolf_security
-            tasks_from: assignments
-          vars:
-            wolf_security_assignment_check: true
-
-        - name: Require the stale second assignment to request an update
-          ansible.builtin.assert:
-            that: wolf_security_assignments.changed
-
-        - name: Execute the real stopped-writer and restart orchestration
-          ansible.builtin.import_role:
-            name: wolf_security
-            tasks_from: image-pins
+        - name: Execute the changed image-only interface with native writer restart
+          ansible.builtin.include_role:
+            name: '{{ wolf_restart_dir.path }}/wolf_security'
+            tasks_from: images
 
         - name: Read the actual updated document
           ansible.builtin.slurp:
@@ -157,11 +158,16 @@
             name: wolf_security
             tasks_from: images
 
-        - name: Require idempotent image-only convergence
+        - name: Require no retained before-image after verified convergence
+          ansible.builtin.find:
+            paths: '{{ wolf_restart_dir.path }}'
+            patterns: home-lab-wolf-security.*
+            file_type: directory
+          register: wolf_restart_before_images
+
+        - name: Require terminal before-image cleanup
           ansible.builtin.assert:
-            that:
-              - not wolf_security_assignments.changed
-              - not wolf_security_image_update_required
+            that: wolf_restart_before_images.matched == 0
       always:
         - name: Remove only the synthetic Compose project and its anonymous volumes
           community.docker.docker_compose_v2:

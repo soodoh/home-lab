@@ -824,8 +824,13 @@ clearance inputs locally; CI also exercises root-owned manual and scheduled lock
 clearance on synthetic paths with `HOME_LAB_LOCK_TEST_DISPOSABLE=true`.
 CI also runs `scripts/test-deployment-interfaces.py` as root with
 `HOME_LAB_LOCK_TEST_DISPOSABLE=true` on disposable Linux: it exercises native
-acquisition/adoption, shared admission, failure retention and selected-source wiring
-with synthetic application dependencies. Never run it on a managed host.
+acquisition/adoption, shared admission, selected-source wiring, managed publication
+and the Wolf image-update lifecycle through their caller-facing interfaces. Native
+file operations and a synthetic Unix socket exercise admission, recreation ordering
+and failure retention with controlled Docker responses. The isolated
+`ansible/tests/wolf-image-restart.yml` fixture also exercises the changed image-only
+interface against a real inert container. Neither fixture qualifies Wolf streaming
+or production recovery. Never run these fixtures on a managed host.
 CI additionally runs
 `sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python3)" scripts/test-compose-schedule-systemd.py`
 on its disposable Linux runner, exercising actual timer ordering, manual-backup

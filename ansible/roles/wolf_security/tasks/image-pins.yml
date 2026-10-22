@@ -1,123 +1,113 @@
 ---
-# Inherited block conditions are reevaluated for every task and loop item.
-# The replacement loop overwrites its registered result even for an unchanged
-# first pin; freeze admission so later pins and the writer restart still run.
-- name: Freeze the preview decision before stopping the Wolf writer
-  ansible.builtin.set_fact:
-    wolf_security_image_update_required: '{{ wolf_security_assignments.changed | bool }}'
+# Entered dynamically only after lifecycle admission. No inherited condition may
+# depend on the assignment register: native replacement overwrites it.
+- name: Allocate a fresh protected host-side before-image directory
+  ansible.builtin.tempfile:
+    path: "{{ wolf_security_before_image_parent | default('/var/lib') }}"
+    prefix: home-lab-wolf-security.
+    state: directory
+  register: wolf_security_before_image
+  no_log: true
 
-- name: Update only changed persisted image assignments under writer exclusion
-  when:
-    - not ansible_check_mode
-    - wolf_security_image_update_required | bool
-  block:
-    - name: Allocate a fresh protected host-side before-image directory
-      ansible.builtin.tempfile:
-        path: "{{ wolf_security_before_image_parent | default('/var/lib') }}"
-        prefix: home-lab-wolf-security.
-        state: directory
-      register: wolf_security_before_image
-      no_log: true
+- name: Stop only Wolf before editing application-owned configuration
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    env_files: ["{{ compose_native_runtime_env_path }}"]
+    services: [wolf]
+    state: stopped
+  environment:
+    HOME: "{{ compose_native_home }}"
+  no_log: true
 
-    - name: Stop only Wolf before editing application-owned configuration
-      community.docker.docker_compose_v2:
-        project_src: "{{ compose_native_current_dir }}"
-        project_name: "{{ compose_native_project_name }}"
-        env_files: ["{{ compose_native_runtime_env_path }}"]
-        services: [wolf]
-        state: stopped
-      environment:
-        HOME: "{{ compose_native_home }}"
-      no_log: true
+- name: Retain the stopped writer's complete configuration before-image
+  ansible.builtin.copy:
+    src: "{{ wolf_security_config_path }}"
+    dest: "{{ wolf_security_before_image.path }}/config.toml"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
 
-    - name: Retain the stopped writer's complete configuration before-image
-      ansible.builtin.copy:
-        src: "{{ wolf_security_config_path }}"
-        dest: "{{ wolf_security_before_image.path }}/config.toml"
-        remote_src: true
-        owner: root
-        group: root
-        mode: '0600'
-      no_log: true
+- name: Re-read configuration after stopping the writer
+  ansible.builtin.slurp:
+    src: "{{ wolf_security_config_path }}"
+  register: wolf_security_config_stopped
+  no_log: true
 
-    - name: Re-read configuration after stopping the writer
-      ansible.builtin.slurp:
-        src: "{{ wolf_security_config_path }}"
-      register: wolf_security_config_stopped
-      no_log: true
+- name: Refuse a concurrent configuration change since admission
+  ansible.builtin.assert:
+    that: wolf_security_config_stopped.content == wolf_security_config_before.content
+    fail_msg: Wolf settings changed during admission; preserve the before-image and production lock.
+  no_log: true
 
-    - name: Refuse a concurrent configuration change since admission
-      ansible.builtin.assert:
-        that: wolf_security_config_stopped.content == wolf_security_config_before.content
-        fail_msg: Wolf settings changed during admission; preserve the before-image and production lock.
-      no_log: true
+- name: Replace only declared image-reference fields with their reviewed digests
+  ansible.builtin.import_tasks: assignments.yml
+  vars:
+    wolf_security_assignment_check: false
 
-    - name: Replace only declared image-reference fields with their reviewed digests
-      ansible.builtin.import_tasks: assignments.yml
-      vars:
-        wolf_security_assignment_check: false
+- name: Read the changed persisted configuration without logging it
+  ansible.builtin.slurp:
+    src: "{{ wolf_security_config_path }}"
+  register: wolf_security_config_after
+  no_log: true
 
-    - name: Read the changed persisted configuration without logging it
-      ansible.builtin.slurp:
-        src: "{{ wolf_security_config_path }}"
-      register: wolf_security_config_after
-      no_log: true
+- name: Verify all unrelated configuration bytes are preserved
+  ansible.builtin.assert:
+    that: >-
+      (wolf_security_config_before.content | b64decode | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', '')) ==
+      (wolf_security_config_after.content | b64decode | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', ''))
+    fail_msg: Non-image Wolf settings changed; retain the before-image and production lock.
+  no_log: true
 
-    - name: Verify all unrelated configuration bytes are preserved
-      ansible.builtin.assert:
-        that: >-
-          (wolf_security_config_before.content | b64decode | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', '')) ==
-          (wolf_security_config_after.content | b64decode | regex_replace('(?m)^[ \t]*image[ \t]*=.*$', ''))
-        fail_msg: Non-image Wolf settings changed; retain the before-image and production lock.
-      no_log: true
+- name: Start only Wolf and wait for native Compose health
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    env_files: ["{{ compose_native_runtime_env_path }}"]
+    services: [wolf]
+    state: present
+    pull: never
+    wait: true
+    wait_timeout: 120
+  environment:
+    HOME: "{{ compose_native_home }}"
+  no_log: true
 
-    - name: Start only Wolf and wait for native Compose health
-      community.docker.docker_compose_v2:
-        project_src: "{{ compose_native_current_dir }}"
-        project_name: "{{ compose_native_project_name }}"
-        env_files: ["{{ compose_native_runtime_env_path }}"]
-        services: [wolf]
-        state: present
-        pull: never
-        wait: true
-        wait_timeout: 120
-      environment:
-        HOME: "{{ compose_native_home }}"
-      no_log: true
+- name: Read settings again after Wolf has loaded the pins
+  ansible.builtin.slurp:
+    src: "{{ wolf_security_config_path }}"
+  register: wolf_security_config_loaded
+  no_log: true
 
-    - name: Read settings again after Wolf has loaded the pins
-      ansible.builtin.slurp:
-        src: "{{ wolf_security_config_path }}"
-      register: wolf_security_config_loaded
-      no_log: true
+- name: Verify the complete changed configuration persisted after healthy startup
+  ansible.builtin.assert:
+    that: wolf_security_config_loaded.content == wolf_security_config_after.content
+    fail_msg: Wolf settings changed during startup; retain the before-image and production lock.
+  no_log: true
 
-    - name: Verify the complete changed configuration persisted after healthy startup
-      ansible.builtin.assert:
-        that: wolf_security_config_loaded.content == wolf_security_config_after.content
-        fail_msg: Wolf settings changed during startup; retain the before-image and production lock.
-      no_log: true
+- name: Inspect configuration metadata after the writer restart
+  ansible.builtin.stat:
+    path: "{{ wolf_security_config_path }}"
+    follow: false
+    get_checksum: false
+  register: wolf_security_config_metadata_after
+  no_log: true
 
-    - name: Inspect configuration metadata after the writer restart
-      ansible.builtin.stat:
-        path: "{{ wolf_security_config_path }}"
-        follow: false
-        get_checksum: false
-      register: wolf_security_config_metadata_after
-      no_log: true
+- name: Verify private application ownership was preserved
+  ansible.builtin.assert:
+    that:
+      - wolf_security_config_metadata_after.stat.isreg
+      - not wolf_security_config_metadata_after.stat.islnk
+      - wolf_security_config_metadata_after.stat.nlink == 1
+      - wolf_security_config_metadata_after.stat.uid == wolf_security_config_metadata.stat.uid
+      - wolf_security_config_metadata_after.stat.gid == wolf_security_config_metadata.stat.gid
+      - wolf_security_config_metadata_after.stat.mode == wolf_security_config_metadata.stat.mode
+    fail_msg: Wolf metadata changed during convergence; retain the before-image and production lock.
 
-    - name: Verify private application ownership was preserved
-      ansible.builtin.assert:
-        that:
-          - wolf_security_config_metadata_after.stat.isreg
-          - not wolf_security_config_metadata_after.stat.islnk
-          - wolf_security_config_metadata_after.stat.nlink == 1
-          - wolf_security_config_metadata_after.stat.uid == wolf_security_config_metadata.stat.uid
-          - wolf_security_config_metadata_after.stat.gid == wolf_security_config_metadata.stat.gid
-          - wolf_security_config_metadata_after.stat.mode == wolf_security_config_metadata.stat.mode
-        fail_msg: Wolf metadata changed during convergence; retain the before-image and production lock.
-
-    - name: Remove only the verified terminal configuration before-image
-      ansible.builtin.file:
-        path: "{{ wolf_security_before_image.path }}"
-        state: absent
-      no_log: true
+- name: Remove only the verified terminal configuration before-image
+  ansible.builtin.file:
+    path: "{{ wolf_security_before_image.path }}"
+    state: absent
+  no_log: true
