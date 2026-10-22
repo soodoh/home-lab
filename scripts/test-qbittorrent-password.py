@@ -24,6 +24,34 @@ class PasswordCheck(unittest.TestCase):
     def test_matching_username_and_password(self):
         self.assertTrue(qbit.matches(self.conf, "operator", "correct horse"))
 
+    def migrated_conf(self):
+        # qBittorrent 5.3 migrates Preferences/WebUI/* to WebUI/*, without
+        # changing the PBKDF2 encoding or parameters.
+        return self.conf.replace('[Preferences]', '[WebUI]').replace('WebUI\\', '')
+
+    def test_migrated_webui_credentials(self):
+        conf = self.migrated_conf()
+        self.assertTrue(qbit.matches(conf, 'operator', 'correct horse'))
+        self.assertFalse(qbit.matches(conf, 'operator', 'other'))
+        self.assertFalse(qbit.matches(conf, 'other', 'correct horse'))
+
+    def test_partial_migration_fails_closed(self):
+        for conf in (
+            self.migrated_conf().replace('Username=operator\n', ''),
+            self.conf.replace('WebUI\\Username=operator\n', '') + '[WebUI]\nUsername=operator\n',
+        ):
+            with self.subTest(conf=conf), self.assertRaises(ValueError):
+                qbit.matches(conf, 'operator', 'correct horse')
+
+    def test_multiple_credential_locations_fail_closed(self):
+        for conf in (self.conf + self.migrated_conf(), self.conf + '[WebUI]\nUsername=operator\n'):
+            with self.subTest(conf=conf), self.assertRaises(ValueError):
+                qbit.matches(conf, 'operator', 'correct horse')
+
+    def test_migrated_unknown_encoding_fails_closed(self):
+        with self.assertRaises(ValueError):
+            qbit.matches(self.migrated_conf().replace('@ByteArray(', '@Other('), 'operator', 'correct horse')
+
     def test_other_credentials_do_not_match(self):
         self.assertFalse(qbit.matches(self.conf, "operator", "other"))
         self.assertFalse(qbit.matches(self.conf, "other", "correct horse"))

@@ -2,8 +2,9 @@
 """Compare a protected desired WebUI login to qBittorrent's pinned PBKDF2 config.
 
 Input is one JSON document on stdin (never argv); output is only in_sync or
-out_of_sync. The hash format and parameters are from qBittorrent 5.2.3's
-src/base/utils/password.cpp. Unknown formats fail closed.
+out_of_sync. The hash format and parameters are unchanged between qBittorrent 5.2.3 and
+5.3.0's src/base/utils/password.cpp. Version 5.3 moves Preferences/WebUI/*
+to WebUI/* (src/app/upgrade.cpp). Unknown or ambiguous layouts fail closed.
 """
 
 import base64
@@ -18,9 +19,20 @@ import sys
 def matches(conf: str, username: str, password: str) -> bool:
     parser = configparser.ConfigParser(interpolation=None)
     parser.read_string(conf)
+    layouts = [
+        ("Preferences", r"WebUI\Username", r"WebUI\Password_PBKDF2"),
+        ("WebUI", "Username", "Password_PBKDF2"),
+    ]
+    present = [
+        layout for layout in layouts
+        if any(parser.has_option(layout[0], key) for key in layout[1:])
+    ]
+    if len(present) != 1:
+        raise ValueError("missing or ambiguous qBittorrent WebUI configuration")
+    section, user_key, password_key = present[0]
     try:
-        existing_user = parser.get("Preferences", r"WebUI\Username")
-        stored = parser.get("Preferences", r"WebUI\Password_PBKDF2")
+        existing_user = parser.get(section, user_key)
+        stored = parser.get(section, password_key)
     except configparser.Error as exc:
         raise ValueError("missing qBittorrent WebUI configuration") from exc
     if stored.startswith('"') and stored.endswith('"'):
