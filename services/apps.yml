@@ -90,7 +90,7 @@ services:
       - proxy
 
   mindwtr-cloud:
-    image: ghcr.io/dongdongbh/mindwtr-cloud:1.3.6@sha256:7a09c3c9277433d35073a6ae36e734fd979f6773e980bb6bb8c55274f0e98162
+    image: ghcr.io/dongdongbh/mindwtr-cloud:1.3.7@sha256:502a3c945faa06a3810484c28b4fda4350e36924c8782923b3ad74539a87509e
     container_name: mindwtr-cloud
     restart: unless-stopped
     logging: *default-logging
@@ -112,7 +112,7 @@ services:
       - proxy
 
   mindwtr-app:
-    image: ghcr.io/dongdongbh/mindwtr-app:1.3.6@sha256:b757677d91a717e294c9febc0773525fced26ff33a331f3b68a2bc4caaf7660a
+    image: ghcr.io/dongdongbh/mindwtr-app:1.3.7@sha256:972a101e16452009fc721dd31a4ec80139b74768d8107271745ee7083223004f
     container_name: mindwtr-app
     restart: unless-stopped
     logging: *default-logging
