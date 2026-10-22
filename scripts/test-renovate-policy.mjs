@@ -197,6 +197,8 @@ for (const dep of actionDeps.filter((dep) => dep.depType !== 'action')) {
 
 function customDependencies(packageFile) {
   return config.customManagers.flatMap((manager) => {
+    // Presets can also contribute JSONata managers; this extractor accepts regex only.
+    if (manager.customType !== 'regex') return [];
     if (!matching.matchRegexOrGlobList(packageFile, manager.managerFilePatterns)) return [];
     return regex.extractPackageFile(readRepository(packageFile), packageFile, manager)?.deps ?? [];
   });

@@ -37,23 +37,33 @@
         that: wolf_restart_fixture_uid.stdout == '0'
         fail_msg: This isolated fixture requires root escalation for the production before-image copy.
 
-    - name: Allocate a private synthetic fixture
+    # Ansible loads role code as the controller, even when managed tasks become root.
+    - name: Allocate a private controller-owned synthetic fixture
       ansible.builtin.tempfile:
         state: directory
         prefix: wolf-image-restart-test.
+      become: false
       register: wolf_restart_dir
 
     - name: Select only disposable fixture paths and a unique Compose project
       ansible.builtin.set_fact:
-        compose_native_current_dir: '{{ wolf_restart_dir.path }}'
-        compose_native_home: '{{ wolf_restart_dir.path }}'
+        compose_native_current_dir: '{{ wolf_restart_dir.path }}/runtime'
+        compose_native_home: '{{ wolf_restart_dir.path }}/runtime'
         compose_native_project_name: "wolf-restart-{{ wolf_restart_dir.path | basename | hash('sha256') | truncate(12, true, '') }}"
-        compose_native_runtime_env_path: '{{ wolf_restart_dir.path }}/fixture.env'
-        wolf_security_config_path: '{{ wolf_restart_dir.path }}/config.toml'
-        wolf_security_before_image_parent: '{{ wolf_restart_dir.path }}'
+        compose_native_runtime_env_path: '{{ wolf_restart_dir.path }}/runtime/fixture.env'
+        wolf_security_config_path: '{{ wolf_restart_dir.path }}/runtime/config.toml'
+        wolf_security_before_image_parent: '{{ wolf_restart_dir.path }}/runtime'
 
     - name: Exercise the actual stopped-writer caller
       block:
+        - name: Keep privileged runtime files separate from controller-readable role code
+          ansible.builtin.file:
+            path: '{{ compose_native_current_dir }}'
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
+
         - name: Write an empty fixture environment
           ansible.builtin.copy:
             dest: '{{ compose_native_runtime_env_path }}'
@@ -70,7 +80,7 @@
 
         - name: Write an inert service using an existing pinned Redis image
           ansible.builtin.copy:
-            dest: '{{ wolf_restart_dir.path }}/compose.yml'
+            dest: '{{ compose_native_current_dir }}/compose.yml'
             mode: '0600'
             content: >-
               {{ {'services': {'wolf': {
@@ -96,11 +106,13 @@
             src: '{{ playbook_dir }}/../roles/wolf_security/'
             dest: '{{ wolf_restart_dir.path }}/wolf_security/'
             mode: preserve
+          become: false
 
         # The inert container has no Wolf socket or production mounts. Substitute
         # only writer observation; private-file admission and the complete changed
         # image-only entry remain real. Unix-socket admission is covered separately.
         - name: Supply idle runtime responses for the inert writer adapter
+          become: false
           ansible.builtin.copy:
             dest: '{{ wolf_restart_dir.path }}/wolf_security/tasks/observe-writer.yml'
             mode: '0600'
@@ -114,7 +126,7 @@
                   wolf_security_lobbies:
                     content: '{"success":true,"lobbies":[]}'
 
-        - name: Execute the changed image-only interface with native writer restart
+        - name: Execute the changed image-only interface with native writer restart # noqa: role-name[path] - use only the isolated role copy
           ansible.builtin.include_role:
             name: '{{ wolf_restart_dir.path }}/wolf_security'
             tasks_from: images
@@ -160,7 +172,7 @@
 
         - name: Require no retained before-image after verified convergence
           ansible.builtin.find:
-            paths: '{{ wolf_restart_dir.path }}'
+            paths: '{{ wolf_security_before_image_parent }}'
             patterns: home-lab-wolf-security.*
             file_type: directory
           register: wolf_restart_before_images
