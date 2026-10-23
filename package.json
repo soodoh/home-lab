@@ -12,7 +12,7 @@
     "url": "git+https://github.com/soodoh/home-lab.git"
   },
   "license": "MIT",
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "test:boundaries": "python3 scripts/check-source-boundaries.py",
     "test:javascript": "tsc && node --test scripts/controller/*.test.cjs scripts/test-javascript-tooling.test.cjs"
