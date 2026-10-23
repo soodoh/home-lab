@@ -48,7 +48,7 @@ jobs:
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
-          tofu_version: 1.13.1
+          tofu_version: v1.13.2
           # Fixture helpers intentionally omit action-only environment variables.
           tofu_wrapper: false
 
