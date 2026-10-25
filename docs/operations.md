@@ -657,6 +657,30 @@ before retrying. Do not delete host-local artifacts merely because a controller
 session ended. [Recovery](../recovery/README.md) currently supports private
 staging, not production activation.
 
+### Wolf startup and memory containment
+
+`services/gaming.yml` caps the Wolf streaming container at 4 GiB RAM with no
+additional swap allowance. Docker-socket-launched game/application containers are
+siblings and do not inherit that limit. Qualify the cap with representative
+streaming workloads, not idle memory alone.
+
+The managed `services/data/wolf/supervisord.conf` preserves PulseAudio startup
+ordering and native signal handling, but invokes `start-wolf` before every Wolf
+process start, including supervisor restarts. The pinned Wolf crash reader does
+not validate frame-count/frame reads. The small adapter bypasses that reader by
+moving any pending `cfg/backtrace.dump` to `cfg/backtrace.previous.dump` before
+executing Wolf. Only the latest quarantined diagnostic is retained; its contents
+are not logged. Unexpected file types or a failed move refuse startup. Settings,
+pairing keys and application data are untouched. Keep the image-declared runtime
+volume: spawned applications need its host-visible sockets.
+
+Review the supervisor configuration when changing the image's process model.
+Remove the workaround only after a replacement image passes empty/truncated-dump
+startup and internal-restart tests. Run `python3 scripts/test-wolf-start.py` and
+`shellcheck services/data/wolf/start-wolf`; also qualify native supervisor startup
+in an isolated, memory-limited container before deployment. API/health checks do
+not qualify a real Moonlight audio/video/input session.
+
 ### Docker image cleanup
 
 `home-lab-docker-image-prune.timer` runs weekly on Sunday at 04:00 host-local
