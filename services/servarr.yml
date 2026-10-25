@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   shelfmark:
-    image: ghcr.io/calibrain/shelfmark:v1.5.0@sha256:bc10694eb853c56fd267231fc6c2a23a8e09673f88db8b32db89b6e6f29c24f9
+    image: ghcr.io/calibrain/shelfmark:v1.5.1@sha256:2d80ae3bcd631b8b64ca2a0a06735ed8218bc5c96bea502e62c65468aba82654
     container_name: shelfmark
     restart: unless-stopped
     logging: *default-logging
@@ -244,7 +244,7 @@ services:
       RADARR_4K_URL: $RADARR_4K_URL
 
   sonarr:
-    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:889dcc58c6aea859033985894b519b2e6b1e55d92527ed123f9f52e42ae7c97b
+    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:48e36b608b461273b9dae857725cd0561a127f2c694b687318f6d0c5ce63e5c9
     container_name: sonarr
     restart: unless-stopped
     logging: *default-logging
@@ -335,7 +335,7 @@ services:
       - arr_network
 
   qbittorrent:
-    image: ghcr.io/linuxserver/qbittorrent:5.3.0@sha256:e887804fa9de4c60f5f0fb1f3a7e4febe40a8f69fe736f70c4e8589b1f868dab
+    image: ghcr.io/linuxserver/qbittorrent:5.3.0@sha256:75ecbb1c89ab7b0a21c4bde40b4820e4f1649d2d56d83b91913422155e8d2a5f
     container_name: qbittorrent
     restart: unless-stopped
     logging: *default-logging
