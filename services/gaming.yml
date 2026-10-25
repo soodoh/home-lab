@@ -9,6 +9,9 @@ services:
     image: ghcr.io/games-on-whales/wolf:stable@sha256:b0ef253739f9bd49b71eba7e150c955fd05990c0d409e666d89236995351551a
     container_name: wolf
     restart: unless-stopped
+    # Limits the streaming server, not sibling game/application containers.
+    mem_limit: 4g
+    memswap_limit: 4g
     logging: *default-logging
     network_mode: host
     healthcheck:
@@ -28,6 +31,8 @@ services:
       WOLF_DEFAULT_RUN_UID: 1000
       WOLF_DEFAULT_RUN_GID: 1000
     volumes:
+      - ./data/wolf/supervisord.conf:/etc/supervisord.conf:ro
+      - ./data/wolf/start-wolf:/etc/wolf-start:ro
       - ${GAMES_PATH}/wolf:/etc/wolf
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /dev:/dev:rw

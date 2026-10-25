@@ -1,0 +1,23 @@
+#!/bin/sh
+# Wolf's crash reader trusts unchecked frame counts, even in empty dumps.
+# Bypass that reader on every supervisor restart; retain only the latest dump.
+set -eu
+: "${WOLF_CFG_FOLDER:?Wolf configuration directory is required}"
+test -d "$WOLF_CFG_FOLDER"
+pending="$WOLF_CFG_FOLDER/backtrace.dump"
+previous="$WOLF_CFG_FOLDER/backtrace.previous.dump"
+if [ -e "$pending" ] || [ -L "$pending" ]; then
+    if [ ! -f "$pending" ] || [ -L "$pending" ]; then
+        echo '[wolf-start] refusing unexpected crash-dump file type' >&2
+        exit 1
+    fi
+    if [ -e "$previous" ] || [ -L "$previous" ]; then
+        if [ ! -f "$previous" ] || [ -L "$previous" ]; then
+            echo '[wolf-start] refusing unexpected quarantine file type' >&2
+            exit 1
+        fi
+    fi
+    mv -f -- "$pending" "$previous"
+    echo '[wolf-start] quarantined pending crash dump; retained latest only'
+fi
+exec "$@"
