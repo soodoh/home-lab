@@ -31,7 +31,7 @@ services:
     network_mode: host
 
   zwave:
-    image: ghcr.io/zwave-js/zwave-js-ui:11.25.1@sha256:52462f5cb50bd877f257947fa7c8c14c1b4f57140fc1043175c5742a3f18586e
+    image: ghcr.io/zwave-js/zwave-js-ui:11.25.2@sha256:ac4874a3cbea61c0c60002a8fd8ae05104cc8eb2eae91aa05bd184972aa06853
     container_name: zwave
     restart: always
     logging: *default-logging
@@ -56,7 +56,7 @@ services:
       - proxy
 
   mosquitto:
-    image: eclipse-mosquitto:2.0.22-openssl@sha256:199ea8ef2e35ec2b1b37e59cfd1dbae538ed4dfa4a2251a121a52215a6248a21
+    image: eclipse-mosquitto:2.0.22-openssl@sha256:09b62ff32c2e7b64d4b431b9a89236073289b68db273de2b089edeb9b0d92b5c
     container_name: mosquitto
     restart: unless-stopped
     logging: *default-logging
