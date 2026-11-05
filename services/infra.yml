@@ -53,7 +53,7 @@ services:
       - proxy
 
   tailscale-control-proxy:
-    image: gogost/gost:3.3.2@sha256:25648f4aeb4f3a0511e941449229f815802e38ba14394bc5f644629cce0f7a3c
+    image: gogost/gost:3.3.3@sha256:f266f957c6e4f8d433ed23202a5745fa4969d08f3f0ef034fb9357345e16ad67
     container_name: tailscale-control-proxy
     restart: always
     logging: *default-logging
