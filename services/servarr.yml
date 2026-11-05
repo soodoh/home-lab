@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   shelfmark:
-    image: ghcr.io/calibrain/shelfmark:v1.5.1@sha256:2d80ae3bcd631b8b64ca2a0a06735ed8218bc5c96bea502e62c65468aba82654
+    image: ghcr.io/calibrain/shelfmark:v1.6.1@sha256:b849621fcfdb6ec222d3aa1aa1050ebb67facfe2580190c044fd2c1c57df712a
     container_name: shelfmark
     restart: unless-stopped
     logging: *default-logging
@@ -117,7 +117,7 @@ services:
 
   tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2435@sha256:ca891c0a6915666d6a79f16b0119c52a63507d840e14dca0e8dbcc163f60d8b3
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2476@sha256:97e1a6d10fbd1217ffdf68aefa8610fd4be8a041488a1c674d14aea0fdeb5c45
     container_name: tachidesk
     restart: unless-stopped
     logging: *default-logging
@@ -150,7 +150,7 @@ services:
 
   caro-tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2435@sha256:ca891c0a6915666d6a79f16b0119c52a63507d840e14dca0e8dbcc163f60d8b3
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2476@sha256:97e1a6d10fbd1217ffdf68aefa8610fd4be8a041488a1c674d14aea0fdeb5c45
     container_name: caro-tachidesk
     restart: unless-stopped
     logging: *default-logging
@@ -203,7 +203,7 @@ services:
       - /srv/home-lab-state/flaresolverr-data:/config
 
   prowlarr:
-    image: ghcr.io/linuxserver/prowlarr:2.7.0@sha256:04be30163fbaf48d6aeee7b5893c9f6614ffbad6d853971df0d6dcdf01c7f104
+    image: ghcr.io/linuxserver/prowlarr:2.7.0@sha256:431d7efebcef466e56adaa40a7a2fa2b0e85159a037b8bf465eaadbf0cf5bedf
     container_name: prowlarr
     restart: unless-stopped
     network_mode: service:gluetun
@@ -244,7 +244,7 @@ services:
       RADARR_4K_URL: $RADARR_4K_URL
 
   sonarr:
-    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:48e36b608b461273b9dae857725cd0561a127f2c694b687318f6d0c5ce63e5c9
+    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:386c962ee6e260e3a5656b25df2ed056bcc9b6410e197d075f9547fd14c23bca
     container_name: sonarr
     restart: unless-stopped
     logging: *default-logging
@@ -266,7 +266,7 @@ services:
       - ${MEDIA_PATH}:/data
 
   radarr:
-    image: ghcr.io/linuxserver/radarr:6.4.4@sha256:084b3b2ab1d0ef930660727259546a241f2bdf67c9ed085d54bf1486a6887c9b
+    image: ghcr.io/linuxserver/radarr:6.4.4@sha256:ade5937813c6ae415b29db729386e53fea3ecf067a019849bafbe2d2a6ec02ba
     container_name: radarr
     restart: unless-stopped
     logging: *default-logging
@@ -288,7 +288,7 @@ services:
       - ${MEDIA_PATH}:/data
 
   radarr-4k:
-    image: ghcr.io/linuxserver/radarr:6.4.4@sha256:084b3b2ab1d0ef930660727259546a241f2bdf67c9ed085d54bf1486a6887c9b
+    image: ghcr.io/linuxserver/radarr:6.4.4@sha256:ade5937813c6ae415b29db729386e53fea3ecf067a019849bafbe2d2a6ec02ba
     container_name: radarr-4k
     restart: unless-stopped
     logging: *default-logging
@@ -335,7 +335,7 @@ services:
       - arr_network
 
   qbittorrent:
-    image: ghcr.io/linuxserver/qbittorrent:5.3.0@sha256:75ecbb1c89ab7b0a21c4bde40b4820e4f1649d2d56d83b91913422155e8d2a5f
+    image: ghcr.io/linuxserver/qbittorrent:5.3.0@sha256:05c1454f9a32967affc1f34f67f8cc0cc57dd805dca45489fe797095a6286556
     container_name: qbittorrent
     restart: unless-stopped
     logging: *default-logging
@@ -355,7 +355,7 @@ services:
       - ${MEDIA_PATH}/downloads:/data/downloads
 
   sabnzbd:
-    image: ghcr.io/linuxserver/sabnzbd:5.1.3@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01
+    image: ghcr.io/linuxserver/sabnzbd:5.1.3@sha256:a7cfba459929f73b83c98b476a845076dc72524af80b24fcb4200684e6b1b675
     container_name: sabnzbd
     restart: unless-stopped
     logging: *default-logging
