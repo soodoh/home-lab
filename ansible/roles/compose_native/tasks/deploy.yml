@@ -190,6 +190,10 @@
           - "{{ compose_native_runtime_env_path }}"
         ignore_buildable: true
         policy: missing
+      register: compose_native_candidate_pull
+      until: compose_native_candidate_pull is succeeded
+      retries: 3
+      delay: 10
       become: true
       environment:
         HOME: "{{ compose_native_home }}"

@@ -85,6 +85,7 @@ jobs:
         run: |
           python scripts/test-compose-upgrade-admission.py
           python scripts/test-compose-source-selection.py
+          python scripts/test-compose-image-pull.py
 
       - name: Test scheduled backup and deployment ordering through native systemd
         run: sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python)" scripts/test-compose-schedule-systemd.py

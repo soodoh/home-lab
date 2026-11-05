@@ -774,7 +774,9 @@ application source to its nested readers; standalone roles retain independent
 source selection. Executable code and backup policy remain installed-controller
 inputs, never selected application source. The existing production/backup locks
 exclude manual applies and backup writers; Compose images are pre-pulled without
-stopping services. Failures retain
+stopping services. Native Ansible retries a failed pre-pull up to three times with
+a ten-second delay for transient registry failures. Exhausted retries still refuse
+publication and retain ownership; they never restart services or clear locks. Failures retain
 production ownership and any source before-image for inspection; never automatically
 clear a failed lock. Controller scratch and systemd credential copies are cleaned
 without deleting host recovery material.
