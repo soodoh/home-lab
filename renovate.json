@@ -98,7 +98,18 @@
         "/linuxserver/qbittorrent/"
       ],
       "versioning": "semver",
-      "allowedVersions": "!/^v?(?:[0-9]{4,}\\.|14\\.3\\.9$)/"
+      "allowedVersions": "!/^v?(?:[0-9]{4,}\\.|14\\.3\\.9$)/",
+      "groupName": null,
+      "groupSlug": null,
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Require tracker compatibility review for qBittorrent minor and major upgrades; patch and digest updates remain automatic in separate PRs",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/linuxserver/qbittorrent/"],
+      "matchUpdateTypes": ["minor", "major"],
+      "automerge": false,
+      "labels": ["compose-manual"]
     },
     {
       "description": "Group non-major CI-only Python validators without admitting shared deployment dependencies",

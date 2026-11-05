@@ -53,7 +53,7 @@ async function dependency(packageName, currentValue, attributes = {}) {
   });
 }
 
-async function verifyUpdate(dep, newVersion, expectedType) {
+async function verifyUpdate(dep, newVersion, expectedType, isolated = false) {
   const api = versioning.get(dep.versioning ?? 'docker');
   const accepted = filtering.filterVersions(
     dep, dep.currentVersion, undefined, [{ version: newVersion }], api,
@@ -63,40 +63,45 @@ async function verifyUpdate(dep, newVersion, expectedType) {
   assert.equal(updateType, expectedType);
   const update = await rules.applyPackageRules({ ...dep, updateType });
   assert.equal(update.enabled, true);
-  if (expectedType === 'major') {
-    assert.equal(update.automerge, false, `${dep.depName}: major must remain manual`);
-    assert.equal(update.groupName, null, `${dep.depName}: major must remain ungrouped`);
+  if (expectedType === 'major' || (isolated && expectedType === 'minor')) {
+    assert.equal(update.automerge, false, `${dep.depName}: ${expectedType} must remain manual`);
+    assert.equal(update.groupName, null, `${dep.depName}: manual updates must remain ungrouped`);
     verifyLabels(update, 'compose-manual');
-    assert.equal(buckets.getBucket(dep, dep.currentVersion, newVersion, api), 'major');
   } else {
     assert.equal(update.automerge, true);
-    assert.equal(update.groupName, 'routine Compose images');
+    assert.equal(update.groupName, isolated ? null : 'routine Compose images');
     verifyLabels(update, 'compose-routine');
-    assert.equal(buckets.getBucket(dep, dep.currentVersion, newVersion, api), 'non-major');
   }
+  if (isolated) assert.equal(update.groupSlug, null);
+  assert.equal(
+    buckets.getBucket(dep, dep.currentVersion, newVersion, api),
+    isolated || expectedType === 'major' ? expectedType : 'non-major',
+  );
 }
 
-for (const [packageName, current, updates] of [
+for (const [packageName, current, updates, isolated = false] of [
   ['ghcr.io/linuxserver/sonarr', '4.0.20', [['4.0.21', 'patch'], ['5.0.0', 'major']]],
   ['radrootllc/karaoke-eternal', '2.0.2', [['2.0.3', 'patch'], ['2.1.0', 'minor'], ['3.0.0', 'major']]],
   ['postgres', '18.6-alpine', [['18.7-alpine', 'minor'], ['19.0-alpine', 'major']]],
   ['postgres', '19.0-alpine', [['19.1-alpine', 'minor'], ['20.0-alpine', 'major']]],
   ['ghcr.io/linuxserver/qbittorrent', '5.2.4', [
     ['5.2.5', 'patch'], ['5.3.0', 'minor'], ['6.0.0', 'major'],
-  ]],
+  ], true],
   ['ghcr.io/linuxserver/qbittorrent', '6.0.0', [
     ['6.0.1', 'patch'], ['6.1.0', 'minor'], ['7.0.0', 'major'],
     ['14.0.0', 'major'], ['15.0.0', 'major'],
-  ]],
+  ], true],
   ['linuxserver/qbittorrent', '5.2.4', [
     ['5.2.5', 'patch'], ['5.3.0', 'minor'], ['6.0.0', 'major'],
-  ]],
+  ], true],
 ]) {
   const dep = await dependency(packageName, current);
-  for (const [next, type] of updates) await verifyUpdate(dep, next, type);
+  if (isolated) assert.equal(dep.separateMinorPatch, true);
+  for (const [next, type] of updates) await verifyUpdate(dep, next, type, isolated);
   const digest = await rules.applyPackageRules({ ...dep, updateType: 'digest' });
   assert.equal(digest.automerge, true);
-  assert.equal(digest.groupName, 'routine Compose images');
+  assert.equal(digest.groupName, isolated ? null : 'routine Compose images');
+  if (isolated) assert.equal(digest.groupSlug, null);
   verifyLabels(digest, 'compose-routine');
 }
 
@@ -112,7 +117,9 @@ const releases = ['5.2.4', '5.2.5', '5.3.0', '6.0.0', ...misleadingTags]
 const eligible = filtering.filterVersions(qbit, '5.2.4', undefined, releases, qbitApi);
 assert.deepEqual(eligible.map((release) => release.version), ['5.2.5', '5.3.0', '6.0.0']);
 const grouped = buckets.groupReleasesIntoBuckets(qbit, '5.2.4', eligible, qbitApi);
-assert.deepEqual(grouped['non-major'].map((release) => release.version), ['5.2.5', '5.3.0']);
+assert.deepEqual(Object.keys(grouped).sort(), ['major', 'minor', 'patch']);
+assert.deepEqual(grouped.patch.map((release) => release.version), ['5.2.5']);
+assert.deepEqual(grouped.minor.map((release) => release.version), ['5.3.0']);
 assert.deepEqual(grouped.major.map((release) => release.version), ['6.0.0']);
 
 // Native extraction proves that real workflow inputs and package-manager pins
