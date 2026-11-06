@@ -541,7 +541,10 @@ qBittorrent, updates its native listening port and verifies API readback before
 calling the MAM dynamic-seedbox endpoint. Any port-update or verification failure
 stops the hook without a MAM request. Test this behavior with
 `python3 scripts/test-gluetun-hooks.py`; session/cooldown behavior remains covered
-by `python3 scripts/test-mam-seedbox.py`.
+by `python3 scripts/test-mam-seedbox.py`. Cooldown workers send classified retry
+outcomes directly to the container's stdout/stderr, not the foreground hook's
+short-lived output pipes. Check `docker logs gluetun` for retry completion; a
+scheduled-retry message alone does not prove the MAM update succeeded.
 
 After a transport or server change, independently test the VPN **outbound** IP
 and assigned port from outside the VPN, verify the MAM hook outcome and check
