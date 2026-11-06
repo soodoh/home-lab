@@ -120,6 +120,35 @@ class SeedboxHook(unittest.TestCase):
             time.sleep(0.05)
         self.fail("successful retry did not persist its refreshed cookie")
 
+    def test_retry_survives_closed_hook_output_pipes(self):
+        # Gluetun's command runner closes its pipe readers when the foreground
+        # hook exits. docker exec alone keeps them open and misses this boundary.
+        self.shell("""
+mkfifo /fixture/hook-output
+cat /fixture/hook-output >/fixture/foreground.log &
+reader=$!
+sh /scripts/mam_seedbox.sh >/fixture/hook-output 2>&1
+status=$?
+kill "$reader" 2>/dev/null || :
+wait "$reader" 2>/dev/null || :
+exit "$status"
+""")
+        self.wait_lines("sleeps", 1)
+        self.success_response()
+        self.shell("touch /fixture/wake")
+        self.wait_lines("requests", 2)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            output = self.docker("logs", self.container)
+            if "Request was successful!" in output:
+                self.assertIn("refreshed-cookie", self.cookie())
+                self.assertNotIn("refreshed-cookie", output)
+                self.assertNotIn("synthetic-cookie", output)
+                self.assertNotIn("bootstrap-cookie", output)
+                return
+            time.sleep(0.05)
+        self.fail("retry did not publish its cookie and log to the container")
+
     def test_retry_chain_releases_lock_and_stops_at_limit(self):
         self.shell("touch /fixture/wake")
         self.hook(max_retries=2)
