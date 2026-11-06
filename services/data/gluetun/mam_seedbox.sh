@@ -90,6 +90,9 @@ schedule_cooldown_retry() {
     fi
 
     echo "$LOG_PREFIX MAM cooldown active; scheduling retry attempt $next_attempt/$MAX_COOLDOWN_RETRIES in $sleep_seconds seconds."
+    # Gluetun closes the hook's output pipes when the foreground command exits.
+    # The delayed worker needs container-lifetime outputs, including its re-entry,
+    # or its first log write can terminate it with SIGPIPE before the request.
     (
       # The sleeping worker must not retain the current request's lock.
       exec 8>&-
@@ -98,7 +101,7 @@ schedule_cooldown_retry() {
       flock -u 9
       exec 9>&-
       MAM_RETRY_ATTEMPT=$next_attempt /bin/sh "$0"
-    ) &
+    ) </dev/null >/proc/1/fd/1 2>/proc/1/fd/2 &
   )
 }
 
