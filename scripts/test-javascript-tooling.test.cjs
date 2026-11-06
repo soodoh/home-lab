@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { resolve } = require('node:path');
+const { readFileSync } = require('node:fs');
 const yaml = require('js-yaml');
 
 const root = resolve(__dirname, '..');
@@ -35,6 +36,21 @@ test('Lefthook natively validates the actual hook configuration without installi
   });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test('the required CI gate rejects failures, cancellation and skipped or missing lanes', () => {
+  const workflow = yaml.load(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'));
+  const gate = workflow.jobs.validate.steps[0];
+  for (const source of ['success', 'failure', 'cancelled', 'skipped', '']) {
+    for (const host of ['success', 'failure', 'cancelled', 'skipped', '']) {
+      const result = spawnSync('bash', ['-e', '-c', gate.run], {
+        env: { ...process.env, SOURCE_RESULT: source, HOST_RESULT: host }, encoding: 'utf8',
+      });
+      assert.ifError(result.error);
+      assert.equal(result.status === 0, source === 'success' && host === 'success',
+        `source=${source}, host=${host}`);
+    }
+  }
 });
 
 test('the YAML reader preserves image aliases and rejects duplicate service keys', () => {

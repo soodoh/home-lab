@@ -1,0 +1,109 @@
+---
+- name: Qualify the pinned Linux SOPS binary and collection with synthetic age secrets
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ["!all", min]
+  vars:
+    controller_sops_fixture:
+      token: synthetic-controller-value
+      nested:
+        enabled: true
+  tasks:
+    - name: Require the controller binary's native platform and a local root executor
+      ansible.builtin.assert:
+        that:
+          - ansible_connection == 'local'
+          - ansible_facts['system'] == 'Linux'
+          - ansible_facts['architecture'] == 'x86_64'
+          - ansible_facts['user_id'] == 'root'
+          - not ansible_check_mode
+
+    - name: Create a private synthetic controller workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: home-lab-sops-test-
+      register: controller_sops_work
+
+    - name: Exercise production download verification and native decryption without production keys
+      block:
+        - name: Install the real candidate binary through the production checksum gate
+          ansible.builtin.include_role:
+            name: compose_schedule
+            tasks_from: sops
+          vars:
+            compose_schedule_bin: "{{ controller_sops_work.path }}"
+
+        - name: Generate independent disposable age identities
+          ansible.builtin.command:
+            argv: [age-keygen, -o, "{{ controller_sops_work.path }}/{{ item }}"]
+            creates: "{{ controller_sops_work.path }}/{{ item }}"
+          loop: [age-key, wrong-key]
+          no_log: true
+
+        - name: Read the synthetic encryption recipient
+          ansible.builtin.command:
+            argv: [age-keygen, -y, "{{ controller_sops_work.path }}/age-key"]
+          changed_when: false
+          register: controller_sops_recipient
+
+        - name: Write synthetic JSON and YAML source outside the repository
+          ansible.builtin.copy:
+            content: "{{ controller_sops_fixture | to_json }}"
+            dest: "{{ controller_sops_work.path }}/plain.{{ item }}"
+            mode: "0600"
+          loop: [json, yaml]
+          no_log: true
+
+        - name: Encrypt both production document formats with the candidate binary
+          ansible.builtin.command:
+            argv:
+              - "{{ controller_sops_work.path }}/sops"
+              - --encrypt
+              - --age
+              - "{{ controller_sops_recipient.stdout }}"
+              - --input-type
+              - "{{ item }}"
+              - --output-type
+              - "{{ item }}"
+              - --output
+              - "{{ controller_sops_work.path }}/encrypted.{{ item }}"
+              - "{{ controller_sops_work.path }}/plain.{{ item }}"
+            chdir: "{{ controller_sops_work.path }}"
+            creates: "{{ controller_sops_work.path }}/encrypted.{{ item }}"
+          loop: [json, yaml]
+          no_log: true
+
+        - name: Require exact round trips through the candidate community.sops lookup
+          ansible.builtin.assert:
+            that:
+              - >-
+                (lookup('community.sops.sops', controller_sops_work.path ~ '/encrypted.' ~ item,
+                        sops_binary=controller_sops_work.path ~ '/sops',
+                        age_keyfile=controller_sops_work.path ~ '/age-key') | from_yaml)
+                == controller_sops_fixture
+          loop: [json, yaml]
+          no_log: true
+
+        - name: Attempt decryption with an unrelated synthetic identity
+          ansible.builtin.command:
+            argv: ["{{ controller_sops_work.path }}/sops", --decrypt, "{{ controller_sops_work.path }}/encrypted.json"]
+          environment:
+            SOPS_AGE_KEY_FILE: "{{ controller_sops_work.path }}/wrong-key"
+            SOPS_AGE_KEY: ""
+            SOPS_AGE_KEY_CMD: ""
+            HOME: "{{ controller_sops_work.path }}"
+            XDG_CONFIG_HOME: "{{ controller_sops_work.path }}"
+          changed_when: false
+          failed_when: false
+          register: controller_sops_wrong_key
+          no_log: true
+
+        - name: Require decryption to refuse an unrelated identity
+          ansible.builtin.assert:
+            that: controller_sops_wrong_key.rc != 0
+            fail_msg: The candidate SOPS binary accepted an unrelated identity.
+      always:
+        - name: Remove synthetic identities, plaintext, ciphertext and downloaded binary
+          ansible.builtin.file:
+            path: "{{ controller_sops_work.path }}"
+            state: absent

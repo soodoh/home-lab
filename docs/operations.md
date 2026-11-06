@@ -83,47 +83,73 @@ validation dependencies in
 [`controller/requirements-ci.txt`](../controller/requirements-ci.txt).
 Workflow annotations track the Renovate validator. GitHub Actions retain full
 commit SHA pins with version comments; the native manager also tracks Python and
-OpenTofu setup inputs. The local controller's SOPS pin in
-`ansible/roles/compose_schedule/defaults/main.yml` uses the
-`github-release-attachments` datasource to update its release tag and Linux
-amd64 SHA-256 together; keep that annotated version/checksum pair adjacent.
-Review the release asset and checksum before merging, and preserve download-time
-checksum verification. Renovate uses two explicit automatic source-maintenance
-groups, each requiring an up-to-date successful combined CI check:
+OpenTofu setup inputs. Keep collection names and versions adjacent in
+`ansible/collections/requirements.yml`; intervening comments prevent native
+Renovate extraction.
 
-- **Routine Compose images:** the approved application-image policy described below.
-- **Development and CI tooling:** non-major updates to the CI-only `ansible-lint`,
-  `yamllint`, `jsonschema` and `requests` pins; the annotated Renovate validator;
-  versioned GitHub Action references (including same-version digest refreshes); and
-  JavaScript development dependencies in `package.json`. Action `with:` runtime
-  inputs, runner changes, reusable workflows and branch refs are not admitted by
-  the Action rule. CI installs the pinned Node/Bun runtimes and frozen Bun lockfile
-  without install scripts, then runs TypeScript checks, commit-message acceptance/
-  rejection, native Lefthook validation and the YAML/configuration tests. Run the
-  same checks locally with `bun install --frozen-lockfile --ignore-scripts` and
-  `bun run test:javascript`.
+Renovate uses three explicit automatic source-maintenance groups, each requiring
+an up-to-date successful combined `validate` CI check:
+
+- **Routine Compose images:** the approved application-image policy described below;
+  qBittorrent patch/digest updates have separate automatic PRs, while its minor/major
+  updates retain tracker-compatibility review.
+- **Development and CI tooling:** non-major CI validators, the Renovate validator,
+  versioned Action references, JavaScript development dependencies, shared
+  `ansible-core`, the three declared Ansible collections, Python/OpenTofu workflow
+  inputs, Node's `.nvmrc` and Bun's `packageManager` pin, OpenTofu root runtime
+  constraints and the SOPS release/checksum pair. Runtime constraints resolve
+  against OpenTofu releases, not Terraform. Arbitrary Action inputs, runner changes,
+  reusable workflows and branch refs are not admitted. SOPS and Action
+  same-version digest updates are admitted; other unclassified updates are not.
+- **OpenTofu providers:** non-major provider versions and their native lock updates.
+  CI retains read-only initialization, validation and policy/mock tests. A private
+  native lock refresh verifies existing unpacked hashes for Linux amd64 and Mac
+  arm64; newly published ZIP hashes for unrelated platforms need not be committed.
+  Missing supported-platform hashes fail CI rather than silently repairing the PR.
+  Automerge authorizes neither a live plan nor an apply.
+
+CI's candidate lane installs the pinned Node/Bun runtimes and frozen Bun lockfile
+without install scripts, then runs the full source suite. The independent
+host-compatibility lane uses `controller/host-python-version` with candidate
+Ansible/collections, admission/source-selection tests, native systemd/ownership
+fixtures and a real inert Docker writer. Its SOPS fixture downloads the actual
+checksum-pinned Linux amd64 binary through the installation role, round-trips
+synthetic JSON/YAML through `community.sops` and rejects an unrelated age identity.
+Neither lane receives production secrets or provider credentials. The protected
+`validate` check runs even when a lane fails, is cancelled or skips, and succeeds
+only when both lanes succeed. The host Python line is not Renovate-managed:
+advance it only after a fresh host observation and separately reviewed runtime
+upgrade. This is a Linux compatibility test, not a replica of every host package.
+
+Run local tooling checks with `bun install --frozen-lockfile --ignore-scripts` and
+`bun run test:javascript`. Run the SOPS fixture only on local Linux amd64 as root,
+with the declared collections and `age-keygen` installed:
+`ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook -i 'localhost,' -c local ansible/tests/controller-sops.yml`.
+It uses and removes a private temporary workspace, never production keys.
 
 Renovate assigns exactly one category label per PR; it does not add a generic
-`dependencies` label. Labels classify updates without changing group membership
-or approval requirements:
+`dependencies` label:
 
 | Label | Scope | Merge policy |
 | --- | --- | --- |
-| `compose-routine` | Admitted non-major Compose images and digest-only updates to the existing Wolf server/UI/spawned-app channels | Automatic; grouped except qBittorrent patch/digest PRs |
-| `tooling-routine` | Admitted development and CI tooling above | Grouped, automatic |
+| `compose-routine` | Admitted non-major images and existing Wolf channel digests | Automatic; grouped except qBittorrent patch/digest PRs |
+| `tooling-routine` | Admitted controller, runtime, development and CI source pins above | Grouped, automatic |
 | `compose-manual` | Image majors, qBittorrent minors, unadmitted floating/prerelease images and Wolf tag/repository changes | Ungrouped, manual |
-| `tooling-manual` | Tooling majors, shared controller/collections, language runtimes, OpenTofu, SOPS and otherwise unadmitted non-image dependencies | Ungrouped, manual |
-| `tofu-provider` | OpenTofu providers, not runtime version constraints | Ungrouped, manual |
+| `tooling-manual` | Tooling majors and otherwise unadmitted non-image dependencies | Ungrouped, manual |
+| `tofu-provider` | OpenTofu providers, not runtime constraints | Non-majors grouped/automatic; majors ungrouped/manual |
 
-Unadmitted updates and major releases remain separate manual PRs. Shared
-Ansible-core/collections, Python/Node/Bun runtimes, OpenTofu, SOPS and provider
-updates are manual; installing or refreshing the host controller still needs
-separate review and approval even if other tooling source has automerged.
+Unadmitted updates and major releases remain separate manual PRs. Non-major is
+not a compatibility guarantee, particularly for Python/Ansible and pre-1.0
+providers. Installing or refreshing the host controller still requires separate
+review and approval even when its source pins automerge. The SOPS release tag
+and Linux amd64 SHA-256 in `ansible/roles/compose_schedule/defaults/main.yml`
+must stay adjacent and download-time checksum verification remains mandatory.
 Restic/rclone host pins remain coordinated manual changes, not independent Renovate
-updates. The tooling group is separate from Compose admission: its files are not
-application source, but a merged revision whose exact main-push CI is incomplete
-or unsuccessful makes that daily deployment skip; the scheduler never falls back
-to an older green revision.
+updates. Tooling/provider pins are outside the admitted application archive, but
+a merged revision whose exact main-push CI is incomplete or unsuccessful makes
+that daily deployment skip; the scheduler never falls back to an older green
+revision. Grouping limits CI churn; it does not guarantee the daily run will find
+completed CI or provide a missed-deployment alert.
 
 ## Observe before deciding
 
@@ -711,7 +737,7 @@ digest updates, including databases but excluding qBittorrent**, plus these
 The spawned images use Renovate's custom manager but join the same routine group.
 Their repositories and tags remain fixed. Major releases, other floating or
 prerelease images, and Wolf tag/repository changes remain manual. Non-Compose
-development/CI dependencies may automerge only under the separate tooling policy
+tooling and provider source pins may automerge under their separate policies
 above; host runtime/deployment tooling remains separately reviewed and installed.
 Version/channel tags and exact digests stay pinned. PostgreSQL non-major updates
 join the routine group; genuine major updates remain separate manual PRs rather
@@ -738,7 +764,7 @@ or reversible.
 Exclude a known migration from the automatic lane and review recovery separately.
 There is no automatic data rollback; production recovery activation remains unqualified.
 
-Renovate requests GitHub-native squash auto-merge for the two admitted routine
+Renovate requests GitHub-native squash auto-merge for the three admitted source
 groups and the separate qBittorrent patch/digest PRs. GitHub may merge at any hour
 once the required `validate` CI check passes and the branch is up-to-date,
 without waiting for another Renovate run. Keep the

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Exercise repository policy with the same pinned Renovate implementation as CI.
 import assert from 'node:assert/strict';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -122,9 +122,8 @@ assert.deepEqual(grouped.patch.map((release) => release.version), ['5.2.5']);
 assert.deepEqual(grouped.minor.map((release) => release.version), ['5.3.0']);
 assert.deepEqual(grouped.major.map((release) => release.version), ['6.0.0']);
 
-// Native extraction proves that real workflow inputs and package-manager pins
-// do not accidentally inherit the Action/devDependency automerge permissions.
-const [globalConfig, githubActions, pip, npm, bun, regex, matching, terraform] = await Promise.all([
+// Exercise real native extraction, not only invented dependency metadata.
+const [globalConfig, githubActions, pip, npm, bun, regex, matching, terraform, galaxy, nvm] = await Promise.all([
   native('config/global.js'),
   native('modules/manager/github-actions/extract.js'),
   native('modules/manager/pip_requirements/extract.js'),
@@ -133,6 +132,8 @@ const [globalConfig, githubActions, pip, npm, bun, regex, matching, terraform] =
   native('modules/manager/custom/regex/index.js'),
   native('util/string-match.js'),
   native('modules/manager/terraform/extract.js'),
+  native('modules/manager/ansible-galaxy/extract.js'),
+  native('modules/manager/nvm/extract.js'),
 ]);
 globalConfig.GlobalConfig.set({ localDir: fileURLToPath(new URL('../', import.meta.url)) });
 const readRepository = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
@@ -144,11 +145,13 @@ async function verifyPolicy(dep, manager, packageFile, updateType, automatic) {
   });
   const label = `${dep.depName} (${manager}, ${packageFile}, ${updateType})`;
   assert.equal(updated.automerge, automatic, label);
-  assert.equal(updated.groupName, automatic ? 'development and CI tooling' : null, label);
+  const provider = dep.datasource === 'terraform-provider';
+  assert.equal(updated.groupName, automatic ? (provider ? 'OpenTofu providers' : 'development and CI tooling') : null, label);
   if (automatic) {
-    assert.equal(updated.groupSlug, 'development-ci-tooling', label);
+    assert.equal(updated.groupSlug, provider ? 'opentofu-providers' : 'development-ci-tooling', label);
   }
-  verifyLabels(updated, automatic ? 'tooling-routine' : manualLabel(dep), label);
+  verifyLabels(updated, automatic && !provider ? 'tooling-routine' : manualLabel(dep), label);
+  return updated;
 }
 
 const ciPackages = pip.extractPackageFile(readRepository('controller/requirements-ci.txt')).deps;
@@ -162,8 +165,25 @@ for (const dep of ciPackages) {
   await verifyPolicy(dep, 'pip_requirements', 'controller/requirements.txt', 'patch', false);
 }
 for (const dep of pip.extractPackageFile(readRepository('controller/requirements.txt')).deps) {
-  for (const file of ['controller/requirements.txt', 'controller/requirements-ci.txt']) {
-    await verifyPolicy(dep, 'pip_requirements', file, 'patch', false);
+  for (const type of ['minor', 'patch', 'major', 'digest', 'pin', 'rollback']) {
+    await verifyPolicy(dep, 'pip_requirements', 'controller/requirements.txt', type, ['minor', 'patch'].includes(type));
+    await verifyPolicy(dep, 'pip_requirements', 'controller/requirements-ci.txt', type, false);
+  }
+}
+
+const collectionFile = 'ansible/collections/requirements.yml';
+const collections = galaxy.extractPackageFile(readRepository(collectionFile), collectionFile).deps;
+assert.deepEqual(collections.map((dep) => dep.depName).sort(), ['community.docker', 'community.general', 'community.sops']);
+for (const dep of collections) {
+  assert.equal(dep.skipReason, undefined, `${dep.depName} must have an extractable version`);
+  assert.match(dep.currentValue, /^\d+\.\d+\.\d+$/);
+  for (const type of ['minor', 'patch', 'major', 'digest', 'pin', 'rollback']) {
+    await verifyPolicy(dep, 'ansible-galaxy', collectionFile, type, ['minor', 'patch'].includes(type));
+  }
+}
+for (const dep of nvm.extractPackageFile(readRepository('.nvmrc')).deps) {
+  for (const type of ['minor', 'patch', 'major', 'digest']) {
+    await verifyPolicy(dep, 'nvm', '.nvmrc', type, ['minor', 'patch'].includes(type));
   }
 }
 
@@ -176,8 +196,8 @@ assert(jsPackages.some((dep) => dep.depName === 'bun' && dep.depType === 'packag
 assert(jsPackages.some((dep) => dep.depName === '@types/node' && dep.depType === 'devDependencies'));
 for (const manager of ['npm', 'bun']) {
   for (const dep of jsPackages) {
-    const development = dep.depType === 'devDependencies';
-    for (const type of ['minor', 'patch']) await verifyPolicy(dep, manager, 'package.json', type, development);
+    const admitted = dep.depType === 'devDependencies' || (dep.depType === 'packageManager' && dep.depName === 'bun');
+    for (const type of ['minor', 'patch']) await verifyPolicy(dep, manager, 'package.json', type, admitted);
     await verifyPolicy(dep, manager, 'package.json', 'major', false);
   }
 }
@@ -196,9 +216,13 @@ for (const dep of actionReferences) {
 const runtimeInputs = actionDeps.filter((dep) => dep.depType === 'uses-with');
 assert(runtimeInputs.some((dep) => dep.depName === 'python'));
 assert(runtimeInputs.some((dep) => dep.depName === 'opentofu'));
+// The host compatibility version file is independently maintained, not a movable CI runtime input.
+assert.deepEqual(runtimeInputs.filter((dep) => !dep.skipReason).map((dep) => dep.depName).sort(), ['opentofu', 'python']);
 for (const dep of actionDeps.filter((dep) => dep.depType !== 'action')) {
-  for (const type of ['minor', 'patch', 'digest', 'major']) {
-    await verifyPolicy(dep, 'github-actions', workflowFile, type, false);
+  for (const type of ['minor', 'patch', 'digest', 'major', 'pin', 'rollback']) {
+    const admitted = dep.depType === 'uses-with' && !dep.skipReason
+      && ['python', 'opentofu'].includes(dep.depName) && ['minor', 'patch'].includes(type);
+    await verifyPolicy(dep, 'github-actions', workflowFile, type, admitted);
   }
 }
 
@@ -215,13 +239,20 @@ assert(validator, 'the annotated Renovate validator must be extracted');
 for (const type of ['minor', 'patch']) await verifyPolicy(validator, 'custom.regex', workflowFile, type, true);
 await verifyPolicy(validator, 'custom.regex', workflowFile, 'major', false);
 
-const tofuFile = 'infrastructure/tofu/servarr/versions.tf';
-const tofuDependencies = (await terraform.extractPackageFile(readRepository(tofuFile), tofuFile, config)).deps;
-assert(tofuDependencies.some((dep) => dep.datasource === 'terraform-provider'));
-assert(tofuDependencies.some((dep) => dep.depType === 'required_version'));
-for (const dep of tofuDependencies) {
-  for (const type of ['minor', 'patch', 'major']) {
-    await verifyPolicy(dep, 'terraform', tofuFile, type, false);
+for (const root of readdirSync(new URL('../infrastructure/tofu/', import.meta.url), { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
+  const tofuFile = `infrastructure/tofu/${root.name}/versions.tf`;
+  if (!existsSync(new URL('../' + tofuFile, import.meta.url))) continue;
+  const deps = (await terraform.extractPackageFile(readRepository(tofuFile), tofuFile, config)).deps;
+  assert(deps.some((dep) => dep.datasource === 'terraform-provider'));
+  assert(deps.some((dep) => dep.depType === 'required_version'));
+  for (const dep of deps) {
+    for (const type of ['minor', 'patch', 'major', 'digest', 'lockFileMaintenance', 'rollback']) {
+      const updated = await verifyPolicy(dep, 'terraform', tofuFile, type, ['minor', 'patch'].includes(type));
+      if (dep.depType === 'required_version') {
+        assert.equal(updated.packageName, 'opentofu/opentofu');
+        assert.equal(updated.depName, 'opentofu');
+      }
+    }
   }
 }
 
@@ -229,7 +260,7 @@ const sopsFile = 'ansible/roles/compose_schedule/defaults/main.yml';
 const sops = customDependencies(sopsFile);
 assert.equal(sops.length, 1);
 for (const type of ['minor', 'patch', 'digest', 'major']) {
-  await verifyPolicy(sops[0], 'custom.regex', sopsFile, type, false);
+  await verifyPolicy(sops[0], 'custom.regex', sopsFile, type, type !== 'major');
 }
 const wolfFile = 'services/data/wolf/security.json';
 const spawnedImages = customDependencies(wolfFile);
@@ -261,10 +292,12 @@ await verifyPolicy({ datasource: 'docker', depName: 'ghcr.io/games-on-whales/unk
 for (const [dep, manager, file] of [
   [{ depName: 'python', currentValue: '3.14', depType: 'uses-with', datasource: 'github-tags' }, 'github-actions', workflowFile],
   [{ depName: 'actions/checkout', currentValue: 'main', depType: 'action', datasource: 'github-digest' }, 'github-actions', workflowFile],
-  [{ depName: 'node', currentValue: '24.21.0' }, 'nvm', '.nvmrc'],
+  [{ depName: 'node', currentValue: '24.21.0' }, 'nvm', 'other/.nvmrc'],
   [{ depName: 'node', currentValue: '^24.0.0', depType: 'engines', datasource: 'npm' }, 'npm', 'package.json'],
-  [{ depName: 'community.docker', currentValue: '5.3.0' }, 'ansible-galaxy', 'ansible/collections/requirements.yml'],
-  [{ depName: 'hashicorp/aws', currentValue: '6.68.0', datasource: 'terraform-provider' }, 'terraform', 'infrastructure/tofu/aws-foundation/versions.tf'],
+  [{ depName: 'community.unknown', currentValue: '1.0.0' }, 'ansible-galaxy', 'ansible/collections/requirements.yml'],
+  [{ depName: 'hashicorp/aws', currentValue: '6.68.0', datasource: 'terraform-provider' }, 'terraform', 'other/versions.tf'],
+  [{ depName: 'getsops/sops', currentValue: 'v3.13.3', datasource: 'github-release-attachments' }, 'custom.regex', workflowFile],
+  [{ depName: 'unknown-runtime', currentValue: '1.2.3', depType: 'uses-with', datasource: 'github-releases' }, 'github-actions', workflowFile],
   [{ depName: 'restic/restic', currentValue: 'v0.18.0', datasource: 'github-tags' }, 'custom.regex', workflowFile],
   [{ depName: 'rclone/rclone', currentValue: 'v1.70.0', datasource: 'github-tags' }, 'custom.regex', workflowFile],
   [{ depName: 'requests', currentValue: '2.34.2', datasource: 'pypi' }, 'pip_requirements', 'other/requirements.txt'],
@@ -301,4 +334,4 @@ for (const [name, value, attributes, type] of [
   verifyLabels(update, 'compose-manual');
 }
 
-console.log('Native Renovate policy: platform automerge, single-category labels, Compose/tooling admission, manual boundaries and tag filtering passed');
+console.log('Native Renovate policy: Compose/tooling/provider automerge, native extraction, manual majors, qBittorrent review and source boundaries passed');

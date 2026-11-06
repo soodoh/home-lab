@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
+  source-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -126,7 +126,7 @@ jobs:
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg
         run: |
-          ansible-lint ansible/playbooks ansible/roles
+          ansible-lint ansible/playbooks ansible/roles ansible/tests/controller-sops.yml
           yamllint . --no-warnings
           git ls-files -z | python -c '
           import pathlib, sys
@@ -143,6 +143,7 @@ jobs:
         env:
           AWS_REGION: us-east-1
         run: |
+          umask 077
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
           for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-access,proxmox-firewall,servarr,tailscale}; do
@@ -150,6 +151,16 @@ jobs:
             export TF_DATA_DIR
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
+            # Native lock refresh must not add unpacked hashes for either supported platform.
+            # Extra upstream ZIP hashes for unrelated platforms do not invalidate existing locks.
+            # Use a private copy; never repair a PR lock silently or access remote state.
+            lock_root="$work/locks/$(basename "$root")"
+            mkdir -p "$lock_root"
+            cp "$root/versions.tf" "$root/.terraform.lock.hcl" "$lock_root/"
+            tofu -chdir="$lock_root" providers lock -platform=linux_amd64 -platform=darwin_arm64
+            grep -E '^provider |^  (version|constraints) |"h1:' "$root/.terraform.lock.hcl" > "$work/lock-before"
+            grep -E '^provider |^  (version|constraints) |"h1:' "$lock_root/.terraform.lock.hcl" > "$work/lock-after"
+            cmp "$work/lock-before" "$work/lock-after"
           done
 
       - name: Test native Wolf security behavior
@@ -223,3 +234,67 @@ jobs:
           while IFS= read -r playbook; do
             ansible-playbook "$playbook" --syntax-check
           done < <(find ansible/playbooks -type f -name '*.yml' -print | sort)
+
+  host-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up the independently maintained Docker-host Python line
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          # Not a Renovate runtime pin: advance only with a reviewed host upgrade.
+          python-version-file: controller/host-python-version
+
+      - name: Install candidate controller dependencies on the host Python line
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes age rsync
+          python -m pip install --disable-pip-version-check -r controller/requirements.txt
+          ansible-galaxy collection install -r ansible/collections/requirements.yml
+
+      - name: Test source selection, admission and registry failure isolation
+        run: |
+          python scripts/test-compose-upgrade-admission.py
+          python scripts/test-compose-source-selection.py
+          python scripts/test-compose-image-pull.py
+          python scripts/test-restic-observer.py
+
+      - name: Test native scheduled execution and production ownership in disposable Linux
+        run: |
+          sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python)" scripts/test-compose-schedule-systemd.py
+          sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-deployment-interfaces.py
+          sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-apply-lock-clearance.py
+
+      - name: Test the candidate Docker collection against a real inert container
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        run: |
+          ansible-playbook -i 'docker-host,' -c local ansible/tests/wolf-image-restart.yml \
+            --become -e wolf_image_restart_runtime_test=true -e "ansible_python_interpreter=$(command -v python)"
+
+      - name: Test the real pinned SOPS release and candidate collection with synthetic secrets
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        # Run the controller as root too: the lookup must read its private fixture files.
+        run: |
+          sudo env ANSIBLE_CONFIG="$ANSIBLE_CONFIG" PATH="$PATH" \
+            ANSIBLE_COLLECTIONS_PATH="$HOME/.ansible/collections" \
+            "$(command -v ansible-playbook)" -i 'localhost,' -c local ansible/tests/controller-sops.yml \
+            -e "ansible_python_interpreter=$(command -v python)"
+
+  validate:
+    # Preserve the protected check name and fail closed even when a dependency skips.
+    if: ${{ always() }}
+    needs: [source-validation, host-compatibility]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful candidate and host-compatibility validation
+        env:
+          SOURCE_RESULT: ${{ needs.source-validation.result }}
+          HOST_RESULT: ${{ needs.host-compatibility.result }}
+        run: test "$SOURCE_RESULT" = success && test "$HOST_RESULT" = success
