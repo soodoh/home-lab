@@ -43,12 +43,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
-          tofu_version: v1.13.8
+          tofu_version: v1.13.9
           # Fixture helpers intentionally omit action-only environment variables.
           tofu_wrapper: false
 
@@ -68,7 +68,7 @@ jobs:
       - name: Validate Renovate configuration natively
         env:
           # renovate: datasource=npm depName=renovate
-          RENOVATE_VERSION: 44.221.0
+          RENOVATE_VERSION: 44.221.5
         run: |
           umask 077
           work=$(mktemp -d)
