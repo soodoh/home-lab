@@ -109,9 +109,9 @@ or approval requirements:
 
 | Label | Scope | Merge policy |
 | --- | --- | --- |
-| `compose-routine` | Admitted non-major Compose images and digest-only updates to the existing Wolf server/UI/spawned-app channels | Grouped, automatic |
+| `compose-routine` | Admitted non-major Compose images and digest-only updates to the existing Wolf server/UI/spawned-app channels | Automatic; grouped except qBittorrent patch/digest PRs |
 | `tooling-routine` | Admitted development and CI tooling above | Grouped, automatic |
-| `compose-manual` | Image majors, unadmitted floating/prerelease images and Wolf tag/repository changes | Ungrouped, manual |
+| `compose-manual` | Image majors, qBittorrent minors, unadmitted floating/prerelease images and Wolf tag/repository changes | Ungrouped, manual |
 | `tooling-manual` | Tooling majors, shared controller/collections, language runtimes, OpenTofu, SOPS and otherwise unadmitted non-image dependencies | Ungrouped, manual |
 | `tofu-provider` | OpenTofu providers, not runtime version constraints | Ungrouped, manual |
 
@@ -697,9 +697,9 @@ the daily Compose-only convergence.
 
 ### Automatic Compose updates
 
-The approved standing policy groups **all versioned Compose minor, patch and
-digest updates, including databases**, plus these **digest-only Wolf channel
-updates**, into one Renovate PR:
+The approved standing policy groups **versioned Compose minor, patch and
+digest updates, including databases but excluding qBittorrent**, plus these
+**digest-only Wolf channel updates**, into one Renovate PR:
 
 - `ghcr.io/games-on-whales/wolf:stable` in `services/gaming.yml`;
 - `ghcr.io/games-on-whales/wolf-ui:main`, `ghcr.io/games-on-whales/steam:edge`
@@ -710,11 +710,20 @@ Their repositories and tags remain fixed. Major releases, other floating or
 prerelease images, and Wolf tag/repository changes remain manual. Non-Compose
 development/CI dependencies may automerge only under the separate tooling policy
 above; host runtime/deployment tooling remains separately reviewed and installed.
-Version/channel tags and exact digests stay pinned. PostgreSQL and
-qBittorrent non-major updates join the routine group; genuine major updates remain
-separate manual PRs rather than being suppressed by a current-major ceiling.
-qBittorrent uses strict semantic versioning to reject legacy Ubuntu tags such as
-`20.04.1`, plus exclusions for year-style tags such as `2026.10.1` and the obsolete
+Version/channel tags and exact digests stay pinned. PostgreSQL non-major updates
+join the routine group; genuine major updates remain separate manual PRs rather
+than being suppressed by a current-major ceiling.
+
+qBittorrent always has its own PRs. Patch and digest updates automerge after CI;
+minor and major upgrades require manual merge after checking private-tracker client
+compatibility. `separateMinorPatch: true` keeps an unapproved minor upgrade from
+holding back patches to the current minor line. Once a minor upgrade is explicitly
+merged, its subsequent patches inherit the same automatic policy; there is no fixed
+5.2.x ceiling or scraped MAM approval check. A manually merged minor upgrade can
+enter the existing daily non-major deployment lane; majors and downgrades still
+require manual deployment. qBittorrent uses strict semantic versioning to reject
+legacy Ubuntu tags such as `20.04.1`, plus exclusions for year-style tags such as
+`2026.10.1` and the obsolete
 `14.3.9` alias (last pushed in 2022). These are not application upgrades. The narrow
 alias exclusion is not a v5/v6 ceiling; other genuine major releases remain eligible.
 This broad policy explicitly accepts non-major application/database startup risk
@@ -727,8 +736,9 @@ Exclude a known migration from the automatic lane and review recovery separately
 There is no automatic data rollback; production recovery activation remains unqualified.
 
 Renovate requests GitHub-native squash auto-merge for the two admitted routine
-groups. GitHub may merge at any hour once the required `validate` CI check passes
-and the branch is up-to-date, without waiting for another Renovate run. Keep the
+groups and the separate qBittorrent patch/digest PRs. GitHub may merge at any hour
+once the required `validate` CI check passes and the branch is up-to-date,
+without waiting for another Renovate run. Keep the
 repository's Allow auto-merge setting and strict required-check rules enabled;
 Renovate configuration alone does not enforce those platform gates. Deployment
 is a separate once-daily host operation, not a push side effect. Registry age
