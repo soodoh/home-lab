@@ -160,24 +160,117 @@
       "labels": ["tooling-routine"]
     },
     {
-      "description": "Keep shared controller, collection and scheduler dependencies separately reviewed",
-      "matchFileNames": ["controller/requirements.txt", "ansible/collections/requirements.yml", "ansible/roles/compose_schedule/**"],
-      "labels": ["tooling-manual"],
-      "groupName": null,
-      "automerge": false
+      "description": "Automerge non-major shared Ansible source pins; installation on managed hosts remains separately approved",
+      "matchManagers": ["pip_requirements"],
+      "matchFileNames": ["controller/requirements.txt"],
+      "matchPackageNames": ["ansible-core"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
     },
     {
-      "description": "Keep language runtimes, OpenTofu, decryption and backup tools manual even if encountered in an admitted file",
-      "matchPackageNames": ["ansible-core", "python", "node", "bun", "opentofu", "opentofu/opentofu", "getsops/sops", "restic/restic", "rclone/rclone"],
-      "labels": ["tooling-manual"],
-      "groupName": null,
-      "automerge": false
+      "description": "Automerge the tested controller collections without installing them on docker-host",
+      "matchManagers": ["ansible-galaxy"],
+      "matchFileNames": ["ansible/collections/requirements.yml"],
+      "matchPackageNames": ["community.docker", "community.general", "community.sops"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
     },
     {
-      "description": "Keep OpenTofu provider locks candidate-only and separately reviewed",
+      "description": "Admit tested Python and OpenTofu workflow inputs, not arbitrary Action inputs or runners",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["uses-with"],
+      "matchFileNames": [".github/workflows/ci.yml"],
+      "matchPackageNames": ["actions/python-versions", "opentofu/opentofu"],
+      "matchDatasources": ["github-releases"],
+      "matchCurrentValue": "/^v?[0-9]+(?:\\.[0-9]+){1,2}$/",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
+    },
+    {
+      "description": "Admit the Node runtime exercised by CI",
+      "matchManagers": ["nvm"],
+      "matchFileNames": [".nvmrc"],
+      "matchPackageNames": ["node"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
+    },
+    {
+      "description": "Admit the Bun package-manager pin exercised by frozen-lockfile CI",
+      "matchManagers": ["npm", "bun"],
+      "matchFileNames": ["package.json"],
+      "matchDepTypes": ["packageManager"],
+      "matchPackageNames": ["bun"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
+    },
+    {
+      "description": "Resolve root runtime constraints against OpenTofu rather than Terraform",
+      "matchManagers": ["terraform"],
+      "matchFileNames": ["infrastructure/tofu/**/versions.tf"],
+      "matchDepTypes": ["required_version"],
+      "overrideDepName": "opentofu",
+      "overridePackageName": "opentofu/opentofu"
+    },
+    {
+      "description": "Admit non-major OpenTofu root runtime constraints, independently of provider updates",
+      "matchManagers": ["terraform"],
+      "matchFileNames": ["infrastructure/tofu/**/versions.tf"],
+      "matchDepTypes": ["required_version"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
+    },
+    {
+      "description": "Admit the natively tested SOPS release/checksum pair; host installation remains manual",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["github-release-attachments"],
+      "matchFileNames": ["ansible/roles/compose_schedule/defaults/main.yml"],
+      "matchPackageNames": ["getsops/sops"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "development and CI tooling",
+      "groupSlug": "development-ci-tooling",
+      "automerge": true,
+      "labels": ["tooling-routine"]
+    },
+    {
+      "description": "Classify provider PRs separately from runtime constraints and Compose",
       "matchManagers": ["terraform"],
       "matchDatasources": ["terraform-provider"],
-      "labels": ["tofu-provider"],
+      "labels": ["tofu-provider"]
+    },
+    {
+      "description": "Automerge non-major provider source and locks; live plans and applies still require independent approval",
+      "matchManagers": ["terraform"],
+      "matchDatasources": ["terraform-provider"],
+      "matchFileNames": ["infrastructure/tofu/**/versions.tf"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "OpenTofu providers",
+      "groupSlug": "opentofu-providers",
+      "automerge": true,
+      "labels": ["tofu-provider"]
+    },
+    {
+      "description": "Never infer automatic approval for major releases",
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "groupSlug": null,
       "automerge": false
     }
   ],

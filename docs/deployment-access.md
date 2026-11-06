@@ -129,11 +129,16 @@ Actual import behavior requires a live remote-backed plan.
 `controller/github-compose-ruleset.json` preserves default-branch deletion
 protection and requires a PR, an up-to-date successful Actions `validate` check,
 resolved review threads and no force pushes. Zero mandatory human approvals permits
-routine Compose and development/CI tooling automerge; major/data changes still
-require operator review and explicit deployment. Keep repository squash merge and
-auto-merge enabled.
+routine Compose, admitted tooling and non-major provider source automerge;
+major/data changes and qBittorrent minor upgrades still require operator review.
+The unchanged `validate` check name aggregates candidate-source and host-Python
+compatibility lanes and refuses failed, cancelled or skipped lanes. See the
+[dependency policy](operations.md#controller-dependency-updates).
+Provider applies and controller installation remain independently approved.
+Keep repository squash merge and auto-merge enabled.
 
 GitHub Actions validates source only. It requires no deployment environment,
 SOPS secret, OIDC deployment grant or Tailscale federation. Changes to host-local
 controller code and dependencies remain manually installed after their own review,
-even if a tooling PR is merged into main.
+even if their source pins automerge into main. The daily job still executes only
+the installed implementation; no CI job refreshes it or applies provider changes.
