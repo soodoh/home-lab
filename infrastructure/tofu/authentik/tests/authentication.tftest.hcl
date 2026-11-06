@@ -207,6 +207,15 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
+    condition = (
+      authentik_provider_oauth2.providers["47"].access_token_validity == "minutes=15" &&
+      authentik_provider_oauth2.providers["47"].refresh_token_validity == "days=30" &&
+      authentik_provider_oauth2.providers["47"].refresh_token_threshold == "hours=1"
+    )
+    error_message = "Vaultwarden access tokens must outlast Bitwarden's five-minute refresh window without changing refresh-token policy."
+  }
+
+  assert {
     condition     = authentik_provider_oauth2.providers["15"].signing_key == authentik_certificate_key_pair.signing["jellyfin-oidc"].id && authentik_provider_oauth2.providers["47"].signing_key == local.desired.oauthProviders["47"].signing_key
     error_message = "Only the independently adopted signing key becomes owned; discovery-owned signing material remains external."
   }
