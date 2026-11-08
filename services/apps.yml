@@ -45,7 +45,7 @@ services:
       - jellyfin-auth
 
   karaoke-eternal:
-    image: radrootllc/karaoke-eternal:2.0.2@sha256:96a4ff5f14657aaa0e7308f1455fedab7065756e1e3e163522619ee3aa9f5c5f
+    image: radrootllc/karaoke-eternal:2.1.0@sha256:0cf63257e1f3a1e02ea9e56fbb46074a86ea07444e3af3da99904bee1682d3ea
     container_name: karaoke-eternal
     restart: unless-stopped
     logging: *default-logging
