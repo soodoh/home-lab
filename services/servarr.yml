@@ -117,7 +117,7 @@ services:
 
   tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2476@sha256:97e1a6d10fbd1217ffdf68aefa8610fd4be8a041488a1c674d14aea0fdeb5c45
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2490@sha256:d2ec1264bebcd9cd5d658cd2760571b1ae41409584b89afce7c72b6713640fb1
     container_name: tachidesk
     restart: unless-stopped
     logging: *default-logging
@@ -150,7 +150,7 @@ services:
 
   caro-tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2476@sha256:97e1a6d10fbd1217ffdf68aefa8610fd4be8a041488a1c674d14aea0fdeb5c45
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2490@sha256:d2ec1264bebcd9cd5d658cd2760571b1ae41409584b89afce7c72b6713640fb1
     container_name: caro-tachidesk
     restart: unless-stopped
     logging: *default-logging
@@ -244,7 +244,7 @@ services:
       RADARR_4K_URL: $RADARR_4K_URL
 
   sonarr:
-    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:3b8c947d7fa173f70e40047d2c8d02835fb8416aeb5ae36def57d9ad15e2f906
+    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:673dc4609a5672bc8e46069c86ffcea283a86b48d34a6c93d8da8c24a1b87571
     container_name: sonarr
     restart: unless-stopped
     logging: *default-logging
