@@ -39,5 +39,73 @@
         version_output_prefix: "{{ rclone_version_output }}"
   no_log: true
 
+- name: Inspect unresolved capture and tool-update state before any replacement
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+  loop:
+    - /mnt/games/home-lab-backup/capture
+    - "{{ restic_systemd.journal_path }}"
+    - /var/lib/home-lab-restic/retention.json
+    - /var/lib/home-lab-restic/tools-updating
+  register: restic_backup_pending_updates
+
+- name: Refuse to replace tools while protected work needs inspection
+  ansible.builtin.assert:
+    that: not item.stat.exists
+    quiet: true
+  loop: "{{ restic_backup_pending_updates.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Establish repository coordination before fencing readers
+  ansible.builtin.import_tasks: coordination.yml
+
+- name: Fence new copy jobs while replacing tools
+  ansible.builtin.copy:
+    content: "Inspect retained production ownership after an interrupted tool update.\n"
+    dest: /var/lib/home-lab-restic/tools-updating
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Record that only this invocation owns the tool-update fence
+  ansible.builtin.set_fact:
+    restic_backup_tools_updating_owned: true
+    cacheable: false
+  when: not ansible_check_mode
+
+- name: Inspect replication units before coordinating tool replacement
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item }}"
+    get_checksum: false
+  loop:
+    - home-lab-restic-replication.timer
+    - home-lab-restic-daily-nfs.service
+    - home-lab-restic-daily-proton.service
+  register: restic_backup_copy_units
+
+- name: Stop replication before replacing its executable or configuration
+  ansible.builtin.systemd_service:
+    name: "{{ item.item }}"
+    state: stopped
+  loop: "{{ restic_backup_copy_units.results }}"
+  when: item.stat.exists
+
+# Readers check the fence while holding the shared gate. Once this exclusive
+# barrier succeeds, none remain and no new reader can pass until units.yml
+# removes our fence. Direct CLI callers are covered, not only systemd units.
+- name: Require every repository reader to finish before replacement
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/flock
+      - --exclusive
+      - --nonblock
+      - /run/lock/home-lab-restic-repositories.lock
+      - /usr/bin/true
+  changed_when: false
+  when: not ansible_check_mode
+
 - name: Install and verify shared pinned Restic tools
   ansible.builtin.import_tasks: tools-install.yml

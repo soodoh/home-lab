@@ -128,6 +128,8 @@ def main() -> None:
         scope_resolver_path, digest(scope_resolver_path.read_bytes()), True
     )
     scope_config = secure_source(scope_config_path, digest(scope_config_path.read_bytes()), False)
+    prepare_path = Path(__file__).resolve().with_name('prepare-restic-files.py')
+    prepare = secure_source(prepare_path, digest(prepare_path.read_bytes()), True)
     age_path = Path(arguments.age)
     age_parent = age_path.parent.lstat()
     if (not stat.S_ISDIR(age_parent.st_mode) or age_parent.st_uid != os.geteuid()
@@ -152,6 +154,7 @@ def main() -> None:
         "bin/restic": (restic, 0o755),
         "bin/restore-critical-backup": (runner, 0o755),
         "bin/recovery-scope.py": (scope_resolver, 0o755),
+        "bin/prepare-restic-files.py": (prepare, 0o755),
         "metadata.json": (canonical(metadata), 0o600),
         "recovery/groups.json": (scope_config, 0o600),
         "private/proton-login-password": (secrets["RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD"].encode() + b"\n", 0o600),

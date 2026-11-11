@@ -1,9 +1,11 @@
 [Unit]
-Description=Home Lab Restic daily local snapshot and NFS copy
+Description=Home Lab complete local capture
 RequiresMountsFor={{ restic_systemd.games_mountpoint }} {{ restic_systemd.nfs_mountpoint }}
 After=docker.service network-online.target
 Wants=network-online.target
-Before=home-lab-restic-daily-proton.service
+OnSuccess=home-lab-restic-replication.target
+StartLimitIntervalSec=12h
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -11,10 +13,14 @@ User=root
 Group=root
 UMask=0027
 ExecStart={{ restic_systemd.runner_path }} daily-local
-TimeoutStartSec=8h
+# Preserve the 8h capture/upload budget plus the 13h completion command budget.
+TimeoutStartSec=24h
+Restart=on-failure
+RestartSec=10min
 KillSignal=SIGINT
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths={{ restic_systemd.games_mountpoint }}/restic {{ restic_systemd.nfs_mountpoint }}/restic /var/lib/home-lab-restic /var/cache/home-lab-restic {{ restic_systemd.lock_path }} /run/docker.sock
+ReadWritePaths={{ restic_systemd.games_mountpoint }}/restic {{ restic_systemd.games_mountpoint }}/home-lab-backup /var/lib/home-lab-restic /var/cache/home-lab-restic /run/lock /run/docker.sock
+TimeoutStopSec=5min

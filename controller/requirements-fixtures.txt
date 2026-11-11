@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Python dependency of native Docker API observation modules in isolated CI.
+requests==2.34.2

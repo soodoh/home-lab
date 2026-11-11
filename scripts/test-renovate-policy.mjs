@@ -154,15 +154,17 @@ async function verifyPolicy(dep, manager, packageFile, updateType, automatic) {
   return updated;
 }
 
-const ciPackages = pip.extractPackageFile(readRepository('controller/requirements-ci.txt')).deps;
-assert.deepEqual(ciPackages.map((dep) => dep.depName).sort(),
-  ['ansible-lint', 'jsonschema', 'requests', 'yamllint']);
-for (const dep of ciPackages) {
-  for (const type of ['minor', 'patch']) {
-    await verifyPolicy(dep, 'pip_requirements', 'controller/requirements-ci.txt', type, true);
+for (const [file, expected] of [
+  ['controller/requirements-ci.txt', ['ansible-lint', 'jsonschema', 'yamllint']],
+  ['controller/requirements-fixtures.txt', ['requests']],
+]) {
+  const ciPackages = pip.extractPackageFile(readRepository(file)).deps;
+  assert.deepEqual(ciPackages.map(dep => dep.depName).sort(), expected);
+  for (const dep of ciPackages) {
+    for (const type of ['minor', 'patch']) await verifyPolicy(dep, 'pip_requirements', file, type, true);
+    await verifyPolicy(dep, 'pip_requirements', file, 'major', false);
+    await verifyPolicy(dep, 'pip_requirements', 'controller/requirements.txt', 'patch', false);
   }
-  await verifyPolicy(dep, 'pip_requirements', 'controller/requirements-ci.txt', 'major', false);
-  await verifyPolicy(dep, 'pip_requirements', 'controller/requirements.txt', 'patch', false);
 }
 for (const dep of pip.extractPackageFile(readRepository('controller/requirements.txt')).deps) {
   for (const type of ['minor', 'patch', 'major', 'digest', 'pin', 'rollback']) {
@@ -205,7 +207,7 @@ for (const manager of ['npm', 'bun']) {
 const workflowFile = '.github/workflows/ci.yml';
 const workflow = readRepository(workflowFile);
 const actionDeps = (await githubActions.extractPackageFile(workflow, workflowFile)).deps;
-const actionReferences = actionDeps.filter((dep) => dep.depType === 'action');
+const actionReferences = actionDeps.filter((dep) => dep.depType === 'action' && !dep.skipReason);
 assert(actionReferences.length >= 5);
 for (const dep of actionReferences) {
   for (const type of ['minor', 'patch', 'digest']) {
@@ -213,11 +215,22 @@ for (const dep of actionReferences) {
   }
   await verifyPolicy(dep, 'github-actions', workflowFile, 'major', false);
 }
+for (const file of ['.github/actions/setup-controller/action.yml', '.github/actions/setup-restic/action.yml']) {
+  const compositeDeps = (await githubActions.extractPackageFile(readRepository(file), file)).deps;
+  assert(compositeDeps.some(dep => dep.depName === 'actions/cache'));
+  for (const dep of compositeDeps.filter(dep => dep.depType === 'action' && !dep.skipReason)) {
+    for (const type of ['minor', 'patch', 'digest']) await verifyPolicy(dep, 'github-actions', file, type, true);
+    await verifyPolicy(dep, 'github-actions', file, 'major', false);
+  }
+}
 const runtimeInputs = actionDeps.filter((dep) => dep.depType === 'uses-with');
 assert(runtimeInputs.some((dep) => dep.depName === 'python'));
 assert(runtimeInputs.some((dep) => dep.depName === 'opentofu'));
 // The host compatibility version file is independently maintained, not a movable CI runtime input.
-assert.deepEqual(runtimeInputs.filter((dep) => !dep.skipReason).map((dep) => dep.depName).sort(), ['opentofu', 'python']);
+assert.deepEqual([...new Set(runtimeInputs.filter(dep => !dep.skipReason).map(dep => dep.depName))].sort(), ['opentofu', 'python']);
+for (const name of ['opentofu', 'python']) {
+  assert.equal(new Set(runtimeInputs.filter(dep => !dep.skipReason && dep.depName === name).map(dep => dep.currentValue)).size, 1);
+}
 for (const dep of actionDeps.filter((dep) => dep.depType !== 'action')) {
   for (const type of ['minor', 'patch', 'digest', 'major', 'pin', 'rollback']) {
     const admitted = dep.depType === 'uses-with' && !dep.skipReason

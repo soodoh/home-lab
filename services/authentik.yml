@@ -31,27 +31,6 @@ services:
     networks:
       - authentik
 
-  redis:
-    image: redis:8.10.3-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80
-    container_name: authentik-redis
-    command: --save 60 1 --loglevel warning
-    restart: unless-stopped
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-      start_period: 20s
-      interval: 30s
-      retries: 5
-      timeout: 3s
-    environment:
-      TZ: $TZ
-    volumes:
-      - type: bind
-        source: /srv/home-lab-state/authentik-data/redis
-        target: /data
-    networks:
-      - authentik
-
   authentik-server:
     image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     container_name: authentik-server
@@ -69,7 +48,6 @@ services:
       AUTHENTIK_POSTGRESQL__USER: $AUTHENTIK_DB_USER
       AUTHENTIK_POSTGRESQL__NAME: $AUTHENTIK_DB
       AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/authentik_db_password
-      AUTHENTIK_REDIS__HOST: $AUTHENTIK_REDIS__HOST
       AUTHENTIK_POSTGRESQL__HOST: $AUTHENTIK_POSTGRESQL__HOST
       AUTHENTIK_SECRET_KEY: file:///run/secrets/authentik_secret_key
       AUTHENTIK_EMAIL__HOST: $AUTHENTIK_EMAIL__HOST
@@ -94,8 +72,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
       - authentik
       - proxy
@@ -111,7 +87,6 @@ services:
       AUTHENTIK_POSTGRESQL__USER: $AUTHENTIK_DB_USER
       AUTHENTIK_POSTGRESQL__NAME: $AUTHENTIK_DB
       AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/authentik_db_password
-      AUTHENTIK_REDIS__HOST: $AUTHENTIK_REDIS__HOST
       AUTHENTIK_POSTGRESQL__HOST: $AUTHENTIK_POSTGRESQL__HOST
       AUTHENTIK_SECRET_KEY: file:///run/secrets/authentik_secret_key
       AUTHENTIK_EMAIL__HOST: $AUTHENTIK_EMAIL__HOST
@@ -141,8 +116,6 @@ services:
         target: /templates
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - authentik

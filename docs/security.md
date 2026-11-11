@@ -95,7 +95,8 @@ LinuxServer and PostgreSQL still export file contents inside the process tree;
 file delivery is not universal memory or log redaction. Host files are plaintext,
 individually mounted read-only and included in encrypted backup/recovery scope.
 See the [delivery audit](compose-secrets.md) for native readers and caveats. Staging and production certificates have separate
-root-only ACME stores excluded from Restic. Production TLS and tailnet grants do not prove CI/application authentication,
+root-only ACME stores; both production stores and account private keys are in
+the encrypted complete backup. Staging stores remain excluded. Production TLS and tailnet grants do not prove CI/application authentication,
 remote GOST destination denials or UDP/HTTP3 negative paths; verify these
 against current live state before relying on them. The non-AWS helper
 reads exported provider variables without prompting and creates disposable
@@ -196,8 +197,9 @@ unknown identities or unqualified CI refuse deployment rather than bypassing che
 GitHub Actions validates source without deployment secrets or Tailscale federation.
 The observer admits the scheduled timer's own `running` state only for the known
 morning target under exact validated production ownership and routine admission;
-this never admits another owner's lock, an active backup service or an interruption
-journal. Systemd removes controller scratch and its credential/runtime scope on exit;
+this never admits another owner's lock, an active local capture or an interruption
+journal. Independent replica transfers may run during ordinary deployment; actual
+capture-time lag and ancestry are checked instead of the last copy-unit exit. Systemd removes controller scratch and its credential/runtime scope on exit;
 failed production ownership, journals and source before-images remain for inspection.
 See [local deployment access](deployment-access.md#host-local-scheduled-deployment).
 

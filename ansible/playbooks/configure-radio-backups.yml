@@ -1,0 +1,133 @@
+---
+- name: Configure native Z-Wave backups without exposing network keys
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ['!all', min]
+  any_errors_fatal: true
+  vars:
+    radio_backup_settings:
+      storeBackup: true
+      storeCron: '0 4 * * *'
+      storeKeep: 7
+      nvmBackup: true
+      nvmCron: '15 4 * * *'
+      nvmKeep: 7
+      nvmBackupOnEvent: true
+  pre_tasks:
+    - name: Require separate approval for the short Z-Wave restart
+      ansible.builtin.assert:
+        that: ansible_check_mode or radio_backups_apply_confirmed | default(false) | bool
+        quiet: true
+    - name: Observe the managed Compose project
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+    - name: Acquire production ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: radio-backup-configuration
+  tasks:
+    - name: Inspect native settings metadata
+      ansible.builtin.stat:
+        path: /srv/home-lab-state/zwave-data/settings.json
+      register: radio_settings_metadata
+      become: true
+    - name: Require a regular protected native settings file
+      ansible.builtin.assert:
+        that:
+          - radio_settings_metadata.stat.isreg
+          - not radio_settings_metadata.stat.islnk
+          - radio_settings_metadata.stat.mode in ['0600', '0640']
+        quiet: true
+    - name: Read native settings privately
+      ansible.builtin.slurp:
+        src: /srv/home-lab-state/zwave-data/settings.json
+      register: radio_current
+      no_log: true
+      become: true
+    - name: Determine whether native backup settings differ
+      ansible.builtin.set_fact:
+        radio_changed: >-
+          {{ ((radio_current.content | b64decode | from_json).backup | default({}) |
+              combine(radio_backup_settings)) !=
+             (radio_current.content | b64decode | from_json).backup | default({}) }}
+    - name: Report the native backup schedule change
+      ansible.builtin.debug:
+        msg: "Native Z-Wave backup schedule requires restart: {{ radio_changed }}"
+    - name: Update only when the schedule differs
+      when: radio_changed and not ansible_check_mode
+      block:
+        - name: Stop the native writer without starting an intentionally stopped container
+          ansible.builtin.command:
+            argv: [docker, inspect, --format, '{{ "{{.State.Running}}" }}', zwave]
+          register: radio_running
+          changed_when: false
+          become: true
+        - name: Stop Z-Wave before changing settings
+          ansible.builtin.command:
+            argv: [docker, stop, --time, '120', zwave]
+          changed_when: true
+          become: true
+          when: radio_running.stdout == 'true'
+        - name: Reread settings after excluding its writer
+          ansible.builtin.slurp:
+            src: /srv/home-lab-state/zwave-data/settings.json
+          register: radio_stopped
+          no_log: true
+          become: true
+        - name: Inspect any unresolved radio configuration before-image
+          ansible.builtin.stat:
+            path: /var/lib/home-lab-restic/radio-settings-before.json
+          register: radio_before
+          become: true
+        - name: Refuse to replace an unresolved before-image
+          ansible.builtin.assert:
+            that: not radio_before.stat.exists
+            quiet: true
+        - name: Preserve the exact stopped settings before mutation
+          ansible.builtin.copy:
+            content: "{{ radio_stopped.content | b64decode }}"
+            dest: /var/lib/home-lab-restic/radio-settings-before.json
+            owner: root
+            group: root
+            mode: '0600'
+          no_log: true
+          become: true
+        - name: Merge only the backup settings using native atomic file replacement
+          ansible.builtin.copy:
+            content: >-
+              {{ (radio_stopped.content | b64decode | from_json) |
+                 combine({'backup': radio_backup_settings}, recursive=true) | to_nice_json }}
+            dest: /srv/home-lab-state/zwave-data/settings.json
+            mode: "{{ radio_settings_metadata.stat.mode }}"
+            owner: "{{ radio_settings_metadata.stat.uid }}"
+            group: "{{ radio_settings_metadata.stat.gid }}"
+          no_log: true
+          become: true
+        - name: Restore the previous running state
+          ansible.builtin.command:
+            argv: [docker, start, zwave]
+          become: true
+          changed_when: true
+          when: radio_running.stdout == 'true'
+        - name: Verify Z-Wave resumed
+          ansible.builtin.command:
+            argv: [docker, inspect, --format, '{{ "{{.State.Running}}" }}', zwave]
+          register: radio_resumed
+          changed_when: false
+          failed_when: radio_running.stdout == 'true' and radio_resumed.stdout != 'true'
+          become: true
+        - name: Remove the before-image only after verified recovery of running state
+          ansible.builtin.file:
+            path: /var/lib/home-lab-restic/radio-settings-before.json
+            state: absent
+          become: true
+  post_tasks:
+    - name: Release production ownership only after successful configuration
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: radio-backup-configuration

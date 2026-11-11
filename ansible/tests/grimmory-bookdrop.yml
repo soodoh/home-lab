@@ -130,6 +130,13 @@
             mode: '0600'
           become: true
 
+        - name: Pull exactly the isolated fixture's pinned images
+          ansible.builtin.command:
+            argv: [docker, compose, -p, "{{ grimmory_test_project }}", -f,
+                   "{{ grimmory_test_work.path }}/compose.json", pull, --quiet]
+          become: true
+          changed_when: true
+
         - name: Start only the isolated pinned services
           community.docker.docker_compose_v2:
             project_src: "{{ grimmory_test_work.path }}"
@@ -157,16 +164,36 @@
           ansible.builtin.set_fact:
             grimmory_base_url: "http://{{ grimmory_test_port.stdout }}"
 
-        - name: Initialize only the isolated empty instance
-          ansible.builtin.uri:
-            url: "{{ grimmory_base_url }}/api/v1/setup"
-            method: POST
-            body_format: json
-            body:
-              username: fixture-admin
-              email: fixture@example.invalid
-              name: Synthetic Fixture
-              password: synthetic-fixture-password
+        - name: Verify native database identity and application credential isolation
+          ansible.builtin.command:
+            argv: [docker, compose, -p, "{{ grimmory_test_project }}", -f,
+                   "{{ grimmory_test_work.path }}/compose.json", exec, -T, grimmory-db, id, -u]
+          become: true
+          register: grimmory_test_db_uid
+          changed_when: false
+          failed_when: grimmory_test_db_uid.stdout != '999'
+
+        - name: Verify the native application reader without granting database root credentials
+          ansible.builtin.command:
+            argv: [docker, compose, -p, "{{ grimmory_test_project }}", -f,
+                   "{{ grimmory_test_work.path }}/compose.json", exec, -T, --user, '1000:1000',
+                   grimmory, sh, -ec,
+                   'test -r /run/secrets/spring.datasource.password; test ! -r /run/secrets/grimmory_db_root_password']
+          become: true
+          changed_when: false
+
+        - name: Qualify settings, initialization, idempotency and rotation on this same stack
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python }}"
+              - "{{ playbook_dir }}/../../scripts/controller/test-grimmory-runtime.py"
+              - --endpoint
+              - "{{ grimmory_base_url }}"
+              - --durations=0
+          environment:
+            GRIMMORY_RUNTIME_TEST: '1'
+          delegate_to: localhost
+          become: false
           changed_when: true
 
         - name: Authenticate only the synthetic administrator
@@ -174,7 +201,7 @@
             url: "{{ grimmory_base_url }}/api/v1/auth/login"
             method: POST
             body_format: json
-            body: {username: fixture-admin, password: synthetic-fixture-password}
+            body: {username: grimmory-admin, password: synthetic-admin-password}
           register: grimmory_test_login
           no_log: true
 

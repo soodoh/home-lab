@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry repository replication at boot and hourly
+
+[Timer]
+OnBootSec=5min
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=2min
+Unit=home-lab-restic-replication.target
+
+[Install]
+WantedBy=timers.target

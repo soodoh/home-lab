@@ -1,7 +1,5 @@
 /mnt/games/restic/**
 /mnt/storage/restic/**
-/srv/home-lab-state/caro-tachidesk-data/downloads/**
-/srv/home-lab-state/tachidesk-data/downloads/**
 /srv/home-lab-state/hass-data/.cache/**
 /srv/home-lab-state/qbittorrent-data/.cache/**
 /srv/home-lab-state/caro-tachidesk-data/backups/**
@@ -24,9 +22,7 @@
 /srv/home-lab-state/jellyfin-data/config/.cache/**
 /srv/home-lab-state/jellyfin-data/config/data/attachments/**
 /srv/home-lab-state/jellyfin-data/config/data/introskipper/**
-/srv/home-lab-state/jellyfin-data/config/data/subtitles/**
 /srv/home-lab-state/jellyfin-data/config/data/library.db.old*
-/srv/home-lab-state/jellyfin-data/config/metadata/**
 /srv/home-lab-state/nextcloud-db-data/binlog.*
 /srv/home-lab-state/nextcloud-db-data/system_mysql_backup_*
 /srv/home-lab-state/omada-data/data/device-firmware/**
@@ -44,7 +40,6 @@
 /srv/home-lab-state/tachidesk-data/webUI/**
 /srv/home-lab-state/vaultwarden-data/tmp/**
 /mnt/games/wolf/cfg/backtrace.*.dump
-/mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share/Steam/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/assets/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/cores/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/downloads/**
@@ -54,3 +49,9 @@
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/scrapers/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/screensavers/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/themes/**
+
+**/.steam/steam/steamapps/common/**
+# Skip Steam during recursive share copies, not explicitly selected userdata/prefix paths.
+**/.local/share/Steam
+**/AppData/Local/Temp/**
+**/AppData/Local/Microsoft/Windows/INetCache/**

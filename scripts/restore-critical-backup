@@ -166,7 +166,7 @@ recovery_parent=/srv/home-lab-recovery
     echo "Restic snapshot selection failed" >&2
     exit 1
   }
-  REPOSITORY_JSON="$repository_json" SNAPSHOT_JSON="$snapshot_json" SNAPSHOT_ID="$restic_snapshot_id" \
+  capture_format=$(REPOSITORY_JSON="$repository_json" SNAPSHOT_JSON="$snapshot_json" SNAPSHOT_ID="$restic_snapshot_id" \
     EXPECTED_REPOSITORY_ID="$RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID" \
     EXPECTED_POLICY="$RECOVERY_EXPECTED_POLICY_SHA256" \
     EXPECTED_ARTIFACT="$RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256" \
@@ -191,16 +191,40 @@ required = {
 }
 if not required <= tags:
     raise SystemExit("Restic snapshot policy or artifact identity differs")
+formats = {tag for tag in tags if tag.startswith('format=')}
+if formats and formats != {'format=full-v2'}:
+    raise SystemExit('unsupported or conflicting capture format')
+if formats:
+    if 'complete=full-v2' not in tags:
+        raise SystemExit('incomplete capture cannot be restored as a qualified backup')
+    print('full-v2')
+else:
+    print('legacy')
 PY
+)
   restore_arguments=(restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify)
   if [[ $recovery_all != true ]]; then
-    for path in "${recovery_paths[@]}"; do
-      restore_arguments+=(--include "$path")
-    done
+    if [[ $capture_format == full-v2 ]]; then
+      capture_root=/mnt/games/home-lab-backup/capture
+      restore_arguments+=(--include "$capture_root/manifest.json" --include "$capture_root/databases" --include "$capture_root/native")
+      for path in "${recovery_paths[@]}"; do
+        restore_arguments+=(--include "$capture_root/files$path")
+      done
+    else
+      for path in "${recovery_paths[@]}"; do
+        restore_arguments+=(--include "$path")
+      done
+    fi
   fi
   if ! "$restic_path" "${restore_arguments[@]}" >/dev/null 2>&1; then
     echo "Restic restore verification failed" >&2
     exit 1
+  fi
+  if [[ $capture_format == full-v2 ]]; then
+    [[ -f $runner_dir/prepare-restic-files.py && ! -L $runner_dir/prepare-restic-files.py ]] || exit 1
+    # This helper is reviewed/installed alongside the runner, and covered by the
+    # externally verified bundle manifest during independent recovery.
+    python3 "$runner_dir/prepare-restic-files.py" "$RECOVERY_TARGET" >/dev/null
   fi
   selected_groups=$(SCOPE_JSON="$scope_json" python3 - <<'PY'
 import json

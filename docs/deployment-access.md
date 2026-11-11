@@ -41,10 +41,12 @@ and convergence interface. See [automatic updates](operations.md#automatic-compo
 The existing 05:00 daily backup timer uses the shared full timer renderer to select
 `home-lab-morning.target`. Backup reconfiguration preserves its installed target;
 only an explicitly approved scheduling change replaces the trigger dependency.
-That target composes the existing local/NFS and Proton
-backup units, then routine deployment. The backup-only daily target and manual
-backup commands are unchanged. A terminal Proton failure still reaches existing
-routine admission; local failures, active writers and journals remain blockers.
+That target waits for complete local capture, then routine deployment. NFS and
+Proton reconcile independently at boot/hourly and after local success, never as a
+deployment dependency. Manual backups never trigger deployment. Routine admission
+requires local freshness, initial replica coverage and at most 48 hours of
+capture-time lag to either destination. Copy progress/failure alone does not
+block it; local failures, unresolved staging and journals do.
 There is no deployment clock cutoff, independent polling timer or missed-run alert.
 
 `configure-compose-schedule.yml` is an approval-gated installation interface. From

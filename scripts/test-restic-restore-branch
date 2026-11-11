@@ -33,8 +33,16 @@ case "${1:-}" in
     ;;
   snapshots)
     [[ ${2:-} == --json && ${3:-} == "$FIXTURE_SNAPSHOT" ]]
-    printf '[{"id":"%s","original":"%s","tags":["cadence=daily","policy=%s","artifact=%s"]}]\n' \
-      "$FIXTURE_SNAPSHOT" "$FIXTURE_ORIGINAL" "$FIXTURE_POLICY" "$FIXTURE_ARTIFACT"
+    python3 - <<'PY'
+import json
+import os
+print(json.dumps([{
+    'id': os.environ['FIXTURE_SNAPSHOT'], 'original': os.environ['FIXTURE_ORIGINAL'],
+    'tags': ['cadence=daily', 'policy=' + os.environ['FIXTURE_POLICY'],
+             'artifact=' + os.environ['FIXTURE_ARTIFACT'],
+             *json.loads(os.environ.get('FIXTURE_FORMAT_TAGS', '[]'))],
+}]))
+PY
     ;;
   restore)
     [[ ${2:-} == "$FIXTURE_SNAPSHOT" && ${3:-} == --target && ${5:-} == --verify ]]
@@ -133,18 +141,31 @@ grep -q "^recovery_restore=verified backend=restic snapshot=$snapshot groups=" <
 [[ $(cat "$success/srv/home-lab-state/fixture") == verified ]]
 [[ ! -e $success.proof-lock ]]
 
+recovery_selection=(--all)
 reject() {
   local name=$1
   shift
   local target="$recovery_root/restic-$name"
   mkdir -m 0700 "$target"
   if env -u RCLONE_CONFIG "${common_env[@]}" RECOVERY_TARGET="$target" "$@" \
-    "$bundle_root/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target --all >/dev/null 2>&1; then
+    "$bundle_root/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target "${recovery_selection[@]}" >/dev/null 2>&1; then
     echo "unsafe Restic restore fixture unexpectedly passed: $name" >&2
     exit 1
   fi
   [[ ! -e $target.proof-lock ]]
+  [[ -z $(find "$target" -mindepth 1 -print -quit) ]]
 }
+
+# Both complete and selective recovery must reject unsupported layouts before
+# Restic restores any bytes. Untagged legacy success is exercised above.
+for scope in all books; do
+  recovery_selection=(--all)
+  [[ $scope == all ]] || recovery_selection=(--recovery-group books)
+  reject "unknown-format-$scope" env FIXTURE_FORMAT_TAGS='["format=future"]'
+  reject "conflicting-format-$scope" env FIXTURE_FORMAT_TAGS='["format=full-v2","complete=full-v2","format=future"]'
+  reject "incomplete-format-$scope" env FIXTURE_FORMAT_TAGS='["format=full-v2"]'
+done
+recovery_selection=(--all)
 
 reject wrong-original env RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID="$(printf 'a%.0s' {1..64})"
 reject wrong-restic-hash env RECOVERY_EXPECTED_RESTIC_SHA256="$(printf 'b%.0s' {1..64})"

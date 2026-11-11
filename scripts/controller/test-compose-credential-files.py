@@ -106,16 +106,42 @@ class ComposeDelivery(unittest.TestCase):
             mount = volumes["/config/" + directory]
             self.assertTrue(mount["read_only"])
             self.assertEqual(Path(mount["source"]), ROOT / "services/data/recyclarr" / directory)
-            host_source = "/srv/docker-compose/current/" + str(Path(mount["source"]).relative_to(ROOT))
-            self.assertIn(host_source, (ROOT / "services/data/restic/files-from").read_text().splitlines())
-            self.assertIn(host_source, json.loads((ROOT / "recovery/groups.json").read_text())["groups"]["media"]["paths"])
+            # Committed configuration is recovered from the captured source
+            # archive, rather than a second copy of the active checkout.
+            policy = json.loads((ROOT / "services/data/restic/policy.json").read_text())
+            self.assertIn("/var/lib/docker-compose/source.tar", policy["capture"]["live_files"])
+            source_paths = yaml.safe_load((ROOT / "ansible/roles/compose_native/defaults/main.yml").read_text())["compose_native_source_paths"]
+            self.assertTrue(any(Path(mount["source"]).relative_to(ROOT).is_relative_to(path) for path in source_paths))
+            self.assertIn("/var/lib/docker-compose/source.tar",
+                          json.loads((ROOT / "recovery/groups.json").read_text())["common_paths"])
         self.assertNotIn("entrypoint", service)
         self.assertEqual(service["secrets"][0]["target"], "/config/secrets.yml")
 
+    def test_tachidesk_mounts_are_captured_and_selected_for_books_recovery(self):
+        services = yaml.safe_load((ROOT / 'services/servarr.yml').read_text())['services']
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        books = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']['books']
+        for name in ('tachidesk', 'caro-tachidesk'):
+            step = next(s for s in policy['capture']['cold'] if s['name'] == name)
+            self.assertIn(name, step['services'])
+            self.assertIn(name, books['services'])
+            for mount in services[name]['volumes']:
+                source = mount['source'] if isinstance(mount, dict) else mount.split(':', 1)[0]
+                # Resolve the reviewed host media root, never production secrets.
+                source = source.replace('${MEDIA_PATH}', '/mnt/storage/media')
+                with self.subTest(service=name, source=source):
+                    self.assertTrue(Path(source).is_absolute())
+                    self.assertTrue(any(Path(source).is_relative_to(p) for p in step['paths']),
+                                    'capture must include the actual host-side bind source')
+                    self.assertTrue(any(Path(source).is_relative_to(p) for p in books['paths']),
+                                    'books recovery must select the same host-side files')
+
     def test_backup_and_every_recovery_group_include_the_credential_directory(self):
-        backed_up = (ROOT / "services/data/restic/files-from").read_text().splitlines()
+        policy = json.loads((ROOT / "services/data/restic/policy.json").read_text())
+        self.assertEqual((ROOT / "services/data/restic/files-from").read_text().splitlines(),
+                         [policy["capture"]["stage"]])
         common = json.loads((ROOT / "recovery/groups.json").read_text())["common_paths"]
-        self.assertIn("/etc/docker-compose/credentials", backed_up)
+        self.assertIn("/etc/docker-compose/credentials", policy["capture"]["live_files"])
         self.assertIn("/etc/docker-compose/credentials", common)
         for item in BINDINGS["files"]:
             self.assertTrue(item["path"].startswith("/etc/docker-compose/credentials/"))

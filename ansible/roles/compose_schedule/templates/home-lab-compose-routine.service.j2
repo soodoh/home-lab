@@ -1,7 +1,7 @@
 [Unit]
 Description=Converge CI-qualified routine Compose images after the scheduled backup chain
 Wants=network-online.target
-After=network-online.target home-lab-restic-daily.target home-lab-restic-daily-local.service home-lab-restic-daily-proton.service
+After=network-online.target home-lab-restic-daily.target home-lab-restic-daily-local.service
 
 [Service]
 Type=oneshot
