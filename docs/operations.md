@@ -73,7 +73,8 @@ Keep CI's `-lockfile=readonly`; do not remove the lock or disable checksum check
 
 Focused backup/recovery checks are `scripts/test-recovery-tools`,
 `python3 scripts/test-restic-runtime.py`, and
-`python3 scripts/test-restic-observer.py`.
+`python3 scripts/test-restic-observer.py`, and
+`RESTIC=<reviewed-binary> python3 scripts/test-simple-backups.py`.
 
 ### Controller dependency updates
 
@@ -117,7 +118,8 @@ checksum-pinned Linux amd64 binary through the installation role, round-trips
 synthetic JSON/YAML through `community.sops` and rejects an unrelated age identity.
 Neither lane receives production secrets or provider credentials. The protected
 `validate` check runs even when a lane fails, is cancelled or skips, and succeeds
-only when both lanes succeed. The host Python line is not Renovate-managed:
+only when all source, host-compatibility, native-recovery and repository-owned
+application qualification jobs succeed. The host Python line is not Renovate-managed:
 advance it only after a fresh host observation and separately reviewed runtime
 upgrade. This is a Linux compatibility test, not a replica of every host package.
 
@@ -165,24 +167,25 @@ ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 Run the relevant observer afresh before **each** plan or host apply. Backup
 observation never creates a backup. Select admission according to reviewed risk:
 
-- **Routine upgrades:** after release/startup compatibility review or admission
-  under the approved automatic Compose policy below, a daily local snapshot less than
-  48 hours old must cover the current files-from scope under the current backup
-  policy. Its `artifact=` tag may identify an earlier deployment. NFS/Proton lag,
-  unavailability or a terminal failed Proton copy is a warning, not a reason to
-  stop an otherwise covered upgrade. A failed **local** unit remains a blocker:
-  it combines scan and NFS copy, so failure alone cannot distinguish NFS lag from
-  a partial local snapshot. Inspect it rather than accepting possibly incomplete
-  data. Accessible repositories must still have the expected
-  identities and copied ancestry must be unambiguous. Independently committed
-  upgrades do not require a new backup for every deployment hash.
-- **Data/storage/schema changes, deletion or incompatible upgrades:** verify the
-  acceptable data-loss window, affected-data recovery path and external storage.
-  Obtain a fresh affected-data backup or protected before-image when needed and
-  explicitly review recovery before applying. The default `strict` observation
-  still requires a complete games → NFS → Proton chain less than 48 hours old
-  matching current policy and deployment; it is not by itself approval for a
-  destructive change or proof that an image won't migrate data at startup.
+- **Routine upgrades:** require a successful complete local recovery set less than
+  48 hours old under the current scope/policy, initial coverage on both NFS and
+  Proton, and at most 48 hours of replication lag. Lag is the difference between
+  the latest local **capture time** and the newest capture successfully copied
+  to each destination, not upload completion time. The local snapshot may identify
+  an earlier routine deployment. Active transfers and failed copy-unit exits are
+  not blockers by themselves; missing baselines, excessive lag, wrong identities
+  and ambiguous ancestry are. Inaccessible inventories fail closed.
+- **Data/storage/schema changes, deletion or incompatible upgrades:** the owned
+  mutation interface creates fresh complete local protection and reconciles its
+  exact NFS copy before admission. The NFS reconciliation waits for any existing
+  transfer, then reads a fresh inventory without repeating application capture.
+  Native timeout bounds waiting and reconciliation together to 24 hours; timeout
+  or failure retains production ownership for inspection. The snapshot is bound
+  to this acquired production owner and the accepted artifact. Proton need not
+  finish this newest copy first, but its baseline and 48-hour lag limit still
+  apply. Standalone observation remains read-only. Fresh protection is not
+  approval to destroy data or proof that startup is reversible; independently
+  review the recovery procedure and acceptable loss window.
 
 For routine observation use
 `ansible-playbook ansible/playbooks/observe-backups.yml -e restic_backup_admission=routine`.
@@ -190,8 +193,9 @@ Writer exclusion, interruption journals, unknown ownership, tool identities,
 policy/scope and freshness checks remain blockers in both modes. Convergence
 revalidates admission under the exact acquired production owner; that exception
 never admits another owner's lock. A fresh observation is current-run input,
-not standing approval. Only a matching complete chain proves the **changed
-artifact** has three-copy backup coverage. Git revert restores configuration,
+not standing approval. Successful strict changes invalidate pre-change routine
+coverage until a new complete capture protects the changed state. Matching copies
+prove coverage of a capture, not of subsequent application writes. Git revert restores configuration,
 **not data**.
 
 Unknown locks, interruption journals, mounts, keys, owners, service counts or
@@ -780,23 +784,19 @@ The existing 05:00 host-local Pacific backup timer activates
 `home-lab-morning.target` through the shared full timer definition. Systemd does
 not allow its `Unit=` trigger dependency to be replaced through a drop-in. Backup
 reconfiguration preserves the installed destination; the separately approved
-scheduler interface selects the morning or backup-only target. This native
-systemd target composes the unchanged daily local/NFS and Proton units followed
-by `home-lab-compose-routine.service`. Only this scheduled composition includes
-deployment: starting `home-lab-restic-daily.target`, either backup service or the
-backup runner manually never starts routine convergence. No `OnSuccess` or
-completion hook is attached to a shared backup unit.
+scheduler interface selects the morning or backup-only target. The morning target
+waits only for complete local capture, then invokes routine deployment. NFS/Proton
+reconciliation has an independent hourly/boot timer and a local-success trigger;
+deployment does not wait for transfers. Admission still checks both replica lags
+and baselines. Manual backup/replication commands never trigger deployment.
 
-Deployment begins after the scheduled backup chain terminates, **at whatever time
-that is**, without a separate clock window, cutoff or missed-run alert. A terminal
-Proton failure does not fail the dependency path to routine admission; the existing
-observer still refuses failed local units, active writers, journals, unknown owners,
-missing/freshness-deficient local coverage and inconsistent identities. During this
-exact owned scheduled apply, the daily timer itself may be `running` because its
-target includes deployment; only that known target and validated production owner
-receive this exception. The actual backup units must still be terminal. The daily
-backup's existing `Persistent=false` behavior is unchanged: an offline host does
-not replay missed daily cycles merely because it boots.
+Deployment begins when local capture terminates, **at whatever time that is**,
+without a clock cutoff or missed-run alert. Active local capture, unresolved
+journals or staging, unknown owners, missing/freshness-deficient local coverage
+and inconsistent identities block admission. Only the known morning timer under
+the exact validated scheduled owner receives the narrow running-timer exception.
+The existing daily timer's `Persistent=false` remains unchanged; the independent
+replication timer is persistent.
 
 The root-owned installed controller executes
 [`deploy-compose-automatic.yml`](../ansible/playbooks/deploy-compose-automatic.yml)
@@ -907,42 +907,93 @@ verification and Compose validation for related configuration changes.
 
 ### Backup runtime and downtime
 
-The daily runner reports bounded `stop`, `scan`, `restart`, `nfs_copy` and
-`proton_copy` durations without paths or credentials. Sum the first three for
-an upper bound on the writer-stop window; the copy phases occur after restart.
-Compare several cycles before changing scope. The runner asks native Compose
-to stop the selected applications as one dependency-aware group, then stops the
-selected databases as a separate group; it restarts only the previously running
-services. Gluetun and Recyclarr are paused because their writable mounts include
-backed-up data. FlareSolverr is paused with Gluetun because it shares Gluetun's
-network namespace. The recorded reverse start order brings Gluetun up before
-qBittorrent (needed by Gluetun's port-forward hook) and the other namespace
-dependents, and Recyclarr after the Arr services. It waits for Gluetun health
-before starting those dependents; a failed health gate retains the interruption
-journal. The systemd recovery unit needs access to both repositories and the
-local Restic cache to complete its native preflight after restoring services.
-If shutdown dominates, inspect slow graceful-stop behavior rather than
-shortening the timeout or adding a filesystem snapshot layer by default. A
-source-level audit of the stop list found no *proven* safe removals: it covers
-databases, embedded application state, configuration writers and game profiles.
-Do not leave a writer running merely because it is not a database; require
-fresh mount/writer evidence and a private restore before narrowing the list.
-Keep the full daily chain; routine admission changes upgrade gating, not backup
-scope, frequency, writer quiescence or replication.
+The complete recovery set is defined by
+[`policy.json`](../services/data/restic/policy.json). There is one local capture,
+not application generations or mixed-age admission. Captures are sequential,
+not globally atomic; the format manifest records group capture times.
 
-If the scan itself becomes the downtime bottleneck, snapshot-backed scanning
-is a separate, approval-gated storage design, **not** a change to this runner.
-The observed `/srv/home-lab-state` and `/mnt/games` are separate ext4
-filesystems on direct partitions, without a native mounted
-snapshot source. First restore a complete admitted chain and establish protected
-before-images, rollback access and capacity. Then evaluate a snapshot-capable
-storage layer for both included filesystems: under the backup lock, quiesce
-writers, snapshot, restart, and scan immutable snapshots with native Restic.
-Preserve original recovery paths, policy/artifact tags, three-copy ancestry,
-interruption recovery and private restore validation. Handle external Nextcloud
-data independently. Any storage migration needs its own live observation, plan,
-destructive-data review and explicit approval; online database export is an
-alternative only with a qualified application-file restore.
+Native PostgreSQL/MariaDB exports run while coupled application writers are
+paused. SQLite online backups and Jellyfin's native archive cover online inputs.
+Other protected state is copied completely into private disk-backed staging
+inside a stop/copy/restart window for that service/dependency group. Previously
+stopped services stay stopped. Restart/health checks finish **before** unrelated
+groups, Restic scanning or replication. Gluetun's namespace clients resume only
+after VPN health. A durable interruption journal records the previous running
+set and the strict capture's production-owner digest. Boot recovery may resume
+that set only when the journal matches the retained owner; it never releases
+production ownership or resumes deployment. Unowned daily captures can recover
+without a production lock. Mismatched/missing owners require inspection, and
+restart/health failures retain the journal. Successful service recovery removes
+only the interruption journal, leaving incomplete staging for inspection.
+
+CLIProxyAPI and both ingress services stay online. ACME stores use bounded,
+validated stable JSON reads rather than interrupting the API access path.
+Short private auth-file reads cooperate with existing
+Codex per-file locks, validate JSON and retry unstable reads boundedly. Other
+provider/in-place writers can still race. Token expiry, rotation and revocation
+remain external authorization risks that no backup can remove.
+
+Staging is `/mnt/games/home-lab-backup/capture`, below a root-only parent. Source
+mount/repository identities, idle Wolf/native writer checks, radio-backup freshness and a conservative
+native `du`/free-space check run before interruption. Wolf availability is checked
+before staging is created, then rechecked at its capture window. Activity already
+present at preflight leaves no incomplete staging; activity beginning later still
+fails closed and retains incomplete capture material for inspection. Ready-stage
+upload retries do not require Wolf to be idle. The estimate budgets twice
+selected source usage plus a 20 GiB reserve. Measure large Nextcloud user data
+and qualify its stop/copy duration before installation; do not silently drop
+those files or select RAM-backed staging.
+
+Ready staging is reusable for failed Restic retries without another application
+stop/copy/restart. Incomplete captures require inspection and are never reused.
+Only an exit-0 backup is marked complete. Restic's native final tagging briefly
+requires an exclusive repository lock; an active copy can defer it. The completion
+command waits natively for up to the full 12-hour transfer budget, with a 13-hour
+process timeout. The local unit allows 24 hours for capture/upload and completion,
+so healthy lock contention does not consume its rate-limited systemd restarts.
+Failures still retain ready staging for bounded retries without interrupting
+transfers or repeating application capture. Services are already running.
+
+Hourly/boot systemd activation discovers missing copies from complete captures
+and historical unformatted daily snapshots, oldest first, with bounded per-copy
+retries. Transfers use separate locks, never the production/capture lock. Replica
+services expose device metadata for native filesystem-UUID checks, but a closed
+device policy and capability restrictions deny raw-device access and creation. Source
+retention is deferred while any eligible snapshot lacks either copy; investigate
+capacity pressure rather than discarding the only copy. Native retention applies
+bounded daily/weekly/monthly counts to legacy and complete history, deleting only
+removed sources' exact destination copies. Before source expiry, a protected
+`/var/lib/home-lab-restic/retention.json` journal binds exact source/copy IDs to
+all three repository identities. Local maintenance resumes pending deletions
+first, preserving copies whose sources still exist and skipping already absent
+copies. It removes the journal only after verifying replica deletion; failures
+retain it, and tool convergence refuses replacement until maintenance completes
+or live inspection resolves the journal. Incomplete and unknown formatted
+captures remain protected for inspection, not eligible for replication or expiry.
+Maintenance waits for the exclusive repository gate instead of failing on healthy
+readers; capture/copy use its shared side. Its 24-hour native systemd timeout
+budgets an existing 12-hour copy plus maintenance. Admission remains blocked while
+maintenance is pending or running, and genuine failures still require inspection.
+Ordinary deployments do not stop replication.
+Tool convergence fences new copy jobs, stops managed transfer units cleanly,
+then requires the exclusive repository gate before replacement. A directly
+launched copy that is still running refuses the update rather than being killed;
+inspect it and the retained production owner/fence before resuming. Copy callers
+check the fence and load policy under the shared gate. After complete convergence,
+the fence is removed and the timer restored. Interrupted tool updates retain their
+fence and production owner for host inspection. Never force-unlock a repository.
+
+ZHA's native network backup must be present/fresh in protected `zigbee.db`.
+The separately approved `configure-radio-backups.yml` interface enables native
+Z-Wave JS UI store/NVM backups at 04:00/04:15, retaining seven versions, before
+05:00 capture. It restarts only a previously running Z-Wave service, merges
+settings privately and retains a before-image on failure. Enabling a schedule
+is not proof of actual fresh NVM output. NVM capture can briefly suspend radio
+traffic; replacement recovery remains hardware/firmware-dependent. Use supported
+ZHA migration and native Z-Wave recovery tools.
+
+See [recovery](../recovery/README.md) for coverage, format-aware private staging,
+native import boundaries and remaining production qualifications.
 
 Docker must publish private Traefik TCP 443 only on the currently reviewed
 Docker-host Tailscale IPv4; the bridged container listens on TCP 443. Public
@@ -961,8 +1012,9 @@ Z-Wave's Authentik group gate (including denial) and WebSocket flows before
 removing Proxmox's obsolete Authentik resources with a reviewed destroy plan.
 The public names must no longer reach either UI.
 [Ingress headers](ingress-headers.md) records the current HSTS policy.
-Keep private and public ACME stores protected; neither is in the Restic
-files-from set and reissuance is subject to CA limits. GOST is an authenticated
+Keep private and public production ACME stores protected; both are in complete
+capture, including account private keys. Reissuance remains subject to CA limits;
+restored keys are not permission to run competing ACME writers. GOST is an authenticated
 transport, **not** authorization for private backends: test its allowlist with an
 isolated authenticated client without a local bypass as well as testing real
 client credentials. Isolated GOST denials and UDP/HTTP3 private-route negatives

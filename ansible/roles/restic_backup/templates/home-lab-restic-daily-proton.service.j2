@@ -1,7 +1,8 @@
 [Unit]
-Description=Home Lab Restic daily Proton replication
-Requires=home-lab-restic-daily-local.service
-After=home-lab-restic-daily-local.service network-online.target
+Description=Home Lab proton repository reconciliation
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor={{ restic_systemd.games_mountpoint }}
 
 [Service]
 Type=oneshot
@@ -10,9 +11,12 @@ Group=restic-proton
 UMask=0077
 ExecStart={{ restic_systemd.runner_path }} daily-proton
 TimeoutStartSec=12h
+TimeoutStopSec=5min
 KillSignal=SIGINT
 NoNewPrivileges=true
-PrivateDevices=true
+# UUID admission needs device metadata, never raw-device access.
+DevicePolicy=closed
+CapabilityBoundingSet=~CAP_MKNOD CAP_SYS_RAWIO
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
@@ -23,9 +27,9 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-InaccessiblePaths=/srv/home-lab-state /mnt/storage /home/docker /etc/docker-compose
+InaccessiblePaths=/srv/home-lab-state /etc/docker-compose
 TemporaryFileSystem=/mnt/games:ro
 BindReadOnlyPaths={{ restic_systemd.games_repository_path }}
 BindPaths={{ restic_systemd.games_repository_path }}/locks
 ReadOnlyPaths=/etc/home-lab/restic
-ReadWritePaths=/var/lib/restic-proton {{ restic_systemd.lock_path }}
+ReadWritePaths={{ restic_systemd.games_repository_path }}/locks /run/lock /var/lib/restic-proton

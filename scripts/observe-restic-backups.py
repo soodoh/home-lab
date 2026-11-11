@@ -33,6 +33,8 @@ UNITS = (
     "home-lab-restic-daily.target",
     "home-lab-restic-daily-local.service",
     "home-lab-restic-daily-proton.service",
+    "home-lab-restic-daily-nfs.service",
+    "home-lab-restic-replication.timer",
     "home-lab-restic-maintenance.timer",
     "home-lab-restic-maintenance.target",
     "home-lab-restic-maintenance-local.service",
@@ -74,7 +76,7 @@ def run(arguments: list[str], environment: dict[str, str] | None = None) -> str:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=1800,
+            timeout=60,
             env=merged,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -152,58 +154,41 @@ def require_fresh(snapshot: dict[str, Any], now: datetime) -> None:
         raise ObservationError("snapshot_freshness")
 
 
-def select_local(snapshots: list[dict[str, Any]], policy_sha256: str, paths: list[str]) -> dict[str, Any]:
-    """Require current backup scope, but allow an earlier deployment artifact."""
-    required = {"cadence=daily", f"policy={policy_sha256}"}
-    for source in sorted(snapshots, key=snapshot_time, reverse=True):
-        snapshot_id(source)
-        tags = snapshot_tags(source)
-        covered = source.get("paths", [])
-        if not isinstance(covered, list) or any(not isinstance(root, str) for root in covered):
-            raise ObservationError("snapshot_paths")
-        if not required <= tags or not any(re.fullmatch(r"artifact=[0-9a-f]{64}", tag) for tag in tags):
-            continue
-        if all(any(path == root or path.startswith(root.rstrip("/") + "/") for root in covered)
-               for path in paths):
-            return source
-    raise ObservationError("local_snapshot_missing")
-
-
-def match_copy(source: dict[str, Any], destination: list[dict[str, Any]]) -> dict[str, Any] | None:
-    mapped = [item for item in destination if item.get("original") == snapshot_id(source)
-              and snapshot_tags(item) == snapshot_tags(source)]
+def match_copy(source, destination):
+    mapped = [item for item in destination
+              if item.get('original') == source.get('original', snapshot_id(source))
+              and snapshot_tags(item) == snapshot_tags(source)
+              and all(item.get(k) == source.get(k) for k in ('time', 'tree', 'paths'))]
     if len(mapped) > 1:
-        raise ObservationError("snapshot_mapping_ambiguous")
+        raise ObservationError('snapshot_mapping_ambiguous')
     return mapped[0] if mapped else None
 
 
-def select_chain(
-    games: list[dict[str, Any]],
-    nfs: list[dict[str, Any]],
-    proton: list[dict[str, Any]],
-    policy_sha256: str,
-    artifact_sha256: str,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    required = {"cadence=daily", f"policy={policy_sha256}", f"artifact={artifact_sha256}"}
-    nfs_by_original: dict[str, list[dict[str, Any]]] = {}
-    proton_by_original: dict[str, list[dict[str, Any]]] = {}
-    for destination, index in ((nfs, nfs_by_original), (proton, proton_by_original)):
-        for snapshot in destination:
-            original = snapshot.get("original")
-            if isinstance(original, str) and HEX.fullmatch(original):
-                index.setdefault(original, []).append(snapshot)
-    for source in sorted(games, key=snapshot_time, reverse=True):
-        source_id = snapshot_id(source)
-        source_tags = snapshot_tags(source)
-        if not required <= source_tags:
-            continue
-        nfs_matches = [item for item in nfs_by_original.get(source_id, []) if snapshot_tags(item) == source_tags]
-        proton_matches = [item for item in proton_by_original.get(source_id, []) if snapshot_tags(item) == source_tags]
-        if len(nfs_matches) > 1 or len(proton_matches) > 1:
-            raise ObservationError("snapshot_mapping_ambiguous")
-        if len(nfs_matches) == 1 and len(proton_matches) == 1:
-            return source, nfs_matches[0], proton_matches[0]
-    raise ObservationError("complete_chain_missing")
+def select_full(inventories, policy_sha, artifact, stage, *, routine, owner=None, max_lag=172800):
+    required = {'cadence=daily', 'format=full-v2', 'complete=full-v2', 'policy=' + policy_sha}
+    sources = [s for s in inventories['games'] if required <= snapshot_tags(s)
+               and stage in s.get('paths', [])
+               and any(re.fullmatch(r'artifact=[0-9a-f]{64}', tag) for tag in snapshot_tags(s))]
+    all_sources = sources
+    if not routine:
+        sources = [s for s in sources if 'artifact=' + artifact in snapshot_tags(s)
+                   and (owner is None or 'owner=' + owner in snapshot_tags(s))]
+    if not sources:
+        raise ObservationError('complete_local_missing')
+    latest = max(sources, key=snapshot_time)
+    require_fresh(latest, datetime.now(timezone.utc))
+    copies = {}
+    for destination in ('nfs', 'proton'):
+        matches = [(s, match_copy(s, inventories[destination])) for s in all_sources]
+        matches = [(s, c) for s, c in matches if c is not None]
+        if not matches:
+            raise ObservationError(destination + '_baseline_missing')
+        source, copy = max(matches, key=lambda pair: snapshot_time(pair[0]))
+        lag = (snapshot_time(latest) - snapshot_time(source)).total_seconds()
+        if (not routine and destination == 'nfs' and snapshot_id(source) != snapshot_id(latest)) or lag > max_lag:
+            raise ObservationError(destination + '_replication_stale')
+        copies[destination] = copy
+    return latest, copies['nfs'], copies['proton']
 
 
 def local_restic(policy: dict[str, Any], repository: str, arguments: list[str]) -> str:
@@ -274,9 +259,12 @@ def validate_timer_state(unit: str, values: dict[str, str], *, scheduled_deploym
         and values.get("Unit") == "home-lab-morning.target"
         and values.get("SubState") == "running"
     )
-    if values.get("ActiveState") != "active" or not (values.get("SubState") == "waiting" or own_workflow):
+    copy_workflow = (unit == 'home-lab-restic-replication.timer'
+                     and values.get('Unit') == 'home-lab-restic-replication.target'
+                     and values.get('SubState') == 'running')
+    if values.get("ActiveState") != "active" or not (values.get("SubState") == "waiting" or own_workflow or copy_workflow):
         raise ObservationError("timer_state")
-    if not values.get("LastTriggerUSec" if own_workflow else "NextElapseUSecRealtime"):
+    if not values.get("LastTriggerUSec" if own_workflow or copy_workflow else "NextElapseUSecRealtime"):
         raise ObservationError("timer_schedule")
 
 
@@ -296,7 +284,7 @@ def validate_units(
         parsed[unit] = values
         if values.get("LoadState") != "loaded":
             raise ObservationError("unit_load_state")
-    for timer in ("home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"):
+    for timer in ('home-lab-restic-daily.timer', 'home-lab-restic-maintenance.timer', 'home-lab-restic-replication.timer'):
         validate_timer_state(timer, parsed[timer], scheduled_deployment=scheduled_deployment)
     if not routine and not daily_history_present(parsed):
         raise ObservationError("daily_cadence_history")
@@ -304,6 +292,10 @@ def validate_units(
         if unit.endswith(".timer"):
             continue
         values = parsed[unit]
+        if unit in {'home-lab-restic-daily-proton.service', 'home-lab-restic-daily-nfs.service'}:
+            # Copy progress/failure is evaluated from actual snapshot ancestry and
+            # capture-time lag, never from the most recent unit exit code.
+            continue
         validate_unit_state(unit, values, routine=routine)
     schedules = {
         Path("/etc/systemd/system/home-lab-restic-daily.timer"): policy["schedule"]["daily_calendar"],
@@ -353,6 +345,11 @@ def main() -> None:
             raise ObservationError("lock_policy_identity")
         journal = Path(policy["runner"]["journal_path"])
         validate_owners(journal, arguments.apply_owner_sha256)
+        pending = Path(policy['capture']['stage'])
+        if pending.exists() or pending.is_symlink():
+            raise ObservationError('capture_staging_pending')
+        require_regular(Path('/usr/local/libexec/home-lab/restic-capture-files.py'), 0o755,
+                        policy['capture']['adapter_sha256'])
         runtime = (
             (Path(policy["runner"]["path"]), 0o755, arguments.runner_sha256),
             (Path(policy["runner"]["files_from_path"]), 0o440, arguments.files_from_sha256),
@@ -390,24 +387,19 @@ def main() -> None:
                     raise
                 inventories[name] = []
                 warnings.append(f"{name}_unavailable")
-        if arguments.admission == "strict":
-            selected_games, selected_nfs, selected_proton = select_chain(
-                inventories["games"], inventories["nfs"], inventories["proton"], policy_sha256, artifact_sha256,
-            )
-        else:
-            paths = [line.strip() for line in Path(policy["runner"]["files_from_path"]).read_text().splitlines()
-                     if line.strip() and not line.lstrip().startswith("#")]
-            if not paths or any(not path.startswith("/") for path in paths):
-                raise ObservationError("backup_scope")
-            selected_games = select_local(inventories["games"], policy_sha256, paths)
-            selected_nfs, selected_proton = (match_copy(selected_games, inventories[name]) for name in ("nfs", "proton"))
-            for name, copy in (("nfs", selected_nfs), ("proton", selected_proton)):
-                if copy is None:
-                    warnings.append(f"{name}_replication_lag")
-            for unit, properties in units.items():
-                if unit.endswith(".service") and parse_properties("\n".join(properties)).get("Result") != "success":
-                    warnings.append(f"{unit}_last_run_failed")
+        selected_games, selected_nfs, selected_proton = select_full(
+            inventories, policy_sha256, artifact_sha256, policy['capture']['stage'],
+            routine=arguments.admission == 'routine', owner=arguments.apply_owner_sha256,
+            max_lag=policy['replication']['max_lag_seconds'])
+        for name, copy in (('nfs', selected_nfs), ('proton', selected_proton)):
+            if copy is None or match_copy(selected_games, [copy]) is None:
+                warnings.append(name + '_replication_lag')
         require_fresh(selected_games, datetime.now(timezone.utc))
+        cutoff = Path('/var/lib/home-lab-restic/require-post-change-capture')
+        if arguments.admission == 'routine' and (cutoff.exists() or cutoff.is_symlink()):
+            require_regular(cutoff, 0o600)
+            if snapshot_time(selected_games).timestamp() <= cutoff.stat().st_mtime:
+                raise ObservationError('post_change_capture_required')
 
         result = {
             "admission": arguments.admission,

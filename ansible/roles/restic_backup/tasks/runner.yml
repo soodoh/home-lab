@@ -10,3 +10,6 @@
     - src: "{{ playbook_dir }}/../../scripts/restic-backup"
       dest: /usr/local/libexec/home-lab/restic-backup
       mode: '0755'
+    - src: "{{ playbook_dir }}/../../scripts/restic-capture-files.py"
+      dest: /usr/local/libexec/home-lab/restic-capture-files.py
+      mode: '0755'

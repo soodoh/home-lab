@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import platform
+import pwd
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -76,7 +78,7 @@ if phase == 'deploy':
         properties = observer.parse_properties(raw)
         properties['Unit'] = properties.get('Unit', '').replace({cls.prefix!r}, 'home-lab')
         observer.validate_timer_state('home-lab-restic-daily.timer', properties, scheduled_deployment=True)
-        for suffix in ('restic-daily.target', 'restic-daily-local.service', 'restic-daily-proton.service'):
+        for suffix in ('restic-daily.target', 'restic-daily-local.service'):
             unit = {cls.prefix!r} + '-' + suffix
             raw = subprocess.check_output(['systemctl', 'show', '--property=ActiveState,SubState,Result', unit], text=True)
             observer.validate_unit_state(unit, observer.parse_properties(raw), routine=True)
@@ -86,6 +88,10 @@ if phase == 'deploy':
 else:
     event(phase + '-start'); time.sleep(0.2)
     result = int((work / (phase + '-result')).read_text())
+    if phase == 'proton' and result == 0:
+        deadline = time.monotonic() + 30
+        while not (work / 'release-copy').exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
     event(phase + '-end'); sys.exit(result)
 """)
         executable = cls.work / "venv/bin/ansible-playbook"
@@ -101,9 +107,11 @@ else:
             if unit.endswith(".timer"):
                 rendered += "\n[Timer]\nOnActiveSec=0.2\nAccuracySec=1ms\n"
             cls.install(unit, rendered)
+        template = ROOT / 'ansible/roles/restic_backup/templates/home-lab-restic-replication.target.j2'
+        cls.install('home-lab-restic-replication.target', template.read_text())
+        cls.install('home-lab-restic-daily-nfs.service', '[Service]\nType=oneshot\nExecStart=/usr/bin/true\n')
         for phase in ("local", "proton"):
-            ordering = ("Before=home-lab-restic-daily-proton.service" if phase == "local" else
-                        "Requires=home-lab-restic-daily-local.service\nAfter=home-lab-restic-daily-local.service")
+            ordering = 'OnSuccess=home-lab-restic-replication.target' if phase == 'local' else ''
             cls.install(f"home-lab-restic-daily-{phase}.service", f"""[Unit]
 Description=Synthetic {phase} backup phase
 {ordering}
@@ -136,6 +144,7 @@ ExecStart={sys.executable} {helper} {phase}
             systemctl("stop", path.name, check=False)
             systemctl("reset-failed", path.name, check=False)
         self.events.unlink(missing_ok=True)
+        self.work.joinpath('release-copy').unlink(missing_ok=True)
         for phase in ("local", "proton"):
             self.work.joinpath(phase + "-result").write_text("0")
 
@@ -244,10 +253,18 @@ ExecStart={sys.executable} {helper} {phase}
 
     def test_manual_backup_has_no_deployment_side_effect(self):
         systemctl("start", self.prefix + "-restic-daily.target")
-        self.assertEqual(self.observed_events(), ["local-start", "local-end", "proton-start", "proton-end"])
+        events = self.observed_events()
+        self.assertEqual([e for e in events if e.startswith('local')], ['local-start', 'local-end'])
+        self.assertNotIn('admission', events)
+        self.assertNotIn('deploy', events)
 
-    def test_timer_runs_deployment_only_after_both_backup_phases_finish(self):
-        self.assertEqual(self.start_scheduled(), ["local-start", "local-end", "proton-start", "proton-end", "admission", "deploy"])
+    def test_timer_runs_deployment_after_local_capture_while_copy_is_active(self):
+        events = self.start_scheduled()
+        self.assertEqual([e for e in events if not e.startswith('proton')], ['local-start', 'local-end', 'admission', 'deploy'])
+        self.assertNotIn('proton-end', events)
+        self.assertEqual(systemctl('show', '--property=ActiveState', self.prefix + '-restic-daily-proton.service').stdout.strip(),
+                         'ActiveState=activating')
+        self.work.joinpath('release-copy').touch()
         # systemd removes this run's credential/runtime scope when the oneshot exits.
         deadline = time.monotonic() + 5
         runtime = Path("/run") / (self.prefix + "-compose-deploy")
@@ -258,12 +275,131 @@ ExecStart={sys.executable} {helper} {phase}
 
     def test_terminal_proton_failure_still_crosses_existing_routine_admission(self):
         self.work.joinpath("proton-result").write_text("1")
-        self.assertEqual(self.start_scheduled(), ["local-start", "local-end", "proton-start", "proton-end", "admission", "deploy"])
+        events = self.start_scheduled()
+        self.assertEqual([e for e in events if not e.startswith('proton')], ['local-start', 'local-end', 'admission', 'deploy'])
 
     def test_local_failure_is_refused_by_existing_admission_not_silently_bypassed(self):
         self.work.joinpath("local-result").write_text("1")
         events = self.start_scheduled()
         self.assertEqual(events, ["local-start", "local-end", "admission", "refused"])
+
+
+class ReplicaSandboxTests(unittest.TestCase):
+    """Exercise real mount admission inside both rendered replica sandboxes."""
+
+    def setUp(self):
+        # PrivateTmp hides /tmp. All service inputs are synthetic and copied here.
+        self.temporary = tempfile.TemporaryDirectory(prefix='restic-systemd-', dir='/var/lib')
+        self.addCleanup(self.temporary.cleanup)
+        self.work = Path(self.temporary.name)
+        nobody = pwd.getpwnam('nobody')
+        os.chown(self.work, nobody.pw_uid, nobody.pw_gid)
+        self.units = []
+        self.addCleanup(self.cleanup_units)
+        self.games = self.work / 'games'
+        self.repository = self.games / 'restic/home-lab'
+        for folder in (self.repository / 'locks', self.work / 'nfs', self.work / 'app-state',
+                       self.work / 'compose', self.work / 'config', self.work / 'proton-cache',
+                       self.work / 'local-cache'):
+            folder.mkdir(parents=True)
+            os.chown(folder, nobody.pw_uid, nobody.pw_gid)
+        shutil.copyfile(ROOT / 'scripts/restic-backup', self.work / 'runner.py')
+        observed = json.loads(subprocess.check_output([
+            'findmnt', '--json', '--nofsroot', '--target', str(self.repository),
+            '--output', 'TARGET,FSTYPE,SOURCE,UUID'], text=True))['filesystems'][0]
+        self.assertEqual(observed['fstype'], 'ext4', 'native fixture requires an ext4 backing filesystem')
+        self.assertTrue(observed['uuid'], 'native fixture requires a UUID-backed filesystem')
+        self.identity = observed
+        self.policy = {'repositories': {'games': {
+            'path': str(self.repository), 'filesystem': observed['fstype'],
+            'filesystem_uuid': observed['uuid'],
+        }}}
+        self.policy_path = self.work / 'policy.json'
+        self.policy_path.write_text(json.dumps(self.policy))
+
+    def cleanup_units(self):
+        for path in self.units:
+            systemctl('stop', path.name, check=False)
+            systemctl('reset-failed', path.name, check=False)
+            path.unlink(missing_ok=True)
+        systemctl('daemon-reload')
+
+    def verify_replica(self, destination):
+        result_path = self.work / ('local-cache' if destination == 'nfs' else 'proton-cache') / 'result'
+        helper = self.work / 'verify'
+        helper.write_text(f'''#!{sys.executable}
+import json, os, pathlib, runpy, stat
+runner = runpy.run_path({str(self.work / 'runner.py')!r})
+# Only the Restic repository-open boundary is synthetic: mount admission is real.
+runner['preflight'].__globals__['verify_repository'] = lambda *_: {{'chunker_polynomial': 'fixture'}}
+result = pathlib.Path({str(result_path)!r})
+try:
+    runner['preflight'](json.loads(pathlib.Path({str(self.policy_path)!r}).read_text()), ['games'])
+except runner['WorkflowError'] as error:
+    result.write_text(str(error))
+    raise SystemExit(1)
+device = {self.identity['source']!r}
+assert stat.S_ISBLK(os.stat(device).st_mode), 'device metadata must remain visible'
+try:
+    descriptor = os.open(device, os.O_RDONLY)
+except PermissionError:
+    pass
+else:
+    os.close(descriptor)
+    raise AssertionError('raw-device access must remain denied, even for root')
+node = result.with_name('device-node')
+try:
+    os.mknod(node, stat.S_IFCHR | 0o600, os.makedev(1, 3))
+except PermissionError:
+    pass
+else:
+    node.unlink()
+    raise AssertionError('device creation must remain denied, even for root')
+result.write_text('verified')
+''')
+        helper.chmod(0o755)
+        variables = {'restic_systemd': {
+            'runner_path': str(helper), 'games_mountpoint': str(self.games),
+            'games_repository_path': str(self.repository), 'nfs_mountpoint': str(self.work / 'nfs'),
+            'nfs_repository_path': str(self.work / 'nfs'),
+        }}
+        template = ROOT / f'ansible/roles/restic_backup/templates/home-lab-restic-daily-{destination}.service.j2'
+        definition = Environment(undefined=StrictUndefined).from_string(template.read_text()).render(variables)
+        # Preserve the non-root replica boundary without creating a host account.
+        definition = definition.replace('User=restic-proton', 'User=nobody').replace(
+            'Group=restic-proton', f'Group={pwd.getpwnam("nobody").pw_gid}')
+        for source, target in (
+            ('/srv/home-lab-state', 'app-state'), ('/etc/docker-compose', 'compose'),
+            ('/etc/home-lab/restic', 'config'), ('/var/lib/restic-proton', 'proton-cache'),
+            ('/var/cache/home-lab-restic', 'local-cache'),
+        ):
+            definition = definition.replace(source, str(self.work / target))
+        unit = Path('/run/systemd/system') / ('test-restic-' + uuid.uuid4().hex + '.service')
+        self.units.append(unit)
+        unit.write_text(definition)
+        systemctl('daemon-reload')
+        subprocess.run(['systemd-analyze', 'verify', str(unit)], check=True)
+        for field, replacement in ((None, None), ('filesystem_uuid', '00000000-0000-0000-0000-000000000000'),
+                                   ('filesystem', 'xfs')):
+            with self.subTest(destination=destination, invalid_field=field):
+                policy = json.loads(json.dumps(self.policy))
+                if field:
+                    policy['repositories']['games'][field] = replacement
+                self.policy_path.write_text(json.dumps(policy))
+                result_path.unlink(missing_ok=True)
+                started = systemctl('start', unit.name, check=False)
+                if not result_path.exists():
+                    self.fail(subprocess.check_output([
+                        'journalctl', '--no-pager', '--unit', unit.name, '-n', '30'], text=True))
+                self.assertEqual(result_path.read_text(), 'source_mount_identity' if field else 'verified')
+                self.assertEqual(started.returncode == 0, field is None)
+                systemctl('reset-failed', unit.name, check=False)
+
+    def test_nfs_sandbox_accepts_only_the_expected_source_without_raw_device_access(self):
+        self.verify_replica('nfs')
+
+    def test_proton_sandbox_accepts_only_the_expected_source_without_raw_device_access(self):
+        self.verify_replica('proton')
 
 
 if __name__ == "__main__":

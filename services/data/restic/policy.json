@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "0c6f4ab143b859284ef71d6ec2ad42b03d90ee2bb02f4870156b246c520bc400",
+    "sha256": "0a5fa377596798d1f6243acece5f102d94ccd7c4785d2575b952fc5262f7a523",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -80,43 +80,363 @@
   },
   "stop_groups": {
     "applications": [
-      "recyclarr",
-      "nextcloud-cron",
-      "nextcloud",
       "authentik-worker",
       "authentik-server",
+      "shelfmark",
       "grimmory",
-      "caro-tachidesk",
-      "tachidesk",
-      "frigate",
+      "nextcloud-cron",
+      "nextcloud",
       "homeassistant",
-      "jellyfin",
+      "zwave",
+      "frigate",
       "karaoke-eternal",
-      "cli-proxy-api",
       "mosquitto",
       "omada",
+      "ddns-updater",
       "openfit",
+      "vaultwarden",
+      "mindwtr-cloud",
+      "seerr",
       "prowlarr",
+      "sonarr",
       "radarr",
       "radarr-4k",
-      "sabnzbd",
-      "seerr",
-      "shelfmark",
-      "sonarr",
-      "vaultwarden",
-      "mindwtr-app",
-      "mindwtr-cloud",
-      "wolf",
-      "zwave",
-      "ddns-updater",
-      "flaresolverr",
       "qbittorrent",
+      "sabnzbd",
+      "tachidesk",
+      "caro-tachidesk",
+      "recyclarr",
+      "wolf",
+      "flaresolverr",
       "gluetun"
     ],
-    "databases": [
-      "grimmory-db",
-      "nextcloud-db",
-      "postgres"
+    "databases": []
+  },
+  "capture": {
+    "stage": "/mnt/games/home-lab-backup/capture",
+    "adapter_sha256": "68b8e794a7ec9521b3471ffacf7c07274e563d3d9dd7242703b3dea45f3a291f",
+    "reserve_bytes": 21474836480,
+    "estimate_paths": [
+      "/srv/home-lab-state/authentik-data/postgresql",
+      "/srv/home-lab-state/grimmory-db-data",
+      "/srv/home-lab-state/nextcloud-db-data"
+    ],
+    "radio_max_age_seconds": 172800,
+    "mounts": [
+      {
+        "path": "/srv/home-lab-state",
+        "identity": {
+          "fstype": "ext4",
+          "source": "/dev/sda1"
+        }
+      },
+      {
+        "path": "/mnt/games",
+        "identity": {
+          "fstype": "ext4",
+          "uuid": "31602ce7-0054-498a-9f24-f51ca491e7b3"
+        }
+      },
+      {
+        "path": "/mnt/storage",
+        "identity": {
+          "fstype": "nfs4",
+          "source": "192.168.0.123:/storage/docker"
+        }
+      }
+    ],
+    "cold": [
+      {
+        "name": "authentik",
+        "services": [
+          "authentik-worker",
+          "authentik-server"
+        ],
+        "paths": [
+          "/srv/home-lab-state/authentik-data/media",
+          "/srv/home-lab-state/authentik-data/custom-templates",
+          "/srv/home-lab-state/authentik-data/certs/live",
+          "/srv/home-lab-state/authentik-data/certs/archive"
+        ],
+        "databases": [
+          {
+            "engine": "postgres",
+            "container": "authentik-postgres",
+            "name": "authentik.dump"
+          }
+        ]
+      },
+      {
+        "name": "books",
+        "services": [
+          "shelfmark",
+          "grimmory"
+        ],
+        "paths": [
+          "/srv/home-lab-state/grimmory-data",
+          "/srv/home-lab-state/grimmory-bookdrop",
+          "/srv/home-lab-state/shelfmark-data",
+          "/mnt/storage/media/books",
+          "/mnt/storage/media/audiobooks"
+        ],
+        "databases": [
+          {
+            "engine": "mariadb",
+            "container": "grimmory-db",
+            "name": "books.sql"
+          }
+        ]
+      },
+      {
+        "name": "nextcloud",
+        "services": [
+          "nextcloud-cron",
+          "nextcloud"
+        ],
+        "paths": [
+          "/srv/home-lab-state/nextcloud-config",
+          "/srv/home-lab-state/nextcloud-custom-apps",
+          "/srv/home-lab-state/nextcloud-themes",
+          "/mnt/storage/media/nextcloud/data"
+        ],
+        "databases": [
+          {
+            "engine": "mariadb",
+            "container": "nextcloud-db",
+            "name": "nextcloud.sql"
+          }
+        ]
+      },
+      {
+        "name": "homeassistant",
+        "services": [
+          "homeassistant"
+        ],
+        "paths": [
+          "/srv/home-lab-state/hass-data"
+        ]
+      },
+      {
+        "name": "zwave",
+        "services": [
+          "zwave"
+        ],
+        "paths": [
+          "/srv/home-lab-state/zwave-data"
+        ]
+      },
+      {
+        "name": "frigate",
+        "services": [
+          "frigate"
+        ],
+        "paths": [
+          "/srv/home-lab-state/frigate-data",
+          "/mnt/storage/media/frigate/exports"
+        ]
+      },
+      {
+        "name": "karaoke",
+        "services": [
+          "karaoke-eternal"
+        ],
+        "paths": [
+          "/srv/home-lab-state/karaoke-eternal-data"
+        ]
+      },
+      {
+        "name": "mosquitto",
+        "services": [
+          "mosquitto"
+        ],
+        "paths": [
+          "/srv/home-lab-state/mosquitto-data/config",
+          "/srv/home-lab-state/mosquitto-data/data"
+        ]
+      },
+      {
+        "name": "omada",
+        "services": [
+          "omada"
+        ],
+        "paths": [
+          "/srv/home-lab-state/omada-data/data"
+        ]
+      },
+      {
+        "name": "ddns",
+        "services": [
+          "ddns-updater"
+        ],
+        "paths": [
+          "/srv/home-lab-state/ddns-updater-data"
+        ]
+      },
+      {
+        "name": "openfit",
+        "services": [
+          "openfit"
+        ],
+        "paths": [
+          "/srv/home-lab-state/openfit-data"
+        ]
+      },
+      {
+        "name": "vaultwarden",
+        "services": [
+          "vaultwarden"
+        ],
+        "paths": [
+          "/srv/home-lab-state/vaultwarden-data"
+        ]
+      },
+      {
+        "name": "mindwtr",
+        "services": [
+          "mindwtr-cloud"
+        ],
+        "paths": [
+          "/srv/home-lab-state/mindwtr-data"
+        ]
+      },
+      {
+        "name": "seerr",
+        "services": [
+          "seerr"
+        ],
+        "paths": [
+          "/srv/home-lab-state/seerr-data"
+        ]
+      },
+      {
+        "name": "prowlarr",
+        "services": [
+          "prowlarr"
+        ],
+        "paths": [
+          "/srv/home-lab-state/prowlarr-data"
+        ]
+      },
+      {
+        "name": "sonarr",
+        "services": [
+          "sonarr"
+        ],
+        "paths": [
+          "/srv/home-lab-state/sonarr-data"
+        ]
+      },
+      {
+        "name": "radarr",
+        "services": [
+          "radarr"
+        ],
+        "paths": [
+          "/srv/home-lab-state/radarr-data"
+        ]
+      },
+      {
+        "name": "radarr-4k",
+        "services": [
+          "radarr-4k"
+        ],
+        "paths": [
+          "/srv/home-lab-state/radarr-4k-data"
+        ]
+      },
+      {
+        "name": "qbittorrent",
+        "services": [
+          "qbittorrent"
+        ],
+        "paths": [
+          "/srv/home-lab-state/qbittorrent-data"
+        ]
+      },
+      {
+        "name": "sabnzbd",
+        "services": [
+          "sabnzbd"
+        ],
+        "paths": [
+          "/srv/home-lab-state/sabnzbd-data"
+        ]
+      },
+      {
+        "name": "tachidesk",
+        "services": [
+          "tachidesk"
+        ],
+        "paths": [
+          "/srv/home-lab-state/tachidesk-data",
+          "/mnt/storage/media/tachidesk"
+        ]
+      },
+      {
+        "name": "caro-tachidesk",
+        "services": [
+          "caro-tachidesk"
+        ],
+        "paths": [
+          "/srv/home-lab-state/caro-tachidesk-data",
+          "/mnt/storage/media/caro-tachidesk"
+        ]
+      },
+      {
+        "name": "recyclarr",
+        "services": [
+          "recyclarr"
+        ],
+        "paths": [
+          "/srv/home-lab-state/recyclarr-data/settings.yml"
+        ]
+      },
+      {
+        "name": "wolf",
+        "services": [
+          "wolf"
+        ],
+        "paths": [],
+        "wolf": "/mnt/games/wolf"
+      },
+      {
+        "name": "vpn",
+        "services": [
+          "shelfmark",
+          "seerr",
+          "tachidesk",
+          "caro-tachidesk",
+          "prowlarr",
+          "sonarr",
+          "radarr",
+          "radarr-4k",
+          "sabnzbd",
+          "qbittorrent",
+          "flaresolverr",
+          "gluetun"
+        ],
+        "paths": [
+          "/srv/home-lab-state/gluetun-data"
+        ]
+      }
+    ],
+    "live_files": [
+      "/etc/docker-compose/production.env",
+      "/etc/docker-compose/credentials",
+      "/var/lib/docker-compose/source.tar",
+      "/var/lib/docker-compose/current-artifact.sha256",
+      "/home/docker/.ssh",
+      "/srv/home-lab-state/jellyfin-data/config/config",
+      "/srv/home-lab-state/jellyfin-data/config/plugins"
+    ],
+    "cli_auth": "/srv/home-lab-state/cli-proxy-api/auths",
+    "jellyfin": "/srv/home-lab-state/jellyfin-data/config",
+    "online_json": [
+      "/srv/home-lab-state/traefik-data/acme.json",
+      "/srv/home-lab-state/traefik-tailnet-data/acme.json"
     ]
+  },
+  "replication": {
+    "max_lag_seconds": 172800
   }
 }

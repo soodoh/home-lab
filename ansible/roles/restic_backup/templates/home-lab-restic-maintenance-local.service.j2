@@ -11,10 +11,11 @@ Group=root
 UMask=0027
 Environment=HOME_LAB_RESTIC_MAINTENANCE_SCOPE=local
 ExecStart={{ restic_systemd.runner_path }} maintenance
-TimeoutStartSec=12h
+# Allow up to 12h for an existing copy, then the 12h maintenance budget.
+TimeoutStartSec=24h
 KillSignal=SIGINT
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths={{ restic_systemd.games_mountpoint }}/restic {{ restic_systemd.nfs_mountpoint }}/restic /var/lib/home-lab-restic /var/cache/home-lab-restic {{ restic_systemd.lock_path }}
+ReadWritePaths={{ restic_systemd.games_mountpoint }}/restic {{ restic_systemd.nfs_mountpoint }}/restic /var/lib/home-lab-restic /var/cache/home-lab-restic /var/lib/restic-proton /run/lock

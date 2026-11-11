@@ -10,5 +10,25 @@
   loop: "{{ restic_systemd_unit_names | reject('equalto', 'home-lab-restic-daily.timer') | list }}"
   notify: Reload Restic systemd definitions
 
+- name: Establish shared repository coordination
+  ansible.builtin.import_tasks: coordination.yml
+
+- name: Apply unit definitions before enabling replication
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Release the tool-update fence after complete convergence
+  ansible.builtin.file:
+    path: /var/lib/home-lab-restic/tools-updating
+    state: absent
+  when: restic_backup_tools_updating_owned | default(false) | bool
+
+- name: Enable eventual repository reconciliation independently of deployment
+  ansible.builtin.systemd_service:
+    name: home-lab-restic-replication.timer
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
 - name: Render the shared daily timer while preserving approved scheduling
   ansible.builtin.import_tasks: daily-timer.yml

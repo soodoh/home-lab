@@ -15,12 +15,23 @@ concurrency:
 jobs:
   source-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+      - name: Set up source Python and package-download cache
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.15'
+          cache: pip
+          cache-dependency-path: controller/requirements*.txt
+
+      - name: Install source-test controller
+        uses: ./.github/actions/setup-controller
+        with:
+          lint: 'true'
 
       - name: Set up pinned Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -40,11 +51,6 @@ jobs:
           bun install --frozen-lockfile --ignore-scripts
           bun run test:javascript
 
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: "3.15"
-
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
@@ -52,12 +58,13 @@ jobs:
           # Fixture helpers intentionally omit action-only environment variables.
           tofu_wrapper: false
 
-      - name: Install validation dependencies
+      - name: Install source-validation system tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bzip2 curl jq openssl rsync shellcheck nftables iproute2 util-linux ffmpeg
-          python -m pip install --disable-pip-version-check -r controller/requirements-ci.txt
-          ansible-galaxy collection install -r ansible/collections/requirements.yml
+          sudo apt-get install --yes age jq rsync shellcheck
+
+      - name: Test required CI admission behavior
+        run: python scripts/test-ci.py
 
       - name: Enforce disposable-controller boundaries
         run: python scripts/check-source-boundaries.py
@@ -81,19 +88,8 @@ jobs:
               node scripts/test-renovate-policy.mjs "$(command -v renovate)"
             '
 
-      - name: Validate routine Compose source admission and native local source selection
-        run: |
-          python scripts/test-compose-upgrade-admission.py
-          python scripts/test-compose-source-selection.py
-          python scripts/test-compose-image-pull.py
-
-      - name: Test scheduled backup and deployment ordering through native systemd
-        run: sudo env HOME_LAB_SYSTEMD_TEST_DISPOSABLE=true "$(command -v python)" scripts/test-compose-schedule-systemd.py
-
-      - name: Test production ownership and inspected lock recovery through native Ansible
-        run: |
-          sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-deployment-interfaces.py
-          sudo env HOME_LAB_LOCK_TEST_DISPOSABLE=true PATH="$PATH" "$(command -v python)" scripts/test-apply-lock-clearance.py
+      - name: Validate pure routine Compose admission on source Python
+        run: python scripts/test-compose-upgrade-admission.py
 
       - name: Validate backup and recovery behavior
         run: |
@@ -105,22 +101,8 @@ jobs:
           python scripts/test-qbittorrent-password.py
           python scripts/test-mam-seedbox.py
           python scripts/test-gluetun-hooks.py
-          python scripts/controller/test-compose-credential-files.py ComposeDelivery NativeFileRendering
           python scripts/test-servarr-variables.py
           scripts/test-recovery-tools
-
-      - name: Test real Restic selective recovery in an isolated namespace
-        run: |
-          umask 077
-          work=$(mktemp -d)
-          trap 'sudo rm -rf -- "$work"' EXIT
-          policy=services/data/restic/policy.json
-          curl --fail --silent --show-error --location \
-            "$(jq -r .tools.restic.url "$policy")" --output "$work/restic.bz2"
-          printf '%s  %s\n' "$(jq -r .tools.restic.archive_sha256 "$policy")" "$work/restic.bz2" | sha256sum --check --status
-          bzip2 --decompress --stdout "$work/restic.bz2" >"$work/restic"
-          printf '%s  %s\n' "$(jq -r .tools.restic.installed_sha256 "$policy")" "$work/restic" | sha256sum --check --status
-          sudo env TMPDIR="$work" RESTIC_NATIVE_TEST_DISPOSABLE=true scripts/test-restic-native-restore "$work/restic"
 
       - name: Run native source validators
         env:
@@ -138,6 +120,17 @@ jobs:
           ' | xargs -0 shellcheck
           docker compose config --no-env-resolution --no-interpolate --quiet
           tofu fmt -check -recursive
+
+      - name: Cache public OpenTofu provider packages
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ~/.cache/opentofu/plugins
+          key: ${{ runner.os }}-${{ runner.arch }}-tofu-${{ hashFiles('infrastructure/tofu/**/.terraform.lock.hcl') }}
+
+      - name: Bind the provider-package cache, never state or plans
+        run: |
+          mkdir -p "$HOME/.cache/opentofu/plugins"
+          printf 'TF_PLUGIN_CACHE_DIR=%s\n' "$HOME/.cache/opentofu/plugins" >> "$GITHUB_ENV"
 
       - name: Validate OpenTofu roots
         env:
@@ -163,35 +156,6 @@ jobs:
             cmp "$work/lock-before" "$work/lock-after"
           done
 
-      - name: Test native Wolf security behavior
-        env:
-          ANSIBLE_CONFIG: ansible/ansible.cfg
-        run: |
-          ansible-playbook -i 'localhost,' -c local \
-            ansible/tests/shelfmark-settings.yml -e ansible_become=false -e shelfmark_runtime_test=true
-          ansible-playbook -i 'localhost,' -c local \
-            ansible/tests/shelfmark-compose.yml -e ansible_become=false
-          ansible-playbook -i 'localhost,' -c local \
-            ansible/tests/wolf-admission.yml -e ansible_become=false
-          ansible-playbook -i 'docker-host,' -c local \
-            ansible/tests/wolf-image-pins.yml -e ansible_become=false
-          ansible-playbook -i 'docker-host,' -c local \
-            ansible/tests/wolf-image-restart.yml --become -e wolf_image_restart_runtime_test=true
-          ansible-playbook -i 'localhost,' -c local ansible/tests/wolf-firewall.yml
-          TF_DATA_DIR=$(mktemp -d)
-          export TF_DATA_DIR
-          trap 'rm -rf "$TF_DATA_DIR"' EXIT
-          # Mock tests cannot execute native imports. Copy production definitions
-          # unchanged, omitting only imports.tf; validate the full root above.
-          test_root="$TF_DATA_DIR/source/infrastructure/tofu/tailscale"
-          mkdir -p "$test_root" "$TF_DATA_DIR/source/services/data/wolf"
-          rsync -a --exclude='imports.tf' --include='*.tf' --include='*.tfvars.json' \
-            --include='.terraform.lock.hcl' --include='tests/***' --exclude='*' \
-            infrastructure/tofu/tailscale/ "$test_root/"
-          cp services/data/wolf/security.json "$TF_DATA_DIR/source/services/data/wolf/"
-          tofu -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
-          tofu -chdir="$test_root" test
-
       - name: Test native Proxmox ownership declarations
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg
@@ -209,7 +173,6 @@ jobs:
         run: |
           python scripts/test-omada-export.py
           python scripts/test-omada-mail.py
-          python scripts/test-omada-mail-convergence.py
           shellcheck scripts/check-omada-mail
           python scripts/controller/test-local-provider-credentials.py
           python scripts/controller/test-proxmox-hardware-identities.py
@@ -217,12 +180,7 @@ jobs:
           python scripts/controller/test-authentik-tofu-foundation.py
           python scripts/test-authentik-tofu
           python scripts/controller/test-authentik-secret-readability.py
-          python scripts/controller/test-grimmory.py
-          GRIMMORY_RUNTIME_TEST=1 python scripts/controller/test-grimmory-runtime.py
-          ansible-playbook -i 'localhost,' -c local \
-            ansible/tests/grimmory-bookdrop.yml -e grimmory_runtime_test=true
           python scripts/controller/test-compose-with-sops.py
-          python scripts/controller/test-compose-credential-files.py
 
       - name: Validate infrastructure policy
         run: infrastructure/policy/test-policy.sh
@@ -243,19 +201,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
-
-      - name: Set up the independently maintained Docker-host Python line
+      - name: Set up host Python and package-download cache
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          # Not a Renovate runtime pin: advance only with a reviewed host upgrade.
           python-version-file: controller/host-python-version
+          cache: pip
+          cache-dependency-path: controller/requirements*.txt
 
-      - name: Install candidate controller dependencies on the host Python line
+      - name: Install the independently maintained host controller
+        uses: ./.github/actions/setup-controller
+
+      - name: Install native controller system tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes age rsync
-          python -m pip install --disable-pip-version-check -r controller/requirements.txt
-          ansible-galaxy collection install -r ansible/collections/requirements.yml
 
       - name: Test source selection, admission and registry failure isolation
         run: |
@@ -287,14 +246,124 @@ jobs:
             "$(command -v ansible-playbook)" -i 'localhost,' -c local ansible/tests/controller-sops.yml \
             -e "ansible_python_interpreter=$(command -v python)"
 
-  validate:
-    # Preserve the protected check name and fail closed even when a dependency skips.
-    if: ${{ always() }}
-    needs: [source-validation, host-compatibility]
+      - name: Test credential delivery once on the production Python line
+        run: python scripts/controller/test-compose-credential-files.py --durations=0
+
+      - name: Test native controller interfaces against synthetic APIs
+        run: |
+          python scripts/test-omada-mail-convergence.py --durations=0
+          python scripts/controller/test-grimmory.py --durations=0
+
+  native-recovery:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANSIBLE_CONFIG: ansible/ansible.cfg
     steps:
-      - name: Require successful candidate and host-compatibility validation
+      - name: Check out reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up host Python and package-download cache
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version-file: controller/host-python-version
+          cache: pip
+          cache-dependency-path: controller/requirements*.txt
+
+      - name: Install the independently maintained host controller
+        uses: ./.github/actions/setup-controller
+
+      - name: Install native recovery system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes age bzip2 curl jq mariadb-client rsync util-linux
+
+      - name: Admit the pinned public Restic tool
+        id: tool
+        uses: ./.github/actions/setup-restic
+
+      - name: Test native full capture and selective recovery
         env:
-          SOURCE_RESULT: ${{ needs.source-validation.result }}
-          HOST_RESULT: ${{ needs.host-compatibility.result }}
-        run: test "$SOURCE_RESULT" = success && test "$HOST_RESULT" = success
+          RESTIC: ${{ steps.tool.outputs.restic }}
+        run: |
+          umask 077
+          work=$(mktemp -d)
+          trap 'sudo rm -rf -- "$work"' EXIT
+          sudo env TMPDIR="$work" RESTIC_NATIVE_TEST_DISPOSABLE=true scripts/test-restic-native-restore "$RESTIC"
+          RESTIC="$RESTIC" python scripts/test-simple-backups.py
+
+  application-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ANSIBLE_CONFIG: ansible/ansible.cfg
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up host Python and package-download cache
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version-file: controller/host-python-version
+          cache: pip
+          cache-dependency-path: controller/requirements*.txt
+
+      - name: Install the independently maintained host controller
+        uses: ./.github/actions/setup-controller
+        with:
+          fixtures: 'true'
+
+      - name: Install application fixture system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg rsync nftables iproute2
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
+        with:
+          tofu_version: v1.13.9
+          # Fixture helpers intentionally omit action-only environment variables.
+          tofu_wrapper: false
+
+      - name: Test native Wolf security behavior
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        run: |
+          ansible-playbook -i 'localhost,' -c local \
+            ansible/tests/shelfmark-settings.yml -e ansible_become=false -e shelfmark_runtime_test=true
+          ansible-playbook -i 'localhost,' -c local \
+            ansible/tests/shelfmark-compose.yml -e ansible_become=false
+          ansible-playbook -i 'localhost,' -c local \
+            ansible/tests/wolf-admission.yml -e ansible_become=false
+          ansible-playbook -i 'docker-host,' -c local \
+            ansible/tests/wolf-image-pins.yml -e ansible_become=false
+          ansible-playbook -i 'docker-host,' -c local \
+            ansible/tests/wolf-image-restart.yml --become -e wolf_image_restart_runtime_test=true
+          ansible-playbook -i 'localhost,' -c local ansible/tests/wolf-firewall.yml
+          TF_DATA_DIR=$(mktemp -d)
+          export TF_DATA_DIR
+          trap 'rm -rf "$TF_DATA_DIR"' EXIT
+          # Mock tests cannot execute native imports. Copy production definitions
+          # unchanged, omitting only imports.tf; validate the full root above.
+          test_root="$TF_DATA_DIR/source/infrastructure/tofu/tailscale"
+          mkdir -p "$test_root" "$TF_DATA_DIR/source/services/data/wolf"
+          rsync -a --exclude='imports.tf' --include='*.tf' --include='*.tfvars.json' \
+            --include='.terraform.lock.hcl' --include='tests/***' --exclude='*' \
+            infrastructure/tofu/tailscale/ "$test_root/"
+          cp services/data/wolf/security.json "$TF_DATA_DIR/source/services/data/wolf/"
+          tofu -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
+          tofu -chdir="$test_root" test
+
+  validate:
+    # A failure, cancellation, skip or missing dependency must refuse admission.
+    if: ${{ always() }}
+    needs: [source-validation, host-compatibility, native-recovery, application-integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every candidate qualification job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: test "$RESULTS" = 'success success success success'

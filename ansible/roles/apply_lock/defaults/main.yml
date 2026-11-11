@@ -3,3 +3,4 @@ apply_lock_path: /var/lib/iac-ansible-production.lock
 apply_lock_guard_path: ""
 apply_lock_backup_guard_path: /run/lock/home-lab-backup.lock
 apply_lock_expected_owner_sha256: ""
+apply_lock_recovery_cutoff_path: /var/lib/home-lab-restic/require-post-change-capture

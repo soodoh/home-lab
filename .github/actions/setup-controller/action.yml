@@ -1,0 +1,35 @@
+name: Install validation controller
+description: Pinned tooling and version-keyed public Ansible collections; no runtime state.
+inputs:
+  fixtures:
+    description: Install native Docker API fixture dependencies.
+    default: 'false'
+  lint:
+    description: Install the additional source-validation requirements.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install pinned controller tooling
+      shell: bash
+      env:
+        FIXTURES: ${{ inputs.fixtures }}
+        LINT: ${{ inputs.lint }}
+      run: |
+        requirements=controller/requirements.txt
+        if test "$FIXTURES" = true; then requirements=controller/requirements-fixtures.txt; fi
+        if test "$LINT" = true; then requirements=controller/requirements-ci.txt; fi
+        python -m pip install --disable-pip-version-check -r "$requirements"
+        printf 'ANSIBLE_PYTHON_INTERPRETER=%s\n' "$(command -v python)" >> "$GITHUB_ENV"
+
+    - name: Cache public versioned Ansible collections
+      id: collections
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ~/.ansible/collections
+        key: ${{ runner.os }}-${{ runner.arch }}-collections-${{ hashFiles('ansible/collections/requirements.yml') }}
+
+    - name: Install declared Ansible collections
+      if: steps.collections.outputs.cache-hit != 'true'
+      shell: bash
+      run: ansible-galaxy collection install -r ansible/collections/requirements.yml

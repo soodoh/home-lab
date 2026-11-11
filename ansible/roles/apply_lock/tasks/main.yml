@@ -180,6 +180,11 @@
         if test -n "$expected_owner_sha256"; then
         test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = "$expected_owner_sha256";
         fi;
+        {% if restic_backup_fresh_owner | default('') | length > 0 %}
+        if test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = {{ restic_backup_fresh_owner | quote }}; then
+        /usr/bin/install -m 0600 /dev/null {{ apply_lock_recovery_cutoff_path | quote }};
+        fi;
+        {% endif %}
         tombstone="${lock}.released.$$";
         test ! -e "$tombstone";
         /usr/bin/mv --no-target-directory -- "$lock" "$tombstone";

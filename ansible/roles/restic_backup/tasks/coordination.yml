@@ -1,0 +1,17 @@
+---
+- name: Install repository coordination locks
+  ansible.builtin.copy:
+    content: |
+      f /run/lock/home-lab-restic-repositories.lock 0660 root restic-proton - -
+      f /run/lock/home-lab-restic-daily-nfs.lock 0660 root restic-proton - -
+      f /run/lock/home-lab-restic-daily-proton.lock 0660 root restic-proton - -
+    dest: /etc/tmpfiles.d/home-lab-restic-repositories.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create missing coordination locks without replacing existing inodes
+  ansible.builtin.command:
+    argv: [systemd-tmpfiles, --create, /etc/tmpfiles.d/home-lab-restic-repositories.conf]
+  changed_when: false
+  when: not ansible_check_mode

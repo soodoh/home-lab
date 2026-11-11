@@ -84,7 +84,7 @@
             mode: '0600'
             content: >-
               {{ {'services': {'wolf': {
-                'image': (lookup('ansible.builtin.file', playbook_dir + '/../../services/authentik.yml') | from_yaml).services.redis.image,
+                'image': (lookup('ansible.builtin.file', playbook_dir + '/../../services/nextcloud.yml') | from_yaml).services['nextcloud-redis'].image,
                 'entrypoint': ['/bin/sh', '-c', 'exec sleep 86400'],
                 'network_mode': 'none',
                 'healthcheck': {'test': ['CMD', 'true'], 'interval': '1s', 'timeout': '1s', 'retries': 10}

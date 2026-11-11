@@ -10,7 +10,8 @@ Group=restic-proton
 UMask=0077
 Environment=HOME_LAB_RESTIC_MAINTENANCE_SCOPE=proton
 ExecStart={{ restic_systemd.runner_path }} maintenance
-TimeoutStartSec=12h
+# Allow up to 12h for an existing copy, then the 12h maintenance budget.
+TimeoutStartSec=24h
 KillSignal=SIGINT
 NoNewPrivileges=true
 PrivateDevices=true
@@ -29,4 +30,4 @@ TemporaryFileSystem=/mnt/games:ro
 BindReadOnlyPaths={{ restic_systemd.games_repository_path }}
 BindPaths={{ restic_systemd.games_repository_path }}/locks
 ReadOnlyPaths=/etc/home-lab/restic
-ReadWritePaths=/var/lib/restic-proton {{ restic_systemd.lock_path }}
+ReadWritePaths=/var/lib/restic-proton /run/lock

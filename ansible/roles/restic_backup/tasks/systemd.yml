@@ -13,7 +13,8 @@
     follow: false
     get_checksum: false
     get_mime: false
-  loop: "{{ restic_systemd_unit_names }}"
+  loop: "{{ restic_systemd_unit_names | difference(['home-lab-restic-daily-nfs.service',
+      'home-lab-restic-replication.target', 'home-lab-restic-replication.timer']) }}"
   register: restic_backup_systemd_existing_units
 
 - name: Require all adopted Restic unit files before configuration
