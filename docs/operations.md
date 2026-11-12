@@ -1015,7 +1015,10 @@ change tailnet policy.
 
 Separately review/apply the scoped tailnet plan, then configure the Docker backup
 runtime. Only the Docker-host tag receives TCP 2444; its Proxmox SSH access remains
-denied. WireGuard supplies transport authentication/encryption; the policy pins
+denied. The separately owned Proxmox cluster firewall must also admit TCP 2444
+from the pinned Docker-host Tailscale IPv4 `/32`, preserving default-deny input.
+Review its separate saved plan and retain independent console access; do not
+replace the firewall policy with an untracked host command. WireGuard supplies transport authentication/encryption; the policy pins
 the peer IPv4 directly, without DNS discovery, keys or passwords. The worker uses
 the host mount namespace so ZFS automount/NFS publication survives a connection's
 exit; do not add filesystem-namespace sandboxing without qualifying that lifecycle.
