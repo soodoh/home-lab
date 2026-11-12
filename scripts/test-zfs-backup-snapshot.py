@@ -58,7 +58,8 @@ class SnapshotAuthority(unittest.TestCase):
         self.native = NativeZfsFixture()
         self.call = BROKER['execute']
         self.patch = mock.patch.dict(self.call.__globals__, {
-            'zfs': self.native, 'pool_healthy': lambda: True, 'source_is_current': lambda: True,
+            'zfs': self.native, 'pool_status': lambda **_: {'pool_healthy': True, 'capture_admissible': True},
+            'source_is_current': lambda: True,
             'ensure_export': mock.Mock(), 'withdraw_export': mock.Mock(),
         })
         self.patch.start()
@@ -122,6 +123,7 @@ class SnapshotAuthority(unittest.TestCase):
             {**valid, 'dataset': 'storage'}, {**valid, 'capture': '../docker'},
             {**valid, 'owner': 'a' * 64 + '; id'}, {**valid, 'action': 'rollback'},
             {**valid, 'recursive': True}, {**valid, 'capture': '-R'},
+            {**valid, 'allow_degraded': True},
             {'action': 'list', 'dataset': 'storage/docker'},
         ):
             with self.subTest(invalid=invalid):
@@ -139,23 +141,53 @@ class SnapshotAuthority(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'not_owned'):
             self.call({'action': 'list'}, '123456')
 
-    def test_unhealthy_pool_blocks_creation_but_not_safe_cleanup(self):
-        with mock.patch.dict(self.call.__globals__, {'pool_healthy': lambda: False}):
-            with self.assertRaisesRegex(ValueError, 'pool_not_healthy'):
+    def test_inadmissible_pool_blocks_creation_but_not_safe_cleanup(self):
+        denied = lambda **_: {'pool_healthy': False, 'capture_admissible': False}
+        with mock.patch.dict(self.call.__globals__, {'pool_status': denied}):
+            with self.assertRaisesRegex(ValueError, 'pool_not_admissible'):
                 self.request('create')
         self.assertEqual(self.native.snapshots, {})
         self.request('create')
-        with mock.patch.dict(self.call.__globals__, {'pool_healthy': lambda: False}):
-            self.assertFalse(self.call({'action': 'list'}, '123456')['pool_healthy'])
+        with mock.patch.dict(self.call.__globals__, {'pool_status': denied}):
+            self.assertFalse(self.call({'action': 'list'}, '123456')['capture_admissible'])
             self.assertTrue(self.request('complete', guid='789', backup='c' * 64)['deleted'])
 
-    def test_pool_health_requires_no_reported_errors_not_just_online_devices(self):
-        healthy = BROKER['pool_healthy']
-        for text, expected in (("pool 'storage' is healthy\n", True),
-                               ('pool: storage\n state: ONLINE\nerrors: permanent errors', False),
-                               ('pool: storage\n state: DEGRADED', False)):
-            with self.subTest(text=text), mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, text, '')):
-                self.assertEqual(healthy(), expected)
+    def test_creation_and_inventory_use_root_configured_degraded_approval_without_claiming_health(self):
+        status = lambda **kwargs: {'pool_healthy': False, 'capture_admissible': kwargs['allow_degraded']}
+        with mock.patch.dict(self.call.__globals__, {'pool_status': status}):
+            with self.assertRaisesRegex(ValueError, 'pool_not_admissible'):
+                self.request('create')
+            self.call({'action': 'create', **self.identity}, '123456', allow_degraded=True)
+            value = self.call({'action': 'list'}, '123456', allow_degraded=True)
+        self.assertTrue(value['capture_admissible'])
+        self.assertFalse(value['pool_healthy'])
+        self.assertEqual(len(value['snapshots']), 1)
+
+    def test_degraded_admission_requires_explicit_approval_writable_pool_and_no_known_errors(self):
+        probe = BROKER['pool_status']
+        for state, readonly, errors, approved, allowed in (
+            ('DEGRADED', 'off', False, False, False),
+            ('DEGRADED', 'off', False, True, True),
+            ('DEGRADED', 'on', False, True, False),
+            ('DEGRADED', 'off', True, True, False),
+            ('FAULTED', 'off', False, True, False),
+            ('UNAVAIL', 'off', False, True, False),
+            ('SUSPENDED', 'off', False, True, False),
+            ('ONLINE', 'on', False, True, False),
+            ('ONLINE', 'off', True, True, False),
+            ('ONLINE', 'off', False, False, True),
+        ):
+            report = "pool 'storage' is healthy" if state == 'ONLINE' and not errors else (
+                'pool: storage\n state: ' + state + '\nerrors: ' +
+                ('Permanent errors have been detected' if errors else 'No known data errors'))
+            replies = [subprocess.CompletedProcess([], 0, value, '') for value in (state, readonly, report)]
+            with self.subTest(state=state, readonly=readonly, errors=errors, approved=approved), \
+                    mock.patch('subprocess.run', side_effect=replies):
+                result = probe(allow_degraded=approved)
+                self.assertEqual(result['capture_admissible'], allowed)
+                if state != 'ONLINE': self.assertFalse(result['pool_healthy'])
+        with mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', '')):
+            self.assertFalse(probe(allow_degraded=True)['capture_admissible'])
 
     def test_migrated_or_overmounted_live_source_refuses_a_new_parent_dataset_snapshot(self):
         with mock.patch.dict(self.call.__globals__, {'source_is_current': lambda: False}):
@@ -508,6 +540,19 @@ class SnapshotCapture(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'snapshot_remote_refused'):
                         call(self.spec, {'action': 'list'})
 
+    def test_client_admission_uses_explicit_capture_permission_not_health_or_truthy_values(self):
+        inventory = CAPTURE['zfs_inventory']
+        value = {'snapshots': [], 'pool_healthy': False, 'capture_admissible': True}
+        with mock.patch.dict(inventory.__globals__, {'zfs_call': lambda *_: value}):
+            self.assertEqual(inventory(self.spec, require_admissible=True), [])
+            value['capture_admissible'] = False
+            with self.assertRaisesRegex(ValueError, 'snapshot_pool_not_admissible'):
+                inventory(self.spec, require_admissible=True)
+            self.assertEqual(inventory(self.spec), [])
+            value['capture_admissible'] = 'true'
+            with self.assertRaisesRegex(ValueError, 'snapshot_inventory'):
+                inventory(self.spec, require_admissible=True)
+
     def test_native_tcp_half_close_frames_exactly_one_json_request_and_response(self):
         received = []
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -578,7 +623,7 @@ class SnapshotInstallation(unittest.TestCase):
                 + "    print('storage/docker@home-lab-nextcloud-'+'b'*32 if d['pending'] else '',end='')\n"
                 + 'else: sys.exit(1)\n')
             binary.chmod(0o755)
-            pool.write_text("#!/usr/bin/python3\nimport sys\nassert sys.argv[1:]==['status','-x','storage']\nprint(\"pool 'storage' is healthy\")\n")
+            pool.write_text("#!/usr/bin/python3\nimport sys\nargs=sys.argv[1:]\nif args==['list','-H','-o','health','storage']: print('ONLINE')\nelif args==['get','-H','-o','value','readonly','storage']: print('off')\nelif args==['status','-x','storage']: print(\"pool 'storage' is healthy\")\nelse: sys.exit(1)\n")
             pool.chmod(0o755)
             tailscale.write_text('#!/bin/sh\n[ "$*" = "ip -4" ] || exit 1\necho 100.113.54.34\n')
             tailscale.chmod(0o755)
@@ -643,7 +688,8 @@ class SnapshotInstallation(unittest.TestCase):
                         reply = response.read(65537)
                 _, errors = process.communicate(timeout=10)
                 self.assertEqual(process.returncode, 0, errors)
-                self.assertEqual(json.loads(reply), {'snapshots': [], 'pool_healthy': True})
+                self.assertEqual(json.loads(reply), {'snapshots': [], 'pool_healthy': True, 'capture_admissible': True})
+                self.assertIs(json.loads(Path(BROKER['CONFIG']).read_text())['allow_degraded_capture'], False)
                 units = work / 'units'; units.mkdir()
                 for dependency in ('nfs-server.service', 'tailscaled.service'):
                     (units / dependency).write_text('[Service]\nExecStart=/bin/true\n')
@@ -653,6 +699,9 @@ class SnapshotInstallation(unittest.TestCase):
                 code, output = play('-e', 'zfs_backup_snapshot_apply_confirmed=true')
                 self.assertEqual(code, 0, output)
                 self.assertIn('changed=0', output)
+                code, output = play('-e', '{"zfs_backup_snapshot_apply_confirmed":true,"zfs_backup_snapshot_allow_degraded_capture":true}')
+                self.assertEqual(code, 0, output)
+                self.assertIs(json.loads(Path(BROKER['CONFIG']).read_text())['allow_degraded_capture'], True)
                 update(pending=True)
                 code, output = play('--check')
                 self.assertNotEqual(code, 0, output)

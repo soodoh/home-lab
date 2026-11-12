@@ -4,6 +4,7 @@
     that:
       - ansible_check_mode or zfs_backup_snapshot_apply_confirmed | default(false) | bool
       - zfs_backup_snapshot_dataset_guid is match('^[1-9][0-9]{0,19}$')
+      - (zfs_backup_snapshot_allow_degraded_capture | default(false)) is boolean
       - zfs_backup_snapshot_tailscale_ipv4 is match('^100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$')
       - ansible_check_mode or zfs_backup_snapshot_install_owner | default('') is match('^[0-9a-f]{64}$')
     quiet: true
@@ -176,7 +177,10 @@
 
 - name: Pin the independently observed dataset identity
   ansible.builtin.copy:
-    content: "{{ {'dataset_guid': zfs_backup_snapshot_dataset_guid} | to_nice_json }}\n"
+    content: >-
+      {{ {'dataset_guid': zfs_backup_snapshot_dataset_guid,
+          'allow_degraded_capture': zfs_backup_snapshot_allow_degraded_capture | default(false)} | to_nice_json }}
+
     dest: /etc/home-lab/zfs-backup-snapshot.json
     owner: root
     group: root

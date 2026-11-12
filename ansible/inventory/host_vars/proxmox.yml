@@ -1,6 +1,9 @@
 ---
 # Read-only native observation inputs; no bootstrap, adoption or mutation authority.
 # Snapshot authority is installed only by its separately approval-gated playbook.
+# Approved backup-first admission: writable DEGRADED is allowed only with no
+# known data errors; this is not permission to repair or reconfigure the pool.
+zfs_backup_snapshot_allow_degraded_capture: true
 zfs_backup_snapshot_dataset_guid: '8756195246383642806'
 zfs_backup_snapshot_tailscale_ipv4: '100.113.54.34'
 proxmox_observe_required_services:

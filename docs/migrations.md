@@ -53,8 +53,10 @@ SQL-export/snapshot/restart window, Tailscale-interface-bound snapshot RPC socke
 allowed/denied peers, host-namespace worker lifecycle and temporary read-only NFS
 export. This does not delegate SSH, SFTP or forwarding access.
 The snapshot covers the existing shared dataset; dataset isolation is deferred,
-not permission to migrate data or broaden exports. New source snapshots refuse an
-unhealthy pool; an independently approved rescue capture is not a standing bypass.
+not permission to migrate data or broaden exports. Root-controlled degraded-pool admission is separate from healthy status and
+still requires a writable pool with no known data errors. Failed observations or
+unavailable/suspended pools refuse capture. Approval to back up is not approval
+for repairs, error clearing, scrubbing or dataset changes.
 Measure stop/copy/restart windows for other large coupled trees rather than
 assuming online SQL exports make those files atomic or interruption-free. Exercise
 native mounted-source capture, lost acknowledgements, ready-source retry,
