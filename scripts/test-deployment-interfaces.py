@@ -198,6 +198,143 @@ class DeploymentInterfaces(unittest.TestCase):
         self.assertNotIn('started=' + STARTED, record)
         self.assertFalse(self.lock.exists())
 
+    def radio_fixture(self, *, running=True, fail_start=False, tamper_start=False):
+        store = self.work / 'radio-store'
+        store.mkdir(mode=0o755)
+        os.chown(store, 1000, 1000)
+        settings = store / 'settings.json'
+        value = {'backup': {'storeBackup': False, 'nvmBackup': False, 'unmanaged': 'preserved'},
+                 'zwave': {'securityKey': 'synthetic-private-radio-key'}, 'other': {'preserve': True}}
+        settings.write_text(json.dumps(value))
+        settings.chmod(0o644)
+        os.chown(settings, 1000, 1000)
+        before = self.work / 'radio-before.json'
+        state = self.work / 'radio-running'
+        state.write_text(str(running).lower())
+        events = self.work / 'radio-events'
+        shim = self.work / 'radio-docker.py'
+        shim.write_text(f'''import pathlib, sys
+state = pathlib.Path({str(state)!r})
+events = pathlib.Path({str(events)!r})
+command = sys.argv[1]
+if command == 'inspect':
+    print(state.read_text())
+elif command in ('stop', 'start'):
+    assert pathlib.Path({str(self.owner)!r}).exists()
+    with events.open('a') as output:
+        output.write(command + '\\n')
+    if command == 'start' and {fail_start!r}:
+        sys.exit(1)
+    if command == 'start' and {tamper_start!r}:
+        import json
+        settings = pathlib.Path({str(settings)!r})
+        value = json.loads(settings.read_text())
+        value['other']['preserve'] = False
+        settings.write_text(json.dumps(value))
+    state.write_text('true' if command == 'start' else 'false')
+else:
+    sys.exit(2)
+''')
+        server = socketserver.TCPServer(('127.0.0.1', 0), BaseHTTPRequestHandler)
+        self.addCleanup(server.server_close)
+        plays = yaml.safe_load((ROOT / 'ansible/playbooks/configure-radio-backups.yml').read_text())
+        def fixture(value):
+            if isinstance(value, str):
+                return value.replace('/srv/home-lab-state/zwave-data', str(store)).replace(
+                    '/var/lib/home-lab-restic/radio-settings-before.json', str(before))
+            if isinstance(value, list):
+                return [fixture(item) for item in value]
+            if isinstance(value, dict):
+                result = {key: fixture(item) for key, item in value.items()}
+                command = result.get('ansible.builtin.command', {})
+                if command.get('argv', [])[:1] == ['docker']:
+                    command['argv'] = [sys.executable, str(shim), *command['argv'][1:]]
+                if 'ansible.builtin.wait_for' in result:
+                    result['ansible.builtin.wait_for'].update(port=server.server_address[1], timeout=2)
+                return result
+            return value
+        plays = fixture(plays)
+        plays[0]['vars'].update({key: value for key, value in self.variables.items() if key != 'ansible_facts'})
+        plays[0]['vars']['radio_backups_apply_confirmed'] = True
+        self.put(self.playbook, plays)
+        return store, settings, before, state, events, value
+
+    def test_radio_permissions_schedule_readback_and_idempotence(self):
+        store, settings, before, state, events, original = self.radio_fixture()
+        raw = settings.read_bytes()
+        result = self.run_tasks([], check=True, playbook=self.playbook)
+        self.success(result)
+        self.assertEqual(settings.read_bytes(), raw)
+        self.assertEqual(settings.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(store.stat().st_mode & 0o777, 0o755)
+        self.assertFalse(events.exists())
+        self.assertFalse(self.lock.exists())
+        result = self.run_tasks([], playbook=self.playbook)
+        self.success(result)
+        self.assertNotIn('synthetic-private-radio-key', result.stdout + result.stderr)
+        updated = json.loads(settings.read_text())
+        self.assertEqual(updated['zwave'], original['zwave'])
+        self.assertEqual(updated['other'], original['other'])
+        self.assertEqual(updated['backup']['unmanaged'], 'preserved')
+        self.assertTrue(updated['backup']['nvmBackup'])
+        self.assertTrue(updated['backup']['storeBackup'])
+        self.assertEqual(updated['backup']['nvmCron'], '15 4 * * *')
+        self.assertEqual(updated['backup']['storeCron'], '0 4 * * *')
+        self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(store.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((settings.stat().st_uid, settings.stat().st_gid), (1000, 1000))
+        self.assertEqual(events.read_text().splitlines(), ['stop', 'start'])
+        self.assertEqual(state.read_text(), 'true')
+        self.assertFalse(before.exists())
+        self.assertFalse(self.lock.exists())
+        settings.chmod(0o644)
+        store.chmod(0o755)
+        self.success(self.run_tasks([], playbook=self.playbook))
+        self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(store.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(events.read_text().splitlines(), ['stop', 'start'])
+
+    def test_radio_readback_drift_retains_before_image_and_owner(self):
+        _, settings, before, _, _, _ = self.radio_fixture(tamper_start=True)
+        raw = settings.read_bytes()
+        self.assertNotEqual(self.run_tasks([], playbook=self.playbook).returncode, 0)
+        self.assertEqual(before.read_bytes(), raw)
+        self.assertTrue(self.owner.exists())
+
+    def test_radio_failure_retains_private_before_image_and_production_owner(self):
+        store, settings, before, state, events, original = self.radio_fixture(fail_start=True)
+        raw = settings.read_bytes()
+        result = self.run_tasks([], playbook=self.playbook)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before.read_bytes(), raw)
+        self.assertEqual(before.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(self.owner.exists())
+        self.assertEqual(store.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
+
+    def test_radio_preserves_an_intentionally_stopped_service(self):
+        _, settings, before, state, events, _ = self.radio_fixture(running=False)
+        self.success(self.run_tasks([], playbook=self.playbook))
+        self.assertFalse(events.exists())
+        self.assertEqual(state.read_text(), 'false')
+        self.assertTrue(json.loads(settings.read_text())['backup']['nvmBackup'])
+        self.assertFalse(before.exists())
+        self.assertFalse(self.lock.exists())
+
+    def test_radio_refuses_unadopted_owner_and_unresolved_before_image_before_stop(self):
+        _, settings, before, _, events, _ = self.radio_fixture()
+        os.chown(settings, 1234, 1234)
+        self.assertNotEqual(self.run_tasks([], playbook=self.playbook).returncode, 0)
+        self.assertFalse(events.exists())
+        # This fixture owns the exact synthetic lock; reset only in disposable Linux.
+        shutil.rmtree(self.lock)
+        os.chown(settings, 1000, 1000)
+        before.write_bytes(b'protected-unresolved-before-image')
+        before.chmod(0o600)
+        self.assertNotEqual(self.run_tasks([], playbook=self.playbook).returncode, 0)
+        self.assertFalse(events.exists())
+        self.assertEqual(before.read_bytes(), b'protected-unresolved-before-image')
+
     def test_failed_reacquisition_and_invalid_action_clear_stale_output(self):
         self.success(self.run_tasks([self.acquire()]))
         before = self.owner.read_bytes()
