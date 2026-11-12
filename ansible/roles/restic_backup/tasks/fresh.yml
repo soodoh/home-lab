@@ -32,9 +32,11 @@
   ansible.builtin.command:
     # Budget an existing 12h transfer plus our own 12h reconciliation. Native
     # timeout bounds lock waits too; failure retains production ownership.
+    # TERM reaches the runner's interruption handler with GNU and uutils timeout;
+    # uutils INT delivery can force-kill it without graceful interruption.
     argv:
       - /usr/bin/timeout
-      - --signal=INT
+      - --signal=TERM
       - --kill-after=5m
       - 24h
       - /usr/local/libexec/home-lab/restic-backup

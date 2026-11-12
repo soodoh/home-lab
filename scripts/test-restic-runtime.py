@@ -221,29 +221,32 @@ class Runtime(unittest.TestCase):
             self.assertIn('reason=concurrent_operation', stderr.getvalue())
             reconcile.assert_not_called()
 
-    @unittest.skipUnless(sys.platform == 'linux', 'requires native GNU timeout')
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux timeout')
     def test_strict_nfs_native_timeout_bounds_lock_wait_and_preserves_ownership(self):
         import yaml
         tasks = yaml.safe_load((ROOT / 'ansible/roles/restic_backup/tasks/fresh.yml').read_text())
         task = next(t for t in tasks if t['name'] == 'Reconcile NFS without ever repeating application capture')
         argv = task['ansible.builtin.command']['argv']
-        with tempfile.TemporaryDirectory() as directory:
-            root, owner, _ = self.interruption_fixture(directory)
-            before = owner.read_bytes()
-            command = []
-            for value in argv:
-                if value == '/usr/local/libexec/home-lab/restic-backup':
-                    command.extend([sys.executable, str(ROOT / 'scripts/restic-backup')])
-                else:
-                    command.append({'24h': '2s', '--kill-after=5m': '--kill-after=1s'}.get(value, value))
-            environment = {**os.environ, 'HOME_LAB_RESTIC_TESTING': '1',
-                           'HOME_LAB_RESTIC_TEST_ROOT': str(root)}
-            with (root / 'run/lock/home-lab-restic-daily-nfs.lock').open('a+') as active:
-                fcntl.flock(active, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=10)
-            self.assertEqual(result.returncode, 124, result.stderr)
-            self.assertIn('reason=interrupted', result.stderr)
-            self.assertEqual(owner.read_bytes(), before)
+        # Exercise the actual installed timeout implementation and production
+        # argv: Ubuntu's uutils timeout mishandles INT, unlike GNU timeout.
+        for lock_name in ('home-lab-restic-repositories.lock', 'home-lab-restic-daily-nfs.lock'):
+            with self.subTest(lock=lock_name), tempfile.TemporaryDirectory() as directory:
+                root, owner, journal = self.interruption_fixture(directory)
+                before = (owner.read_bytes(), journal.read_bytes())
+                command = []
+                for value in argv:
+                    if value == '/usr/local/libexec/home-lab/restic-backup':
+                        command.extend([sys.executable, str(ROOT / 'scripts/restic-backup')])
+                    else:
+                        command.append({'24h': '2s', '--kill-after=5m': '--kill-after=1s'}.get(value, value))
+                environment = {**os.environ, 'HOME_LAB_RESTIC_TESTING': '1',
+                               'HOME_LAB_RESTIC_TEST_ROOT': str(root)}
+                with (root / 'run/lock' / lock_name).open('a+') as active:
+                    fcntl.flock(active, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 124, result.stderr)
+                self.assertIn('reason=interrupted', result.stderr)
+                self.assertEqual((owner.read_bytes(), journal.read_bytes()), before)
 
     def test_maintenance_waits_for_copy_then_succeeds_without_manual_reset(self):
         main = RUNNER['main']
