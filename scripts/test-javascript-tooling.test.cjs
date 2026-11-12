@@ -40,16 +40,22 @@ test('Lefthook natively validates the actual hook configuration without installi
 
 test('the required CI gate rejects failures, cancellation and skipped or missing lanes', () => {
   const workflow = yaml.load(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'));
-  const gate = workflow.jobs.validate.steps[0];
-  for (const source of ['success', 'failure', 'cancelled', 'skipped', '']) {
-    for (const host of ['success', 'failure', 'cancelled', 'skipped', '']) {
-      const result = spawnSync('bash', ['-e', '-c', gate.run], {
-        env: { ...process.env, SOURCE_RESULT: source, HOST_RESULT: host }, encoding: 'utf8',
-      });
-      assert.ifError(result.error);
-      assert.equal(result.status === 0, source === 'success' && host === 'success',
-        `source=${source}, host=${host}`);
-    }
+  const gate = workflow.jobs.validate;
+  assert.deepEqual([...gate.needs].sort(), Object.keys(workflow.jobs).filter(name => name !== 'validate').sort());
+  assert.equal(gate.if, '${{ always() }}');
+  const states = ['success', 'failure', 'cancelled', 'skipped', ''];
+  const cases = [];
+  for (let value = 0; value < states.length ** gate.needs.length; value++) {
+    cases.push(gate.needs.map((_, position) => states[Math.floor(value / states.length ** position) % states.length]));
+  }
+  cases.push([], Array(gate.needs.length - 1).fill('success'), Array(gate.needs.length + 1).fill('success'));
+  for (const results of cases) {
+    const result = spawnSync('bash', ['-eu', '-c', gate.steps[0].run], {
+      env: { ...process.env, RESULTS: results.join(' ') }, encoding: 'utf8',
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status === 0, results.length === gate.needs.length && results.every(value => value === 'success'),
+      `results=${JSON.stringify(results)}`);
   }
 });
 

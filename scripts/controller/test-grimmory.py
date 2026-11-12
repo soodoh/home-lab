@@ -2,6 +2,7 @@
 """Exercise Grimmory's native Ansible/API contract using synthetic state only."""
 
 import copy
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -164,6 +165,18 @@ def api_server(mode="normal", initialized=True):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+class RuntimeFixtureIsolation(unittest.TestCase):
+    def test_runtime_verifier_accepts_only_explicit_loopback_endpoints(self):
+        spec = importlib.util.spec_from_file_location('runtime_verifier', Path(__file__).with_name('test-grimmory-runtime.py'))
+        runtime = importlib.util.module_from_spec(spec); spec.loader.exec_module(runtime)
+        self.assertEqual(runtime.endpoint('http://127.0.0.1:12345'), 'http://127.0.0.1:12345')
+        for value in ('https://127.0.0.1:12345', 'http://localhost:12345', 'http://192.0.2.1:12345',
+                      'http://user@127.0.0.1:12345', 'http://127.0.0.1', 'http://127.0.0.1:12345/path',
+                      'http://127.0.0.1:12345?query', 'http://127.0.0.1:12345#fragment'):
+            with self.subTest(endpoint=value), self.assertRaises(runtime.argparse.ArgumentTypeError):
+                runtime.endpoint(value)
 
 
 class NativeAuthenticationTests(unittest.TestCase):
@@ -583,16 +596,19 @@ else:
         self.assertNotIn("DATABASE_PASSWORD", service["environment"])
         self.assertFalse(any("OIDC_CLIENT_SECRET" in k for k in service["environment"]))
         policy = json.loads((ROOT / "services/data/restic/policy.json").read_text())
-        self.assertIn("grimmory", policy["stop_groups"]["applications"])
-        self.assertIn("grimmory-db", policy["stop_groups"]["databases"])
-        scope = (ROOT / "services/data/restic/files-from").read_text().splitlines()
+        capture = next(step for step in policy["capture"]["cold"] if step["name"] == "books")
+        self.assertIn("grimmory", capture["services"])
+        self.assertEqual(capture["databases"], [{
+            "engine": "mariadb", "container": database["container_name"], "name": "books.sql",
+        }])
+        scope = capture["paths"]
         recovery = json.loads((ROOT / "recovery/groups.json").read_text())["groups"]["books"]
         for name in ("grimmory", "grimmory-db"):
             self.assertIn(name, recovery["services"])
         for path in ("/mnt/storage/media/books", "/mnt/storage/media/audiobooks"):
             self.assertIn(path, scope)
             self.assertIn(path, recovery["paths"])
-        for name in ("grimmory-data", "grimmory-db-data", "grimmory-bookdrop"):
+        for name in ("grimmory-data", "grimmory-bookdrop"):
             path = "/srv/home-lab-state/" + name
             self.assertIn(path, scope)
             self.assertIn(path, recovery["paths"])

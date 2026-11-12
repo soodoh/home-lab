@@ -6,17 +6,21 @@ directory. Production activation is not yet qualified.
 ## Scope
 
 The `books` group includes the NFS library roots `/mnt/storage/media/books` and
-`/mnt/storage/media/audiobooks` along with local Grimmory database/application
-state. Restore checks must validate both storage locations together. The NFS
+`/mnt/storage/media/audiobooks`, both Tachidesk download roots
+(`/mnt/storage/media/tachidesk` and `/mnt/storage/media/caro-tachidesk`), and local
+Grimmory/Tachidesk database/application state. Restore checks must validate local
+state and the NFS content together. The NFS
 repository is on the same export as the live library; use games or Proton for
 independent recovery if that storage is lost.
 
 [`groups.json`](groups.json) maps named service groups to managed paths. The common
 protected Compose interpolation environment and credential-file directory are
 included in every scope. Individual credentials remain plaintext after a restore;
-keep staging private and preserve their declared ownership/permissions. The `nextcloud` group does
-not include external user data at `/mnt/storage/media/nextcloud/data`; recover and
-validate that storage independently.
+keep staging private and preserve their declared ownership/permissions. Nextcloud
+user data at `/mnt/storage/media/nextcloud/data` is included, along with its
+configuration and logical database export. Nextcloud Redis is excluded: it
+contains cache, locks and sessions; an isolated recovery starts it empty and
+users log in again. Never flush production Redis during capture or restore.
 
 Validate the resolver and recovery tools locally:
 
@@ -39,8 +43,10 @@ From a fresh reviewed checkout:
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-backups.yml
 ```
 
-Use the default **strict** observer for recovery; routine-upgrade admission is
-not three-copy qualification and does not bind a snapshot to the current deployment.
+Use the default **strict** observer to select current-artifact protection with an
+exact NFS match. Proton may lag this capture by at most 48 hours; independently select and verify its
+actual copied snapshot when it is the recovery source. Routine admission uses
+bounded capture-time lag and may accept an earlier artifact.
 
 The observer refuses active owners, opens each live repository and reports current
 repository IDs, policy/artifact identities and latest snapshots. Select one chain
@@ -85,6 +91,58 @@ tags, target ownership and restored data before success.
 
 Keep the restore private. Inspect application paths, database integrity and
 representative content without printing private filenames or values.
+
+### Complete capture format (full-v2)
+
+Physical historical snapshots remain supported unchanged. New complete snapshots
+have `format=full-v2` and `complete=full-v2` tags. Only an exit-0 local backup is
+completed; partial/unqualified captures must not be selected. Legacy snapshots
+must have no `format=` tag; unknown or conflicting format tags are refused before
+restoring any files.
+
+The helper verifies Restic bytes then uses `prepare-restic-files.py` to move
+captured files into their original relative layout beneath private staging.
+SQLite online exports replace their live file at that path, without stale
+WAL/SHM/journal files. Cold-copied databases retain their complete physical set;
+never combine restored files with journals left in an existing destination.
+Logical exports and native archives remain in `recovery-exports/`:
+
+- `databases/authentik.dump`: native PostgreSQL custom format, for `pg_restore`
+  into an empty compatible database with separately reviewed roles/ownership.
+- `databases/books.sql`, `databases/nextcloud.sql`: native MariaDB logical
+  exports for compatible empty databases. Restore database and coupled files
+  from this same capture before enabling application/background writers.
+- `native/jellyfin.zip`: use Jellyfin's supported backup restore facility with
+  the compatible pinned application. It includes metadata/subtitles but not
+  generated attachments/fonts, trickplay or transcoding caches. The file layout
+  also holds configuration/plugin files and online auxiliary SQLite exports.
+- `manifest.json`: format, policy/artifact/owner identities, capture timestamps,
+  database descriptors and Wolf symlink mappings. Follow these mappings when
+  reconstructing original links; the helper never activates host links.
+
+Group selection filters ordinary file paths; native/SQL exports and the manifest
+are included as explicit recovery inputs, not automatically imported. A group is
+a recovery convenience, not an authorization boundary or an independent snapshot.
+The preparer does not unpack archives, connect databases or start containers.
+
+Coverage includes both Tachidesk download trees, karaoke database/configuration
+(not bulk karaoke media), Frigate exports (not rolling recordings/previews),
+both production ACME stores/private keys and selected Wolf saves/settings.
+Wolf selection covers Steam userdata, save-bearing Proton user directories and
+registry files, never whole Steam installations/prefixes. The native /home/retro launcher/icon links are mapped into their owning host
+profile. Wolf must have no sessions/lobbies or other running profile writers;
+backup refuses active gaming rather than killing/recreating ephemeral apps.
+Unknown external or broken link mappings fail closed pending inspection; no complete gaming coverage
+is claimed until the live selection and representative restores are qualified.
+
+Home Assistant includes the complete configuration and consistent database plus
+ZHA native network backups. Z-Wave includes store/security keys and actual fresh
+scheduled NVM files. Use supported radio migration/recovery tools; files alone
+cannot guarantee replacement-hardware compatibility.
+
+CLIProxyAPI is never stopped for capture. Codex per-file locks and bounded JSON
+validation protect online reads; other provider/concurrent writers remain a
+residual risk. Restored tokens can already be expired, rotated or revoked.
 
 ## 3. Optional encrypted recovery bundle
 

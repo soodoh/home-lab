@@ -29,9 +29,10 @@ EXPECTED_MODES = {
     "private/proton-username": 0o600,
     "private/restic-password": 0o600,
 }
-OPTIONAL_MODES = {"private/proton-totp-seed": 0o600}
+OPTIONAL_MODES = {'private/proton-totp-seed': 0o600, 'bin/prepare-restic-files.py': 0o755}
 ALLOWED_BASE = set(EXPECTED_MODES)
-ALLOWED_TOTP = ALLOWED_BASE | set(OPTIONAL_MODES)
+ALLOWED_SETS = {frozenset(ALLOWED_BASE | extra) for extra in (
+    set(), {'private/proton-totp-seed'}, {'bin/prepare-restic-files.py'}, set(OPTIONAL_MODES))}
 
 
 def digest(value: bytes) -> str:
@@ -138,7 +139,7 @@ def main() -> None:
         with tarfile.open(fileobj=io.BytesIO(plaintext), mode="r:") as archive:
             members = archive.getmembers()
             member_names = {member.name for member in members}
-            if member_names not in {frozenset(ALLOWED_BASE), frozenset(ALLOWED_TOTP)} or len(members) != len(member_names):
+            if frozenset(member_names) not in ALLOWED_SETS or len(members) != len(member_names):
                 fail("recovery bundle members differ")
             contents = {}
             modes = {}

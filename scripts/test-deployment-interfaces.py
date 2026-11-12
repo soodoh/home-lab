@@ -105,7 +105,15 @@ class DeploymentInterfaces(unittest.TestCase):
             {"name": "Simulate backup-policy refusal", "ansible.builtin.fail": {
                 "msg": "synthetic backup refusal"}, "when": "fixture_refuse_backup | default(false)"},
         ])
+        self.put(self.roles / "restic_backup/tasks/fresh.yml", [
+            {"name": "Record the bound fresh-protection request", "ansible.builtin.copy": {
+                "dest": str(self.work / "fresh-protection"),
+                "content": "{{ restic_backup_observation_apply_owner_sha256 }}", "mode": "0600"}},
+            {"name": "Publish fixture fresh protection", "ansible.builtin.set_fact": {
+                "restic_backup_fresh_owner": "{{ restic_backup_observation_apply_owner_sha256 }}"}},
+        ])
         self.variables = {
+            "apply_lock_recovery_cutoff_path": str(self.work / "capture-cutoff"),
             "ansible_connection": "local", "ansible_become": False,
             "ansible_python_interpreter": sys.executable, "ansible_user": "ansible-deploy",
             "ansible_facts": {"date_time": {"iso8601": STARTED}},
@@ -168,6 +176,27 @@ class DeploymentInterfaces(unittest.TestCase):
                 self.success(self.run_tasks([self.release(), assertion("apply_lock_owner_sha256 == ''")],
                                             variables={"ansible_user": controller}))
                 self.assertFalse(self.lock.exists())
+
+    def test_radio_caller_gathers_a_fresh_timestamp_before_acquiring_ownership(self):
+        plays = yaml.safe_load((ROOT / 'ansible/playbooks/configure-radio-backups.yml').read_text())
+        play = plays[0]
+        variables = {key: value for key, value in self.variables.items() if key != 'ansible_facts'}
+        play['vars'].update(variables | {'radio_backups_apply_confirmed': True})
+        # Keep the caller's fact gathering, observation/acquisition and release.
+        # Replace only radio I/O; the real role must acquire with gathered facts.
+        play['tasks'] = [
+            assertion("ansible_facts.date_time.iso8601 is match('^[0-9]{4}-')",
+                      "apply_lock_owner_sha256 is match('^[0-9a-f]{64}$')"),
+            {'name': 'Record the acquired fixture owner', 'ansible.builtin.copy': {
+                'src': str(self.owner), 'dest': str(self.work / 'radio-owner'),
+                'remote_src': True, 'mode': '0600'}},
+        ]
+        self.put(self.playbook, plays)
+        self.success(self.run_tasks([], playbook=self.playbook))
+        record = (self.work / 'radio-owner').read_text()
+        self.assertIn('operation=radio-backup-configuration\n', record)
+        self.assertNotIn('started=' + STARTED, record)
+        self.assertFalse(self.lock.exists())
 
     def test_failed_reacquisition_and_invalid_action_clear_stale_output(self):
         self.success(self.run_tasks([self.acquire()]))

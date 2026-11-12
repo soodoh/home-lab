@@ -1,0 +1,50 @@
+---
+- name: Inspect installed runtime before requesting fresh protection
+  ansible.builtin.stat:
+    path: /usr/local/libexec/home-lab/restic-backup
+    checksum_algorithm: sha256
+  become: true
+  register: restic_backup_fresh_runner
+
+- name: Require reviewed installed capture behavior
+  ansible.builtin.assert:
+    that:
+      - restic_backup_fresh_runner.stat.uid == 0
+      - restic_backup_fresh_runner.stat.mode == '0755'
+      - not restic_backup_fresh_runner.stat.islnk
+      - >-
+        restic_backup_fresh_runner.stat.checksum ==
+        (lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic-backup',
+        rstrip=false, lstrip=false) | hash('sha256'))
+    quiet: true
+
+- name: Capture a complete recovery set for this exact production owner
+  ansible.builtin.command:
+    argv:
+      - /usr/local/libexec/home-lab/restic-backup
+      - daily-local
+      - --owner-sha256
+      - "{{ restic_backup_observation_apply_owner_sha256 }}"
+  become: true
+  changed_when: true
+
+- name: Reconcile NFS without ever repeating application capture
+  ansible.builtin.command:
+    # Budget an existing 12h transfer plus our own 12h reconciliation. Native
+    # timeout bounds lock waits too; failure retains production ownership.
+    # TERM reaches the runner's interruption handler with GNU and uutils timeout;
+    # uutils INT delivery can force-kill it without graceful interruption.
+    argv:
+      - /usr/bin/timeout
+      - --signal=TERM
+      - --kill-after=5m
+      - 24h
+      - /usr/local/libexec/home-lab/restic-backup
+      - daily-nfs
+      - --wait
+  become: true
+  changed_when: true
+
+- name: Reuse fresh protection only within this acquired owner
+  ansible.builtin.set_fact:
+    restic_backup_fresh_owner: "{{ restic_backup_observation_apply_owner_sha256 }}"

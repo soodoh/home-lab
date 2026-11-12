@@ -6,7 +6,7 @@ const yaml = require('js-yaml');
 const compose = yaml.load(fs.readFileSync('services/apps.yml', 'utf8')).services;
 const policy = JSON.parse(fs.readFileSync('services/data/restic/policy.json', 'utf8'));
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.applications;
-const paths = fs.readFileSync('services/data/restic/files-from', 'utf8').trim().split('\n');
+const paths = policy.capture.cold.flatMap(group => group.paths);
 const encrypted = yaml.load(fs.readFileSync('secrets/production.sops.yaml', 'utf8'));
 
 test('Mindwtr runs a pinned, token-authenticated cloud without publishing a host port', () => {

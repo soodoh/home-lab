@@ -80,6 +80,32 @@
          rstrip=false, lstrip=false) | hash('sha256') }}
   no_log: true
 
+- name: Protect root-owned capture metadata from the confined replica identity
+  ansible.builtin.file:
+    path: /var/lib/home-lab-restic
+    state: directory
+    owner: root
+    group: restic-proton
+    mode: '0750'
+
+- name: Create protected disk-backed capture staging parent
+  ansible.builtin.file:
+    path: /mnt/games/home-lab-backup
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Verify the capture adapter binding
+  ansible.builtin.assert:
+    that:
+      - >-
+        (lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic-capture-files.py',
+        rstrip=false, lstrip=false) | hash('sha256')) ==
+        (lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/policy.json') |
+        from_json).capture.adapter_sha256
+    quiet: true
+
 - name: Install reviewed Restic policy
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../services/data/restic/policy.json"

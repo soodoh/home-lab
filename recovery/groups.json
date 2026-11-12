@@ -2,11 +2,17 @@
   "version": 1,
   "common_paths": [
     "/etc/docker-compose/production.env",
-    "/etc/docker-compose/credentials"
+    "/etc/docker-compose/credentials",
+    "/var/lib/docker-compose/source.tar",
+    "/var/lib/docker-compose/current-artifact.sha256"
   ],
   "groups": {
     "identity": {
-      "services": ["postgres", "redis", "authentik-server", "authentik-worker"],
+      "services": [
+        "postgres",
+        "authentik-server",
+        "authentik-worker"
+      ],
       "paths": [
         "/srv/home-lab-state/authentik-data/postgresql",
         "/srv/home-lab-state/authentik-data/media",
@@ -16,10 +22,18 @@
       ]
     },
     "books": {
-      "services": ["grimmory", "grimmory-db", "tachidesk", "caro-tachidesk", "shelfmark"],
+      "services": [
+        "grimmory",
+        "grimmory-db",
+        "tachidesk",
+        "caro-tachidesk",
+        "shelfmark"
+      ],
       "paths": [
         "/mnt/storage/media/books",
         "/mnt/storage/media/audiobooks",
+        "/mnt/storage/media/tachidesk",
+        "/mnt/storage/media/caro-tachidesk",
         "/srv/home-lab-state/grimmory-data",
         "/srv/home-lab-state/grimmory-db-data",
         "/srv/home-lab-state/grimmory-bookdrop",
@@ -29,7 +43,20 @@
       ]
     },
     "media": {
-      "services": ["jellyfin", "seerr", "gluetun", "flaresolverr", "prowlarr", "recyclarr", "sonarr", "radarr", "radarr-4k", "unpackerr", "qbittorrent", "sabnzbd"],
+      "services": [
+        "jellyfin",
+        "seerr",
+        "gluetun",
+        "flaresolverr",
+        "prowlarr",
+        "recyclarr",
+        "sonarr",
+        "radarr",
+        "radarr-4k",
+        "unpackerr",
+        "qbittorrent",
+        "sabnzbd"
+      ],
       "paths": [
         "/srv/home-lab-state/gluetun-data",
         "/srv/home-lab-state/jellyfin-data/config",
@@ -46,34 +73,60 @@
       ]
     },
     "nextcloud": {
-      "services": ["nextcloud-db", "nextcloud-redis", "nextcloud", "nextcloud-cron"],
+      "services": [
+        "nextcloud-db",
+        "nextcloud-redis",
+        "nextcloud",
+        "nextcloud-cron"
+      ],
       "paths": [
         "/srv/home-lab-state/nextcloud-db-data",
         "/srv/home-lab-state/nextcloud-config",
         "/srv/home-lab-state/nextcloud-custom-apps",
-        "/srv/home-lab-state/nextcloud-themes"
+        "/srv/home-lab-state/nextcloud-themes",
+        "/mnt/storage/media/nextcloud/data"
       ]
     },
     "home-automation": {
-      "services": ["homeassistant", "zwave", "mosquitto", "frigate"],
+      "services": [
+        "homeassistant",
+        "zwave",
+        "mosquitto",
+        "frigate"
+      ],
       "paths": [
         "/srv/home-lab-state/frigate-data",
         "/srv/home-lab-state/mosquitto-data/config",
         "/srv/home-lab-state/mosquitto-data/data",
         "/srv/home-lab-state/zwave-data",
-        "/srv/home-lab-state/hass-data"
+        "/srv/home-lab-state/hass-data",
+        "/mnt/storage/media/frigate/exports"
       ]
     },
     "infrastructure": {
-      "services": ["omada", "ddns-updater", "traefik", "traefik-tailnet"],
+      "services": [
+        "omada",
+        "ddns-updater",
+        "traefik",
+        "traefik-tailnet"
+      ],
       "paths": [
         "/srv/home-lab-state/ddns-updater-data",
         "/srv/home-lab-state/omada-data/data",
-        "/home/docker/.ssh"
+        "/home/docker/.ssh",
+        "/srv/home-lab-state/traefik-data/acme.json",
+        "/srv/home-lab-state/traefik-tailnet-data/acme.json"
       ]
     },
     "applications": {
-      "services": ["vaultwarden", "mindwtr-cloud", "mindwtr-app", "cli-proxy-api", "openfit", "karaoke-eternal"],
+      "services": [
+        "vaultwarden",
+        "mindwtr-cloud",
+        "mindwtr-app",
+        "cli-proxy-api",
+        "openfit",
+        "karaoke-eternal"
+      ],
       "paths": [
         "/srv/home-lab-state/karaoke-eternal-data",
         "/srv/home-lab-state/cli-proxy-api/auths",
@@ -83,12 +136,11 @@
       ]
     },
     "gaming": {
-      "services": ["wolf"],
+      "services": [
+        "wolf"
+      ],
       "paths": [
-        "/mnt/games/wolf/cfg",
-        "/mnt/games/wolf/profile-data/paul/WolfES-DE/.config",
-        "/mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share",
-        "/mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE"
+        "/mnt/games/wolf"
       ]
     }
   }

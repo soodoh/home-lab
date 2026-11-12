@@ -16,12 +16,15 @@ class RecoveryScopeTests(unittest.TestCase):
     def test_groups_cover_the_complete_restic_path_set(self):
         scope = module.load_scope(ROOT / "recovery/groups.json")
         selected = module.resolve(scope, ["all"])
-        files_from = set((ROOT / "services/data/restic/files-from").read_text().splitlines())
-        self.assertEqual(set(selected["paths"]), files_from)
+        policy = json.loads((ROOT / "services/data/restic/policy.json").read_text())
+        inputs = [p for step in policy["capture"]["cold"] for p in step["paths"]]
+        inputs += policy["capture"]["live_files"] + policy["capture"]["online_json"]
+        inputs += [policy["capture"]["cli_auth"], policy["capture"]["jellyfin"]]
+        self.assertTrue(all(any(p == root or p.startswith(root + "/") for root in selected["paths"]) for p in inputs))
         self.assertIn("mindwtr-cloud", selected["services"])
         self.assertIn("mindwtr-app", selected["services"])
         self.assertIn("traefik-tailnet", selected["services"])
-        self.assertNotIn("/srv/home-lab-state/traefik-tailnet-data", selected["paths"])
+        self.assertIn("/srv/home-lab-state/traefik-tailnet-data/acme.json", selected["paths"])
 
     def test_partial_group_includes_common_inputs(self):
         scope = module.load_scope(ROOT / "recovery/groups.json")

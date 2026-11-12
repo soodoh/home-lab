@@ -6,6 +6,17 @@
     fail_msg: Backup admission requires identity from successful lock acquisition or explicit adoption.
   when: not ansible_check_mode
 
+- name: Establish fresh complete local and matching NFS protection before strict changes
+  ansible.builtin.import_role:
+    name: restic_backup
+    tasks_from: fresh
+  vars:
+    restic_backup_observation_apply_owner_sha256: "{{ apply_lock_owner_sha256 }}"
+  when:
+    - not ansible_check_mode
+    - compose_native_change_class == 'data'
+    - restic_backup_fresh_owner | default('') != apply_lock_owner_sha256
+
 - name: Admit the reviewed change again under exact production ownership
   ansible.builtin.import_role:
     name: restic_backup

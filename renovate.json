@@ -114,7 +114,7 @@
     {
       "description": "Group non-major CI-only Python validators without admitting shared deployment dependencies",
       "matchManagers": ["pip_requirements"],
-      "matchFileNames": ["controller/requirements-ci.txt"],
+      "matchFileNames": ["controller/requirements-ci.txt", "controller/requirements-fixtures.txt"],
       "matchPackageNames": ["ansible-lint", "yamllint", "jsonschema", "requests"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "development and CI tooling",
@@ -139,7 +139,7 @@
       "matchManagers": ["github-actions"],
       "matchDepTypes": ["action"],
       "matchDatasources": ["github-tags"],
-      "matchFileNames": [".github/workflows/**"],
+      "matchFileNames": [".github/workflows/**", ".github/actions/**"],
       "matchCurrentValue": "/^v?[0-9]+(?:\\.[0-9]+){0,2}$/",
       "matchUpdateTypes": ["minor", "patch", "digest"],
       "groupName": "development and CI tooling",

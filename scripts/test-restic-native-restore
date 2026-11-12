@@ -26,7 +26,8 @@ mkdir -m 0700 "$work/mnt" "$work/srv" "$work/bin" "$work/recovery"
 mount --bind "$work/mnt" /mnt
 mount --bind "$work/srv" /srv
 install -m 0755 "$restic_source" "$work/bin/restic"
-cp "$repo_root/scripts/restore-critical-backup" "$repo_root/scripts/recovery-scope.py" "$work/bin/"
+cp "$repo_root/scripts/restore-critical-backup" "$repo_root/scripts/recovery-scope.py" \
+  "$repo_root/scripts/prepare-restic-files.py" "$work/bin/"
 chmod 0755 "$work/bin/restore-critical-backup" "$work/bin/recovery-scope.py"
 export PATH="$work/bin:$PATH"
 export RESTIC_REPOSITORY=/mnt/games/restic/home-lab
@@ -72,4 +73,63 @@ for scope in books all; do
   fi
   [[ ! -e $RECOVERY_TARGET.proof-lock ]]
 done
-printf 'native_restic_restore=verified selective-and-complete\n'
+# The same caller-facing helper also normalizes a complete staged capture.
+capture=/mnt/games/home-lab-backup/capture
+mkdir -p "$capture/files/srv/home-lab-state" "$capture/native" "$capture/databases"
+cp -a /srv/home-lab-state/{common,books,unselected} "$capture/files/srv/home-lab-state/"
+ln -s ../common/value "$capture/files/srv/home-lab-state/books/link"
+printf '%s\n' '{"version":2,"links":{}}' >"$capture/manifest.json"
+printf '%s\n' 'synthetic-logical-export' >"$capture/databases/example.sql"
+restic backup "$capture" --tag cadence=daily --tag format=full-v2 \
+  --tag "policy=$policy_sha" --tag "artifact=$artifact_sha" >/dev/null 2>&1
+snapshot=$(restic snapshots --json --tag format=full-v2 | jq -er '.[0].id')
+export RECOVERY_TARGET=/srv/home-lab-recovery/restic-incomplete
+mkdir -m 0700 "$RECOVERY_TARGET"
+if "$work/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target --all >"$work/refused.log" 2>&1; then
+  echo 'incomplete snapshot was admitted' >&2
+  exit 1
+fi
+restic tag --add complete=full-v2 "$snapshot" >/dev/null 2>&1
+snapshot=$(restic snapshots --json --tag complete=full-v2 | jq -er '.[0].id')
+for scope in books all; do
+  export RECOVERY_TARGET="/srv/home-lab-recovery/restic-v2-$scope"
+  mkdir -m 0700 "$RECOVERY_TARGET"
+  selection=(--recovery-group books)
+  [[ $scope != all ]] || selection=(--all)
+  output=$("$work/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target "${selection[@]}")
+  [[ $output == recovery_restore=verified* ]]
+  cmp /srv/home-lab-state/common/value "$RECOVERY_TARGET/srv/home-lab-state/common/value"
+  cmp /srv/home-lab-state/books/value "$RECOVERY_TARGET/srv/home-lab-state/books/value"
+  [[ -f $RECOVERY_TARGET/recovery-exports/databases/example.sql ]]
+  [[ ! -L $RECOVERY_TARGET/srv/home-lab-state/books/link ]]
+  jq -e '.symlinks["/srv/home-lab-state/books/link"] == "../common/value"' \
+    "$RECOVERY_TARGET/recovery-exports/manifest.json" >/dev/null
+  [[ ! -e $RECOVERY_TARGET/mnt/games/home-lab-backup/capture ]]
+  if [[ $scope == books ]]; then
+    [[ ! -e $RECOVERY_TARGET/srv/home-lab-state/unselected ]]
+  fi
+done
+# Reject unknown and conflicting formats before writing even a selective restore.
+restic tag --add format=future "$snapshot" >/dev/null 2>&1
+snapshot=$(restic snapshots --json --tag format=future | jq -er '.[0].id')
+for format in conflicting unknown; do
+  if [[ $format == unknown ]]; then
+    restic tag --remove format=full-v2 --remove complete=full-v2 "$snapshot" >/dev/null 2>&1
+    snapshot=$(restic snapshots --json --tag format=future | jq -er '.[0].id')
+  fi
+  for scope in books all; do
+    export RECOVERY_TARGET="/srv/home-lab-recovery/restic-$format-$scope"
+    mkdir -m 0700 "$RECOVERY_TARGET"
+    selection=(--recovery-group books)
+    [[ $scope != all ]] || selection=(--all)
+    if "$work/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target \
+      "${selection[@]}" >"$work/refused.log" 2>&1; then
+      echo 'unsupported snapshot format was admitted' >&2
+      exit 1
+    fi
+    grep -q 'unsupported or conflicting capture format' "$work/refused.log"
+    [[ -z $(find "$RECOVERY_TARGET" -mindepth 1 -print -quit) ]]
+    [[ ! -e $RECOVERY_TARGET.proof-lock ]]
+  done
+done
+printf 'native_restic_restore=verified legacy-and-full-v2 selective-and-complete\n'

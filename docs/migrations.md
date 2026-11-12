@@ -37,25 +37,37 @@ on one backed-up device before the second. Stored percentages and archived annot
 native annotation parity. Never automatically reset or delete device content.
 For disposable qualification work, follow the [workspace lifecycle](../AGENTS.md).
 
-## AWS recovery-key and separate backup identity
-
-The recovery KMS key was scheduled for deletion under independent AWS owner
-custody. Verify its **current** state and dependencies with that owner. Keep the
-independently owned `s3-backup-user` and inactive key until AWS confirms final
-key deletion and a separately approved owner cutover confirms no consumers.
-Do not infer nonuse from IAM last-used timestamps, a single host, or a past
-bucket inventory. Before changing this identity, verify independent custody of
-required encrypted recovery material and a fresh private restore; privately
-review its policy attachments and all consumers. Only the independent owner
-may approve credential revocation, policy detachment or deletion. Preserve
-protected state versions and any nonterminal owner records outside Git.
-
 ## Recovery activation
 
 [Recovery](../recovery/README.md) supports fresh snapshot discovery and verified
 private staging, **not** production data activation. A reusable activation
 procedure must define writer exclusion, database validation, external storage,
 before-images, rollback and post-activation health before production restore.
+
+## Complete-backup runtime qualification
+
+The complete staged-capture source is not a production installation receipt.
+Before separately approving installation/cutover, establish the full Nextcloud
+user-data size and a protected staging budget on `/mnt/games`; the bounded
+read-only sizing scan has not completed. Measure the stop/copy/restart window
+for large coupled file trees rather than assuming online SQL exports make those
+files atomic or interruption-free.
+
+Qualify native PostgreSQL/MariaDB imports, Jellyfin archive restoration and
+representative application/user files from the same full capture. Verify selected
+Wolf saves/settings (including per-game paths outside standard Proton user
+folders), resolved links and refusal during active game sessions. Do not expand
+coverage to entire Steam installations or all Proton prefixes to avoid mapping
+that boundary. Confirm both production ACME account keys in private staging.
+
+Enable Z-Wave's native NVM schedule only through its separately approved restart
+interface, verify actual fresh NVM output, and qualify supported ZHA/Z-Wave
+recovery for the hardware. Install the new native units/tools only after reviewing
+ownership, current repositories and interruption state. Establish matching NFS and
+Proton baseline copies before enabling deployment admission. Exercise interrupted
+capture/upload/copy, deferred retention and ordinary deployment during replication
+on disposable infrastructure first; qualification is not permission to activate
+production restore. Keep independent recovery tools, keys and required backups.
 
 ## Authentik notification recipient policy
 
