@@ -986,9 +986,17 @@ fence and production owner for host inspection. Never force-unlock a repository.
 ZHA's native network backup must be present/fresh in protected `zigbee.db`.
 The separately approved `configure-radio-backups.yml` interface enables native
 Z-Wave JS UI store/NVM backups at 04:00/04:15, retaining seven versions, before
-05:00 capture. It restarts only a previously running Z-Wave service, merges
-settings privately and retains a before-image on failure. Enabling a schedule
-is not proof of actual fresh NVM output. NVM capture can briefly suspend radio
+05:00 capture. Approval covers hardening the adopted UID/GID 1000 store to
+mode 0700 and its settings to 0600, preserving ownership and unrelated settings.
+The private directory also protects future native settings replacements and
+backup files even if the application writes them with a broader file mode.
+Unknown owners, writable modes, links or an unresolved before-image refuse
+convergence; do not bypass those guards or repair unfamiliar state automatically.
+It restarts only a previously running Z-Wave service, waits for its native
+websocket listener and requires exact merged settings readback before removing
+the private before-image and releasing ownership. Permission-only convergence
+does not restart an unchanged service. Enabling a schedule is not proof of actual
+fresh NVM output. NVM capture can briefly suspend radio
 traffic; replacement recovery remains hardware/firmware-dependent. Use supported
 ZHA migration and native Z-Wave recovery tools.
 

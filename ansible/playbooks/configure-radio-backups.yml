@@ -14,7 +14,7 @@
       nvmKeep: 7
       nvmBackupOnEvent: true
   pre_tasks:
-    - name: Require separate approval for the short Z-Wave restart
+    - name: Require separate approval for private radio settings and the short Z-Wave restart
       ansible.builtin.assert:
         that: ansible_check_mode or radio_backups_apply_confirmed | default(false) | bool
         quiet: true
@@ -29,18 +29,68 @@
         apply_lock_action: acquire
         apply_lock_operation: radio-backup-configuration
   tasks:
-    - name: Inspect native settings metadata
+    - name: Inspect the adopted radio store metadata
       ansible.builtin.stat:
-        path: /srv/home-lab-state/zwave-data/settings.json
-      register: radio_settings_metadata
+        path: /srv/home-lab-state/zwave-data
+        follow: false
+        get_checksum: false
+        get_mime: false
+      register: radio_store_metadata
       become: true
-    - name: Require a regular protected native settings file
+    - name: Require the adopted non-writable store identity before hardening
       ansible.builtin.assert:
         that:
-          - radio_settings_metadata.stat.isreg
-          - not radio_settings_metadata.stat.islnk
-          - radio_settings_metadata.stat.mode in ['0600', '0640']
+          - radio_store_metadata.stat.isdir | default(false)
+          - not (radio_store_metadata.stat.islnk | default(false))
+          - radio_store_metadata.stat.uid == 1000
+          - radio_store_metadata.stat.gid == 1000
+          - radio_store_metadata.stat.mode in ['0700', '0750', '0755']
         quiet: true
+    - name: Inspect native settings metadata without hashing private values
+      ansible.builtin.stat:
+        path: /srv/home-lab-state/zwave-data/settings.json
+        follow: false
+        get_checksum: false
+        get_mime: false
+      register: radio_settings_metadata
+      become: true
+    - name: Require the adopted regular settings identity before hardening
+      ansible.builtin.assert:
+        that:
+          - radio_settings_metadata.stat.isreg | default(false)
+          - not (radio_settings_metadata.stat.islnk | default(false))
+          - radio_settings_metadata.stat.nlink == 1
+          - radio_settings_metadata.stat.uid == 1000
+          - radio_settings_metadata.stat.gid == 1000
+          - radio_settings_metadata.stat.mode in ['0600', '0640', '0644']
+        quiet: true
+    - name: Inspect any unresolved radio configuration before-image before mutation
+      ansible.builtin.stat:
+        path: /var/lib/home-lab-restic/radio-settings-before.json
+        follow: false
+        get_checksum: false
+        get_mime: false
+      register: radio_before
+      become: true
+    - name: Refuse an unresolved before-image before hardening or stopping its writer
+      ansible.builtin.assert:
+        that: not radio_before.stat.exists
+        quiet: true
+    - name: Protect the store including future native backup and settings replacements
+      ansible.builtin.file:
+        path: /srv/home-lab-state/zwave-data
+        state: directory
+        owner: '1000'
+        group: '1000'
+        mode: '0700'
+      become: true
+    - name: Protect adopted settings without changing their contents or ownership
+      ansible.builtin.file:
+        path: /srv/home-lab-state/zwave-data/settings.json
+        owner: '1000'
+        group: '1000'
+        mode: '0600'
+      become: true
     - name: Read native settings privately
       ansible.builtin.slurp:
         src: /srv/home-lab-state/zwave-data/settings.json
@@ -77,15 +127,6 @@
           register: radio_stopped
           no_log: true
           become: true
-        - name: Inspect any unresolved radio configuration before-image
-          ansible.builtin.stat:
-            path: /var/lib/home-lab-restic/radio-settings-before.json
-          register: radio_before
-          become: true
-        - name: Refuse to replace an unresolved before-image
-          ansible.builtin.assert:
-            that: not radio_before.stat.exists
-            quiet: true
         - name: Preserve the exact stopped settings before mutation
           ansible.builtin.copy:
             content: "{{ radio_stopped.content | b64decode }}"
@@ -101,9 +142,9 @@
               {{ (radio_stopped.content | b64decode | from_json) |
                  combine({'backup': radio_backup_settings}, recursive=true) | to_nice_json }}
             dest: /srv/home-lab-state/zwave-data/settings.json
-            mode: "{{ radio_settings_metadata.stat.mode }}"
-            owner: "{{ radio_settings_metadata.stat.uid }}"
-            group: "{{ radio_settings_metadata.stat.gid }}"
+            mode: '0600'
+            owner: '1000'
+            group: '1000'
           no_log: true
           become: true
         - name: Restore the previous running state
@@ -119,7 +160,37 @@
           changed_when: false
           failed_when: radio_running.stdout == 'true' and radio_resumed.stdout != 'true'
           become: true
-        - name: Remove the before-image only after verified recovery of running state
+        - name: Wait for the native Home Assistant websocket listener after restart
+          ansible.builtin.wait_for:
+            host: 127.0.0.1
+            port: 3000
+            state: started
+            timeout: 120
+          when: radio_running.stdout == 'true'
+          become: true
+        - name: Reassert private settings mode after native startup
+          ansible.builtin.file:
+            path: /srv/home-lab-state/zwave-data/settings.json
+            owner: '1000'
+            group: '1000'
+            mode: '0600'
+          become: true
+        - name: Read the resumed native settings privately
+          ansible.builtin.slurp:
+            src: /srv/home-lab-state/zwave-data/settings.json
+          register: radio_verified
+          no_log: true
+          become: true
+        - name: Require exact merged settings readback before releasing recovery material
+          ansible.builtin.assert:
+            that:
+              - >-
+                (radio_verified.content | b64decode | from_json) ==
+                ((radio_stopped.content | b64decode | from_json) |
+                 combine({'backup': radio_backup_settings}, recursive=true))
+            quiet: true
+          no_log: true
+        - name: Remove the before-image only after verified native settings and running-state recovery
           ansible.builtin.file:
             path: /var/lib/home-lab-restic/radio-settings-before.json
             state: absent
