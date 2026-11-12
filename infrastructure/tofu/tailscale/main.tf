@@ -36,7 +36,7 @@ locals {
       {
         src = [local.tags.docker_host]
         dst = [local.tags.proxmox]
-        ip  = ["tcp:8006"]
+        ip  = ["tcp:2444", "tcp:8006"]
       },
     ]
 
@@ -78,6 +78,7 @@ locals {
         src   = local.tags.docker_host
         proto = "tcp"
         accept = [
+          "${local.tags.proxmox}:2444",
           "${local.tags.proxmox}:8006",
         ]
         deny = [
@@ -120,6 +121,11 @@ locals {
     ]
 
     sshTests = [
+      {
+        src  = local.tags.docker_host
+        dst  = [local.tags.proxmox]
+        deny = ["ansible-deploy", "root", "proxmox", "docker"]
+      },
       {
         src    = local.owner_identity
         dst    = [local.tags.docker_host]

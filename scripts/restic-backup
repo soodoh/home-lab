@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-SUBCOMMANDS = {"preflight", "daily-local", "daily-nfs", "daily-proton", "diagnose-proton", "maintenance", "status", "recover"}
+SUBCOMMANDS = {"preflight", "daily-local", "daily-nfs", "daily-proton", "diagnose-proton", "maintenance", "status", "recover", "expire-snapshots"}
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -295,6 +295,21 @@ def service_healthy(policy: dict[str, Any], service: str) -> bool:
     return result.returncode == 0 and result.stdout.strip() in {"healthy", "running"}
 
 
+def nextcloud_healthy(policy):
+    try:
+        container = service_container(policy, 'nextcloud')
+        result = run(['/usr/bin/docker', 'exec', '--user', 'www-data', container,
+                      'php', '/var/www/html/occ', 'status', '--output=json'], timeout=30)
+        value = json.loads(result.stdout)
+        data = rooted('/mnt/storage/media/nextcloud/data')
+        marker = any((data / name).is_file() and not (data / name).is_symlink()
+                     for name in ('.ncdata', '.ocdata'))
+        return (result.returncode == 0 and value.get('installed') is True and marker and
+                value.get('maintenance') is False and value.get('needsDbUpgrade') is False)
+    except (WorkflowError, ValueError, AttributeError):
+        return False
+
+
 def journal_path(policy: dict[str, Any]) -> Path:
     return rooted(policy["runner"]["journal_path"])
 
@@ -316,7 +331,8 @@ def restart_recorded(policy: dict[str, Any], journal: dict[str, Any]) -> None:
                     raise WorkflowError("service_health")
     deadline = time.monotonic() + (3 if testing() else 300)
     while time.monotonic() < deadline:
-        if all(service_healthy(policy, service) for service in running):
+        if (all(service_healthy(policy, service) for service in running) and
+                ('nextcloud' not in running or nextcloud_healthy(policy))):
             durable_unlink(journal_path(policy))
             return
         time.sleep(0.1 if testing() else 5)
@@ -440,6 +456,153 @@ def verify_wolf_available(policy, adapter, step, declared):
             adapter.wolf_idle(service_container(policy, service))
 
 
+def zfs_state(policy, stage):
+    adapter = capture_adapter(policy)
+    value = read_json(stage / 'zfs-source.json', {})
+    if (not isinstance(value, dict) or
+            set(value) != {'version', 'capture', 'owner', 'production_owner', 'running_services', 'record'} or
+            value['version'] != 1 or not isinstance(value['capture'], str) or
+            re.fullmatch('[0-9a-f]{32}', value['capture']) is None or
+            value['owner'] != hashlib.sha256(value['capture'].encode()).hexdigest() or
+            value['production_owner'] != policy.get('_owner') or
+            not isinstance(value['running_services'], list) or
+            len(value['running_services']) != len(set(value['running_services'])) or
+            not set(value['running_services']) <= {'nextcloud', 'nextcloud-cron'}):
+        raise WorkflowError('snapshot_state')
+    if value['record'] is not None:
+        adapter.zfs_record(adapter.zfs_spec(policy), value['record'],
+                           capture=value['capture'], owner=value['owner'])
+    return value
+
+
+def zfs_ready(policy, adapter, stage):
+    value = zfs_state(policy, stage)
+    if value['record'] is None:
+        raise WorkflowError('snapshot_receipt_missing')
+    spec = adapter.zfs_spec(policy)
+    if time.time() - value['record']['created'] >= spec['expiry_seconds']:
+        raise WorkflowError('snapshot_expired_cleanup_required')
+    record = adapter.zfs_record(spec, adapter.zfs_call(spec, {
+        'action': 'ready', 'capture': value['capture'], 'owner': value['owner'],
+        'guid': value['record']['guid'],
+    }), capture=value['capture'], owner=value['owner'])
+    if record != value['record']:
+        raise WorkflowError('snapshot_replaced')
+    adapter.zfs_mount(spec, record, stage)
+
+
+def zfs_release(policy, adapter, stage, backup):
+    if not policy['capture'].get('zfs'):
+        return
+    value = zfs_state(policy, stage)
+    if value['record'] is None:
+        raise WorkflowError('snapshot_receipt_missing')
+    adapter.zfs_unmount(stage)
+    result = adapter.zfs_call(adapter.zfs_spec(policy), {
+        'action': 'complete', 'capture': value['capture'], 'owner': value['owner'],
+        'guid': value['record']['guid'], 'backup': backup,
+    })
+    if result.get('deleted') is not True:
+        raise WorkflowError('snapshot_retained')
+
+
+def snapshot_readers_present(stage):
+    target = str(stage / 'files/mnt/storage/media/nextcloud/data')
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            # Do not read arbitrary process arguments/environments. Only native
+            # Restic mount namespaces are relevant; replica readers do not mount
+            # this source. This also catches orphaned manual-backup children.
+            if (process / 'comm').read_text().strip() != 'restic':
+                continue
+            if any(line.split()[4] == target for line in (process / 'mountinfo').read_text().splitlines()):
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return False
+
+
+def expire_snapshots(policy):
+    """Native hourly cleanup, serialized with capture and blocked by any owner.
+
+    No owner is adopted or released here. Recovery must succeed first. Only a
+    scheduled producer's known namespace/receipt may be abandoned after 72h.
+    """
+    if rooted(policy['runner']['deploy_lock_path']).exists():
+        raise WorkflowError('snapshot_owner_requires_inspection')
+    adapter = capture_adapter(policy)
+    spec = adapter.zfs_spec(policy)
+    verify_sources(policy)
+    stage = rooted(policy['capture']['stage'])
+    if stage.exists():
+        metadata = stage.lstat()
+        if stage.is_symlink() or not stage.is_dir() or metadata.st_uid != os.geteuid() or metadata.st_mode & 0o777 != 0o700:
+            raise WorkflowError('snapshot_stage_metadata')
+    if not testing():
+        active = run(['/usr/bin/systemctl', 'show', 'home-lab-restic-daily-local.service',
+                      '--property=ActiveState', '--value'], timeout=20)
+        if (active.returncode or active.stdout.strip() not in {'inactive', 'failed'} or
+                snapshot_readers_present(stage)):
+            raise WorkflowError('snapshot_job_active')
+    recover_interruption(policy)
+    state = zfs_state(policy, stage) if (stage / 'zfs-source.json').exists() else None
+    manifest = read_json(stage / 'manifest.json', {}) if stage.exists() else {}
+    completed = qualified(inventory(policy, 'games'))
+    records = adapter.zfs_inventory(spec)
+    if state and not any(row['capture'] == state['capture'] for row in records):
+        matches = [row for row in completed if 'capture=' + state['capture'] in row.get('tags', [])]
+        if len(matches) != 1:
+            raise WorkflowError('snapshot_missing_requires_inspection')
+        if manifest and (('policy=' + manifest['policy']) not in matches[0].get('tags', []) or
+                         ('artifact=' + manifest['artifact']) not in matches[0].get('tags', [])):
+            raise WorkflowError('snapshot_completion_identity')
+        # A successful destroy may have lost its acknowledgement. Complete is
+        # idempotent, but still withdraws any exact leftover export before the
+        # verified retry set is removed.
+        zfs_release(policy, adapter, stage, matches[0]['id'])
+        shutil.rmtree(stage)
+        state, manifest = None, {}
+        print('restic_backup=snapshot_cleanup outcome=complete')
+    for record in records:
+        token = record['capture']
+        if record['owner'] != hashlib.sha256(token.encode()).hexdigest():
+            raise WorkflowError('snapshot_owner_requires_inspection')
+        if stage.exists() and (state is None or state['capture'] != token):
+            raise WorkflowError('previous_capture_requires_inspection')
+        matches = [row for row in completed if 'capture=' + token in row.get('tags', [])]
+        if len(matches) > 1:
+            raise WorkflowError('completion_mapping')
+        if not matches and time.time() - record['created'] < spec['expiry_seconds']:
+            continue
+        # All captured writers remain as recorded; intentionally stopped services
+        # stay stopped. A remote orphan with no local journal must pass the more
+        # conservative requirement that both known Nextcloud writers are healthy.
+        running = state['running_services'] if state else ['nextcloud', 'nextcloud-cron']
+        if (any(not service_healthy(policy, service) for service in running) or
+                ('nextcloud' in running and not nextcloud_healthy(policy))):
+            raise WorkflowError('snapshot_recovery_not_verified')
+        if state and state['record'] is not None and state['record'] != record:
+            raise WorkflowError('snapshot_replaced')
+        if matches and manifest and (('policy=' + manifest['policy']) not in matches[0].get('tags', []) or
+                                     ('artifact=' + manifest['artifact']) not in matches[0].get('tags', [])):
+            raise WorkflowError('snapshot_completion_identity')
+        adapter.zfs_unmount(stage)
+        action = {'action': 'complete' if matches else 'abandon', 'capture': token,
+                  'owner': record['owner'], 'guid': record['guid']}
+        if matches:
+            action['backup'] = matches[0]['id']
+        if adapter.zfs_call(spec, action).get('deleted') is not True:
+            raise WorkflowError('snapshot_retained')
+        if state:
+            # The source is terminal and its unqualified retry set is explicitly
+            # abandoned, never tagged complete or admitted to deployment.
+            shutil.rmtree(stage)
+            state = None
+        print('restic_backup=snapshot_cleanup outcome=' + ('complete' if matches else 'abandoned'))
+
+
 def cold_capture(policy, adapter, step, stage, declared):
     services = [s for s in step['services'] if s in declared]
     if len(services) != len(step['services']):
@@ -453,13 +616,23 @@ def cold_capture(policy, adapter, step, stage, declared):
     for path in paths:
         adapter.safe_source(path)
     running = [s for s in services if service_running(policy, s)]
+    snapshot = step.get('snapshot') == 'zfs'
+    if snapshot:
+        if (set(services) != {'nextcloud', 'nextcloud-cron'} or
+                adapter.ZFS_DATA_PATH not in paths or (stage / 'zfs-source.json').exists()):
+            raise WorkflowError('snapshot_scope')
+        paths.remove(adapter.ZFS_DATA_PATH)
+        token = policy['_capture']
+        state = {'version': 1, 'capture': token, 'owner': hashlib.sha256(token.encode()).hexdigest(),
+                 'production_owner': policy.get('_owner'), 'running_services': running, 'record': None}
+        atomic_json(stage / 'zfs-source.json', state)
     journal = {'version': 1, 'running_services': running, 'stop_order': services,
                'started_at': int(time.time()), 'owner': policy.get('_owner')}
     atomic_json(journal_path(policy), journal, 0o600)
     try:
         if running:
             require_success(compose(policy, ['stop', '--timeout', '120', *running]), 'service_stop')
-        if any(service_running(policy, s) for s in running):
+        if any(service_running(policy, s) for s in services):
             raise WorkflowError('writer_not_stopped')
         if step.get('wolf') and wolf_siblings([step['wolf']]):
             # Recheck after shutting down its native launch authority. Do not
@@ -469,6 +642,15 @@ def cold_capture(policy, adapter, step, stage, declared):
         adapter.retry(lambda: adapter.copy_paths(paths, stage / 'files', rooted(policy['runner']['exclude_file_path'])))
         for dump in step.get('databases', []):
             adapter.retry(lambda: adapter.database_dump(dump, stage / 'databases' / dump['name']))
+        if snapshot:
+            adapter.command(['/usr/bin/sync', '--file-system', '/mnt/storage'])
+            spec = adapter.zfs_spec(policy)
+            # Intent precedes the side effect. A lost acknowledgement retains it;
+            # there is no automatic re-create or fallback to mutable live data.
+            state['record'] = adapter.zfs_record(spec, adapter.zfs_call(spec, {
+                'action': 'create', 'capture': state['capture'], 'owner': state['owner'],
+            }), capture=state['capture'], owner=state['owner'])
+            atomic_json(stage / 'zfs-source.json', state)
     finally:
         restart_recorded(policy, journal)
     return links
@@ -495,19 +677,23 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             for step in settings['cold']:
                 if step.get('wolf'):
                     verify_wolf_available(policy, adapter, step, declared)
+            adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
+            if settings.get('zfs') and adapter.zfs_inventory(adapter.zfs_spec(policy), require_healthy=True):
+                raise WorkflowError('previous_snapshot_requires_inspection')
+            adapter.capacity_check(policy)
         except adapter.CaptureError as error:
             raise WorkflowError(str(error)) from None
-        adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
-        adapter.capacity_check(policy)
         stage = adapter.fresh_stage(stage, settings['reserve_bytes'])
         manifest = None
     token = manifest['capture'] if manifest else uuid.uuid4().hex
+    policy['_capture'] = token
     try:
         if manifest:
             completed = [r for r in qualified(inventory(policy, 'games')) if 'capture=' + token in r.get('tags', [])]
             if len(completed) > 1:
                 raise WorkflowError('completion_mapping')
             if completed:
+                zfs_release(policy, adapter, stage, completed[0]['id'])
                 shutil.rmtree(stage)
                 print(f"restic_backup=local snapshot={completed[0]['id']}")
                 return
@@ -543,10 +729,14 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                         'captures': [*captures, {'name': 'online', 'started_at': online_started,
                                                 'finished_at': datetime.now(timezone.utc).isoformat()}],
                         'databases': [d for s in settings['cold'] for d in s.get('databases', [])]}
+            if settings.get('zfs'):
+                manifest['zfs_source'] = zfs_state(policy, stage)['record']
             # A ready manifest is also a crash-recovery promise. Flush staged
             # files/metadata on this filesystem before publishing that promise.
             adapter.command(['/usr/bin/sync', '--file-system', str(stage)])
             atomic_json(stage / 'manifest.json', manifest, 0o600)
+        if settings.get('zfs'):
+            zfs_ready(policy, adapter, stage)
         captured_at = manifest['captured_at']
         args = ['backup', '--json', '--time', restic_backup_time(captured_at), '--tag', 'format=full-v2',
                 '--tag', 'cadence=daily', '--tag', 'capture=' + token,
@@ -565,6 +755,13 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                 time.sleep(10)
         require_success(result, 'backup')
         snapshot = parse_backup_snapshot(result)
+        if settings.get('zfs'):
+            state = zfs_state(policy, stage)
+            current = adapter.zfs_record(adapter.zfs_spec(policy), adapter.zfs_call(adapter.zfs_spec(policy), {
+                'action': 'inspect', 'capture': state['capture'], 'owner': state['owner'],
+            }), capture=state['capture'], owner=state['owner'])
+            if current != state['record']:
+                raise WorkflowError('snapshot_replaced')
         # Only verified exit-0 captures are eligible. Tagging changes the ID before
         # replication; a crash here leaves ineligible snapshots, never false success.
         # Copies hold shared source locks for up to their 12h service budget.
@@ -576,10 +773,14 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
         completed = [r for r in qualified(inventory(policy, 'games')) if 'capture=' + token in r.get('tags', [])]
         if len(completed) != 1:
             raise WorkflowError('completion_mapping')
+        zfs_release(policy, adapter, stage, completed[0]['id'])
         shutil.rmtree(stage)
         print(f"restic_backup=local snapshot={completed[0]['id']}")
     except adapter.CaptureError as error:
         raise WorkflowError(str(error)) from None
+    finally:
+        if settings.get('zfs'):
+            adapter.zfs_unmount(stage)
 
 
 def inventory(policy, name):
@@ -727,6 +928,14 @@ def status(policy: dict[str, Any], policy_hash: str) -> None:
     )
 
 
+def capture_namespace():
+    """Native mount isolation for manual as well as systemd-driven captures."""
+    if os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino:
+        os.execv('/usr/bin/unshare', ['/usr/bin/unshare', '--mount', '--propagation', 'private',
+                                    '--', sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
+    require_success(run(['/usr/bin/mount', '-n', '--make-rprivate', '/'], timeout=30), 'private_mount_namespace')
+
+
 def main() -> None:
     os.umask(0o077)
     if len(sys.argv) not in (2, 3, 4) or sys.argv[1] not in SUBCOMMANDS:
@@ -745,6 +954,8 @@ def main() -> None:
     signal.signal(signal.SIGINT, interrupted)
     try:
         command = sys.argv[1]
+        if command == 'daily-local' and not testing():
+            capture_namespace()
         copying = command in {'daily-nfs', 'daily-proton'}
         with ExitStack() as stack:
             gate = rooted('/run/lock/home-lab-restic-repositories.lock')
@@ -758,7 +969,13 @@ def main() -> None:
             flags = fcntl.LOCK_EX if command == 'maintenance' else fcntl.LOCK_SH
             if command != 'maintenance' and not wait_for_copy:
                 flags |= fcntl.LOCK_NB
-            fcntl.flock(gate_stream, flags)
+            try:
+                fcntl.flock(gate_stream, flags)
+            except BlockingIOError:
+                if command == 'expire-snapshots':
+                    print('restic_backup=snapshot_cleanup deferred=repository_maintenance')
+                    return
+                raise
             # Tool convergence publishes this fence, then drains all shared
             # readers through an exclusive barrier before replacing anything.
             # Check under the gate and read policy only after admission, so a
@@ -781,6 +998,9 @@ def main() -> None:
             try:
                 fcntl.flock(stream, fcntl.LOCK_EX if wait_for_copy else fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
+                if command == 'expire-snapshots':
+                    print('restic_backup=snapshot_cleanup deferred=active_capture')
+                    return
                 raise WorkflowError("concurrent_operation") from error
             deploy_lock = rooted(policy["runner"]["deploy_lock_path"])
             if deploy_lock.exists() and not copying:
@@ -815,6 +1035,8 @@ def main() -> None:
                 reconcile(policy, 'proton')
             elif command == "maintenance":
                 maintenance(policy)
+            elif command == 'expire-snapshots':
+                expire_snapshots(policy)
             elif command == "diagnose-proton":
                 diagnose_proton(policy)
             else:

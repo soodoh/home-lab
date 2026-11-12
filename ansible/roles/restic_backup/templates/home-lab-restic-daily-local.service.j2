@@ -20,6 +20,7 @@ RestartSec=10min
 KillSignal=SIGINT
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateMounts=true
 ProtectHome=read-only
 ProtectSystem=strict
 ReadWritePaths={{ restic_systemd.games_mountpoint }}/restic {{ restic_systemd.games_mountpoint }}/home-lab-backup /var/lib/home-lab-restic /var/cache/home-lab-restic /run/lock /run/docker.sock

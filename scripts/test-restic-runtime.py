@@ -29,6 +29,8 @@ class Runtime(unittest.TestCase):
             actual = hashlib.sha256((ROOT / 'scripts' / name).read_bytes()).hexdigest()
             self.assertEqual(policy[key]['sha256' if key == 'runner' else 'adapter_sha256'], actual)
         self.assertEqual(policy['replication']['max_lag_seconds'], 48 * 3600)
+        self.assertEqual(policy['capture']['zfs']['expiry_seconds'], 72 * 3600)
+        self.assertEqual(CAPTURE['zfs_spec'](policy), policy['capture']['zfs'])
         for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
             self.assertNotIn(service, policy['stop_groups']['applications'])
 
@@ -367,6 +369,14 @@ class Runtime(unittest.TestCase):
         adapter.wolf_paths.return_value = ([], {})
         adapter.retry.side_effect = lambda operation: operation()
         adapter.copy_paths.side_effect = lambda *_: self.assertTrue(kept <= running)
+        policy['_capture'] = 'b' * 32
+        adapter.ZFS_DATA_PATH = CAPTURE['ZFS_DATA_PATH']
+        adapter.zfs_spec.return_value = policy['capture']['zfs']
+        adapter.zfs_record.side_effect = CAPTURE['zfs_record']
+        adapter.zfs_call.return_value = {
+            'capture': policy['_capture'], 'owner': hashlib.sha256(policy['_capture'].encode()).hexdigest(),
+            'guid': '123', 'created': 1, 'dataset_guid': policy['capture']['zfs']['dataset_guid'],
+        }
         def compose(_policy, args):
             if args[0] == 'stop':
                 self.assertTrue(kept.isdisjoint(args[3:]))
@@ -379,6 +389,7 @@ class Runtime(unittest.TestCase):
             'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
             'durable_unlink': mock.Mock(), 'service_container': lambda _, s: s,
             'service_running': lambda _, s: s in running, 'service_healthy': lambda *_: True,
+            'nextcloud_healthy': lambda *_: True,
             'wolf_siblings': lambda _: [], 'compose': compose,
         }):
             for step in policy['capture']['cold']:
@@ -414,6 +425,7 @@ class Runtime(unittest.TestCase):
                 declared = {s for step in policy['capture']['cold'] for s in step['services']}
                 adapter = mock.Mock()
                 adapter.CaptureError = CAPTURE['CaptureError']
+                adapter.zfs_inventory.return_value = []
                 adapter.wolf_idle.side_effect = CAPTURE['CaptureError']('wolf_not_idle') if busy == 'session' else None
                 adapter.fresh_stage.side_effect = lambda path, _: path.mkdir(mode=0o700) or path
                 siblings = mock.Mock(return_value=['wolf', 'game'] if busy == 'writer' else ['wolf'])
@@ -431,6 +443,7 @@ class Runtime(unittest.TestCase):
                     cold.assert_not_called()
                     adapter.fresh_stage.assert_not_called()
                     adapter.capacity_check.assert_not_called()
+                    adapter.zfs_inventory.assert_not_called()
                     # Ordinary activity must not require manual staging cleanup.
                     adapter.wolf_idle.side_effect = None
                     siblings.return_value = ['wolf']

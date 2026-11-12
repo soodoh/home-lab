@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "0a5fa377596798d1f6243acece5f102d94ccd7c4785d2575b952fc5262f7a523",
+    "sha256": "b5b3e2d2106accaebf2624654bd115e72e44e32ce8df58c423da99cbf06e4a56",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -114,7 +114,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "68b8e794a7ec9521b3471ffacf7c07274e563d3d9dd7242703b3dea45f3a291f",
+    "adapter_sha256": "793ebbca963c70e611386909e44446e3b6a35f8a214d552e6913d6eddb54dfcc",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -122,6 +122,11 @@
       "/srv/home-lab-state/nextcloud-db-data"
     ],
     "radio_max_age_seconds": 172800,
+    "zfs": {
+      "dataset_guid": "8756195246383642806",
+      "expiry_seconds": 259200,
+      "broker_ipv4": "100.113.54.34"
+    },
     "mounts": [
       {
         "path": "/srv/home-lab-state",
@@ -189,6 +194,7 @@
       },
       {
         "name": "nextcloud",
+        "snapshot": "zfs",
         "services": [
           "nextcloud-cron",
           "nextcloud"

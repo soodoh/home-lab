@@ -14,6 +14,7 @@ import http.client
 import ipaddress
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import socket
@@ -70,6 +71,141 @@ def copy_paths(paths, target, excludes, online_sqlite=False):
         options = ['--exclude=*.db', '--exclude=*.db-wal', '--exclude=*.db-shm', '--exclude=*.db-journal']
     command(['/usr/bin/rsync', '--archive', '--relative', '--numeric-ids', '--hard-links', '--acls', '--xattrs',
              '--exclude-from=' + str(excludes), *options, '--', *paths, str(target) + '/'])
+
+
+ZFS_DATA_PATH = '/mnt/storage/media/nextcloud/data'
+ZFS_PREFIX = 'home-lab-nextcloud-'
+ZFS_EXPIRY = 72 * 3600
+ZFS_BROKER_PORT = 2444
+
+
+def zfs_spec(policy):
+    spec = policy['capture']['zfs']
+    if (set(spec) != {'dataset_guid', 'expiry_seconds', 'broker_ipv4'} or
+            not re.fullmatch('[1-9][0-9]{0,19}', spec['dataset_guid']) or
+            ipaddress.ip_address(spec['broker_ipv4']) not in ipaddress.ip_network('100.64.0.0/10') or
+            spec['expiry_seconds'] != ZFS_EXPIRY):
+        raise CaptureError('snapshot_policy')
+    return spec
+
+
+def zfs_call(spec, request):
+    """One bounded RPC over WireGuard to the pinned peer IP; no DNS or SSH.
+
+    The server socket is bound to tailscale0 and tailnet policy admits only the
+    backup host. Closing the request half frames JSON; EOF frames the response.
+    """
+    raw = json.dumps(request).encode('utf-8')
+    if len(raw) > 4096:
+        raise CaptureError('snapshot_request_size')
+    try:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as stream:
+            stream.settimeout(10)
+            stream.connect((spec['broker_ipv4'], ZFS_BROKER_PORT))
+            stream.sendall(raw)
+            stream.shutdown(socket.SHUT_WR)
+            deadline, response = time.monotonic() + 180, bytearray()
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError
+                stream.settimeout(remaining)
+                part = stream.recv(min(4096, 65537 - len(response)))
+                if not part:
+                    break
+                response.extend(part)
+                if len(response) > 65536:
+                    raise ValueError
+        value = json.loads(response)
+        if not isinstance(value, dict):
+            raise ValueError
+        return value
+    except (OSError, ValueError):
+        # A create may have succeeded: callers retain intent and never silently
+        # repeat creation or fall back to a live-file backup.
+        raise CaptureError('snapshot_remote_refused') from None
+
+
+def zfs_record(spec, value, *, capture=None, owner=None):
+    if (not isinstance(value, dict) or
+            set(value) != {'capture', 'owner', 'guid', 'created', 'dataset_guid'} or
+            not isinstance(value['capture'], str) or not re.fullmatch('[0-9a-f]{32}', value['capture']) or
+            not isinstance(value['owner'], str) or not re.fullmatch('[0-9a-f]{64}', value['owner']) or
+            not isinstance(value['guid'], str) or not re.fullmatch('[1-9][0-9]{0,19}', value['guid']) or
+            type(value['created']) is not int or value['created'] <= 0 or
+            value['dataset_guid'] != spec['dataset_guid'] or
+            (capture is not None and value['capture'] != capture) or
+            (owner is not None and value['owner'] != owner)):
+        raise CaptureError('snapshot_identity')
+    return value
+
+
+def zfs_inventory(spec, require_healthy=False):
+    value = zfs_call(spec, {'action': 'list'})
+    if (set(value) != {'snapshots', 'pool_healthy'} or not isinstance(value['snapshots'], list) or
+            type(value['pool_healthy']) is not bool):
+        raise CaptureError('snapshot_inventory')
+    if require_healthy and not value['pool_healthy']:
+        raise CaptureError('snapshot_pool_not_healthy')
+    records = [zfs_record(spec, row) for row in value['snapshots']]
+    if len({row['capture'] for row in records}) != len(records):
+        raise CaptureError('snapshot_inventory')
+    return records
+
+
+def zfs_mount(spec, record, stage):
+    """Expose only Nextcloud at its original archive path in a private namespace."""
+    record = zfs_record(spec, record)
+    if os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino:
+        raise CaptureError('private_mount_namespace_required')
+    # The parent export does not expose snapshot filesystems. The restricted
+    # storage-host adapter publishes only this immutable Nextcloud subtree.
+    source = '192.168.0.123:/storage/docker/.zfs/snapshot/' + ZFS_PREFIX + record['capture'] + '/media/nextcloud/data'
+    target = Path(stage) / 'files' / ZFS_DATA_PATH.lstrip('/')
+    # Parent creation must never traverse an archive/source-controlled link.
+    parent = Path(stage) / 'files'
+    safe_source(parent)
+    for part in Path(ZFS_DATA_PATH).parts[1:]:
+        parent = parent / part
+        if parent.is_symlink():
+            raise CaptureError('snapshot_target_type')
+        parent.mkdir(mode=0o700, exist_ok=True)
+        safe_source(parent)
+    if any(target.iterdir()):
+        raise CaptureError('snapshot_target_not_empty')
+    command(['/usr/bin/mount', '-n', '-t', 'nfs4', '-o',
+             'ro,vers=4.2,proto=tcp,nosuid,nodev,noexec', source, str(target)])
+    raw = command(['/usr/bin/findmnt', '--json', '--nofsroot', '--mountpoint', str(target), '--output', 'SOURCE,FSTYPE,OPTIONS'])
+    entries = json.loads(raw).get('filesystems', [])
+    if (len(entries) != 1 or entries[0]['source'] != source or entries[0]['fstype'] != 'nfs4' or
+            'ro' not in entries[0]['options'].split(',')):
+        raise CaptureError('snapshot_mount_not_readonly')
+
+
+def zfs_unmount(stage):
+    target = Path(stage) / 'files' / ZFS_DATA_PATH.lstrip('/')
+    if target.is_symlink():
+        raise CaptureError('snapshot_target_type')
+    if not target.exists():
+        return
+    result = subprocess.run(['/usr/bin/mountpoint', '--quiet', '--', str(target)],
+                            stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
+    if result.returncode == 0:
+        if os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino:
+            raise CaptureError('private_mount_namespace_required')
+        state_path = safe_source(Path(stage) / 'zfs-source.json')
+        token = json.loads(state_path.read_text())['capture']
+        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{32}', token):
+            raise CaptureError('snapshot_identity')
+        raw = command(['/usr/bin/findmnt', '--json', '--nofsroot', '--mountpoint', str(target), '--output', 'SOURCE,FSTYPE'])
+        entries = json.loads(raw).get('filesystems', [])
+        expected = '192.168.0.123:/storage/docker/.zfs/snapshot/' + ZFS_PREFIX + token + '/media/nextcloud/data'
+        if len(entries) != 1 or entries[0]['source'] != expected or entries[0]['fstype'] != 'nfs4':
+            raise CaptureError('unknown_snapshot_mount')
+        command(['/usr/bin/umount', '--', str(target)])
+    elif result.returncode != 32:
+        # util-linux mountpoint returns 32 for an ordinary non-mount path.
+        raise CaptureError('snapshot_unmount_inspection')
 
 
 def sqlite_backup(source, target):

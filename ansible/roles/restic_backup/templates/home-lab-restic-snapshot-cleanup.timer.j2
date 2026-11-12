@@ -1,0 +1,12 @@
+[Unit]
+Description=Inspect backup snapshot expiry at boot and hourly
+
+[Timer]
+OnBootSec=10min
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=3min
+Unit=home-lab-restic-snapshot-cleanup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Snapshot-only backup RPC over the Tailscale interface
+After=tailscaled.service
+Requires=tailscaled.service
+
+[Socket]
+ListenStream={{ zfs_backup_snapshot_tailscale_ipv4 }}:2444
+BindToDevice=tailscale0
+FreeBind=yes
+Accept=yes
+MaxConnections=4
+MaxConnectionsPerSource=2
+Backlog=4
+
+[Install]
+WantedBy=sockets.target

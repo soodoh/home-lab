@@ -1,0 +1,20 @@
+[Unit]
+Description=Resolve completed and expired Nextcloud backup snapshots safely
+RequiresMountsFor={{ restic_systemd.games_mountpoint }} {{ restic_systemd.nfs_mountpoint }}
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart={{ restic_systemd.runner_path }} expire-snapshots
+TimeoutStartSec=20min
+TimeoutStopSec=2min
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths={{ restic_systemd.games_mountpoint }}/home-lab-backup {{ restic_systemd.games_repository_path }}/locks /var/lib/home-lab-restic /var/cache/home-lab-restic /run/lock /run/docker.sock

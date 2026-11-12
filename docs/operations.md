@@ -914,8 +914,15 @@ not globally atomic; the format manifest records group capture times.
 
 Native PostgreSQL/MariaDB exports run while coupled application writers are
 paused. SQLite online backups and Jellyfin's native archive cover online inputs.
-Other protected state is copied completely into private disk-backed staging
-inside a stop/copy/restart window for that service/dependency group. Previously
+Nextcloud's local configuration and native SQL export are captured while its web
+and cron writers are stopped. The storage host then snapshots the existing
+`storage/docker` ZFS dataset; writers resume and native `occ status` must pass
+before the long file read. A temporary read-only export exposes only that
+snapshot's Nextcloud subtree to the fixed Docker-host NFS client. Restic reads it
+through a private NFS mount at the original staged path: no full user-data staging
+copy or restore-layout change. Other protected state is copied completely into
+private disk-backed staging inside its service/dependency group's stop/copy/restart
+window. Previously
 stopped services stay stopped. Restart/health checks finish **before** unrelated
 groups, Restic scanning or replication. Gluetun's namespace clients resume only
 after VPN health. A durable interruption journal records the previous running
@@ -940,13 +947,21 @@ before staging is created, then rechecked at its capture window. Activity alread
 present at preflight leaves no incomplete staging; activity beginning later still
 fails closed and retains incomplete capture material for inspection. Ready-stage
 upload retries do not require Wolf to be idle. The estimate budgets twice
-selected source usage plus a 20 GiB reserve. Measure large Nextcloud user data
-and qualify its stop/copy duration before installation; do not silently drop
-those files or select RAM-backed staging.
+selected source usage plus a 20 GiB reserve. Qualify the actual database-export/snapshot/restart window and full captured-file
+restore before installation; do not silently drop Nextcloud files or select
+RAM-backed staging. The conservative space budget still includes user data for
+encrypted repository growth even though that data is no longer physically copied
+into staging.
 
-Ready staging is reusable for failed Restic retries without another application
-stop/copy/restart. Incomplete captures require inspection and are never reused.
-Only an exit-0 backup is marked complete. Restic's native final tagging briefly
+Ready staging and its exact snapshot receipt are reusable for failed Restic
+retries without another application stop/copy/restart. Retries republish only the
+same GUID-bound immutable source, never create a new point in time or substitute
+live files. A missing receipt/source or an owner/GUID mismatch refuses retry. Incomplete captures require inspection and are never reused.
+Only an exit-0 backup whose immutable source identity still matches is marked
+complete. After the completed local snapshot is rediscovered, its temporary NFS
+mount/export and exact ZFS snapshot are removed before staging is deleted. A lost
+cleanup acknowledgement retains ready staging for idempotent cleanup, not another
+application capture. Restic's native final tagging briefly
 requires an exclusive repository lock; an active copy can defer it. The completion
 command waits natively for up to the full 12-hour transfer budget, with a 13-hour
 process timeout. The local unit allows 24 hours for capture/upload and completion,
@@ -982,6 +997,55 @@ inspect it and the retained production owner/fence before resuming. Copy callers
 check the fence and load policy under the shared gate. After complete convergence,
 the fence is removed and the timer restored. Interrupted tool updates retain their
 fence and production owner for host inspection. Never force-unlock a repository.
+
+### ZFS snapshot authority and expiry
+
+`configure-zfs-backup-snapshots.yml --check` previews the storage-host capability;
+apply requires `zfs_backup_snapshot_apply_confirmed=true`. It installs a native
+systemd socket listener on the pinned Proxmox Tailscale IPv4, TCP **2444**, bound
+also to **tailscale0**. Binding to an IP alone is not an interface boundary.
+Each accepted connection executes one fixed root-owned worker with bounded JSON
+input, response, time and connection counts. No login account, sudo grant, shell,
+SFTP, proxy or forwarding service is added. The worker permits fixed
+`storage/docker` snapshot operations only: no arbitrary dataset, path,
+recursive/forced destroy, rollback or release of foreign holds. Convergence
+refuses pending snapshots, changed peer addresses and foreign/broader listeners;
+failures retain the exact host owner. Installation does not create snapshots or
+change tailnet policy.
+
+Separately review/apply the scoped tailnet plan, then configure the Docker backup
+runtime. Only the Docker-host tag receives TCP 2444; its Proxmox SSH access remains
+denied. WireGuard supplies transport authentication/encryption; the policy pins
+the peer IPv4 directly, without DNS discovery, keys or passwords. The worker uses
+the host mount namespace so ZFS automount/NFS publication survives a connection's
+exit; do not add filesystem-namespace sandboxing without qualifying that lifecycle.
+Qualify the real socket's interface binding, allowed/denied peers and full NFS
+lifecycle before activation; a mocked manager or policy plan is not proof.
+The adapter pins the native dataset GUID and shares only the named snapshot's
+`media/nextcloud/data` subtree, read-only with subtree checking, to
+`192.168.0.100`. It never enables `crossmnt`, changes permanent exports or exposes
+the whole snapshot. Peer/client-IP replacement requires reviewed source changes.
+New snapshots refuse an unhealthy pool, nested Nextcloud mounts and less than
+20 GiB available on the source dataset. This initial reserve is not a bound on
+later shared-dataset churn. A rescue exception requires an independently approved
+operation, not a standing health bypass.
+
+`home-lab-restic-snapshot-cleanup.timer` inspects at boot/hourly under the native
+capture/repository locks. Active capture/maintenance defers cleanup. It detects
+orphaned native Restic source readers, refuses any retained production owner, and
+requires successful journal recovery plus native Nextcloud readiness before
+abandoning failed snapshots aged **72 hours**. Automatic retries do not reopen
+expired inputs; an already active reader is not killed at the cutoff. It discards only the matching
+unqualified retry set, never marks it complete, and leaves other snapshots,
+original data and intentional stopped states alone. Completed captures can clean
+up immediately. Unknown provenance, failed recovery, busy snapshots, inaccessible
+hosts or mismatched state retain evidence and fail the unit for inspection.
+
+Expiry is therefore a safe cleanup target, **not** an unconditional hard TTL.
+The shared-dataset snapshot retains overwritten/deleted blocks from all of
+`storage/docker`, not just Nextcloud. Inspect native ZFS space usage and failed
+cleanup units; delivery of an external notification is not configured by this
+interface. Dedicated dataset isolation remains a separately approved migration.
 
 ZHA's native network backup must be present/fresh in protected `zigbee.db`.
 The separately approved `configure-radio-backups.yml` interface enables native

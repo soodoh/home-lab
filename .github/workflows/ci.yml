@@ -94,6 +94,7 @@ jobs:
       - name: Validate backup and recovery behavior
         run: |
           python scripts/test-restic-runtime.py
+          python scripts/test-zfs-backup-snapshot.py
           python scripts/test-restic-observer.py
           python scripts/test-wolf-security.py
           python scripts/test-wolf-start.py

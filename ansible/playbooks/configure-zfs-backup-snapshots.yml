@@ -1,0 +1,53 @@
+---
+# Separately approved host capability only. Does not create snapshots, change
+# tailnet policy, start backups, install the Docker runtime or restart applications.
+- name: Install narrowly scoped native snapshot authority on the storage host
+  hosts: proxmox
+  gather_facts: true
+  gather_subset: ['!all', '!min', date_time]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require separate snapshot authority installation approval before ownership
+      ansible.builtin.assert:
+        that: ansible_check_mode or zfs_backup_snapshot_apply_confirmed | default(false) | bool
+        quiet: true
+    - name: Observe retained host ownership without modifying it
+      ansible.builtin.import_role:
+        name: proxmox_observe
+        tasks_from: owners
+    - name: Observe outstanding snapshots before acquiring authority-convergence ownership
+      ansible.builtin.command:
+        argv: [/usr/sbin/zfs, list, '-H', '-r', '-d', '1', '-t', snapshot, '-o', name, storage/docker]
+      changed_when: false
+      check_mode: false
+      register: zfs_backup_snapshot_admission
+      no_log: true
+    - name: Refuse authority replacement with outstanding snapshots before acquiring ownership
+      ansible.builtin.assert:
+        that: zfs_backup_snapshot_admission.stdout_lines | select('match', '^storage/docker@home-lab-nextcloud-') | list | length == 0
+        quiet: true
+    - name: Acquire storage-host ownership during snapshot authority convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: zfs-snapshot-authority-convergence
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
+    - name: Bind successful convergence to its exact acquired owner
+      ansible.builtin.set_fact:
+        zfs_backup_snapshot_install_owner: '{{ apply_lock_owner_sha256 }}'
+        cacheable: false
+      when: not ansible_check_mode
+  tasks:
+    - name: Converge the separately approved restricted account and native adapter
+      ansible.builtin.import_role:
+        name: zfs_backup_snapshot
+  post_tasks:
+    - name: Release only the exact successful snapshot authority convergence owner
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: zfs-snapshot-authority-convergence
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
+        apply_lock_expected_owner_sha256: "{{ zfs_backup_snapshot_install_owner | default('') }}"

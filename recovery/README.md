@@ -117,7 +117,8 @@ Logical exports and native archives remain in `recovery-exports/`:
   generated attachments/fonts, trickplay or transcoding caches. The file layout
   also holds configuration/plugin files and online auxiliary SQLite exports.
 - `manifest.json`: format, policy/artifact/owner identities, capture timestamps,
-  database descriptors and Wolf symlink mappings. Follow these mappings when
+  database descriptors, Wolf symlink mappings and the exact ZFS source receipt
+  when Nextcloud uses snapshot-backed capture. Follow these mappings when
   reconstructing original links; the helper never activates host links.
 
 Group selection filters ordinary file paths; native/SQL exports and the manifest
@@ -134,6 +135,28 @@ profile. Wolf must have no sessions/lobbies or other running profile writers;
 backup refuses active gaming rather than killing/recreating ephemeral apps.
 Unknown external or broken link mappings fail closed pending inspection; no complete gaming coverage
 is claimed until the live selection and representative restores are qualified.
+
+Nextcloud user files retain their original staged layout even when Restic reads
+through a temporary read-only NFS snapshot mount. The ZFS snapshot is a temporary
+source, not the recovery destination: recovery needs only the encrypted Restic
+snapshot and its independent keys, not a surviving ZFS pool or snapshot. Restore
+the SQL export and captured configuration/data from the same capture. Snapshot
+cleanup after local completion does not remove the Restic recovery set.
+
+### Scope-specific rescue captures
+
+A manually approved `scope=nextcloud-rescue-v1` snapshot is deliberately **not** a
+complete lab capture or deployment-admission baseline. It has no `cadence=daily`
+or `complete=full-v2` tag and is outside automated daily replication/expiry. Native
+`restic snapshots --tag scope=nextcloud-rescue-v1` discovers these live; use native
+`restic restore --verify` into a new protected private target. Inspect its scoped
+`manifest.json`: `files/` holds original-relative paths, `databases/nextcloud.sql`
+is a logical export and the image pins identify compatible import tools. The
+archive's private capture prefix is not a production destination. Do not force
+these captures through the full-v2 normalizer or treat a successful SQL import as
+production activation. Offsite copy and eventual disposal require explicit review.
+
+### Other application coverage
 
 Home Assistant includes the complete configuration and consistent database plus
 ZHA native network backups. Z-Wave includes store/security keys and actual fresh

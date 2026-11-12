@@ -23,6 +23,18 @@ The desired deployment network policy is limited to:
 | --- | --- | --- |
 | Owner and administrator devices | Docker host | TCP 22, private ingress 443, and direct Omada TLS 8043 |
 | Owner and administrator devices | Proxmox host | TCP 22 and TCP 8006 |
+| Docker host | Proxmox host | TCP 8006, plus separately activated snapshot-only TCP 2444; SSH remains denied |
+
+Snapshot control is a systemd socket-activated bounded JSON worker, not a login
+or general network proxy. The listener pins the Proxmox Tailscale IPv4 and binds
+to `tailscale0`; tailnet policy admits only the Docker-host tag. The client uses
+the pinned peer IP over WireGuard directly. No SSH account, key, password, SFTP,
+forwarding or sudo authority is delegated. A restricted login shell would not by
+itself constrain every SSH channel. Qualify the actual interface/peer denial and
+worker/NFS lifecycle before relying on it; mocked manager/policy tests do not
+establish live enforcement. Socket installation, scoped tailnet apply and
+backup-runtime installation are separate approved steps.
+See [snapshot lifecycle](operations.md#zfs-snapshot-authority-and-expiry).
 
 Application credentials remain separate from network admission. The tracked Omada
 interface uses the system-trusted private Traefik hostname from local controllers.
