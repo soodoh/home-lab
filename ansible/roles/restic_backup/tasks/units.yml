@@ -30,5 +30,12 @@
     state: started
   when: not ansible_check_mode
 
+- name: Enable bounded snapshot cleanup independently of capture success
+  ansible.builtin.systemd_service:
+    name: home-lab-restic-snapshot-cleanup.timer
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
 - name: Render the shared daily timer while preserving approved scheduling
   ansible.builtin.import_tasks: daily-timer.yml

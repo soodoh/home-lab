@@ -1,0 +1,24 @@
+[Unit]
+Description=One bounded snapshot-only backup RPC
+After=nfs-server.service
+Requires=nfs-server.service
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/home-lab/zfs-backup-snapshot --privileged
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+User=root
+Group=root
+UMask=0077
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/var/empty LC_ALL=C
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RuntimeMaxSec=180
+MemoryMax=128M
+TasksMax=16
+# ZFS snapshot automounts and NFS export publication must use the host namespace.
+PrivateMounts=no

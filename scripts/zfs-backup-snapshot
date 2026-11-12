@@ -1,0 +1,283 @@
+#!/usr/bin/python3 -I
+"""Fixed-dataset snapshot RPC worker, socket-activated by systemd as root.
+
+The listener is bound to tailscale0 and tailnet policy admits only the backup
+host. One bounded JSON request arrives on stdin; no shell, login account, sudo,
+caller-selected dataset, executable, path or recursive destroy is provided.
+The caller must exclude its backup writers and verify application recovery before
+abandoning a capture. Age alone is never evidence that a backup has stopped.
+"""
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+DATASET = 'storage/docker'
+PREFIX = 'home-lab-nextcloud-'
+PURPOSE = 'nextcloud-backup'
+EXPIRY = 72 * 3600
+RESERVE = 20 * 1024**3
+CONFIG = Path('/etc/home-lab/zfs-backup-snapshot.json')
+LOCK = Path('/run/lock/home-lab-zfs-backup-snapshot.lock')
+PROPERTY = 'org.home-lab:'
+CLIENT = '192.168.0.100'
+
+
+class Refusal(ValueError):
+    pass
+
+
+def zfs(*args):
+    result = subprocess.run(['/usr/sbin/zfs', *args], stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=120, check=False,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    if result.returncode:
+        raise Refusal('native_zfs_refused')
+    return result.stdout.strip()
+
+
+def pool_healthy():
+    result = subprocess.run(['/usr/sbin/zpool', 'status', '-x', 'storage'],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=20, check=False,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    return result.returncode == 0 and result.stdout.strip() == "pool 'storage' is healthy"
+
+
+def source_is_current():
+    result = subprocess.run(['/usr/bin/findmnt', '--json', '--nofsroot', '--submounts', '--target',
+                             '/storage/docker/media/nextcloud/data', '--output', 'TARGET,SOURCE,FSTYPE'],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=20, check=False,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    try:
+        rows = json.loads(result.stdout)['filesystems']
+        if (result.returncode or len(rows) != 1 or rows[0]['source'] != DATASET or
+                rows[0]['target'] != '/storage/docker' or rows[0]['fstype'] != 'zfs'):
+            return False
+        pending = list(rows[0].get('children', []))
+        root = Path('/storage/docker/media/nextcloud/data')
+        while pending:
+            child = pending.pop()
+            if Path(child['target']).is_relative_to(root):
+                return False
+            pending.extend(child.get('children', []))
+        return True
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def exportfs(*args):
+    result = subprocess.run(['/usr/sbin/exportfs', *args], stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=30, check=False,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    if result.returncode:
+        raise Refusal('native_export_refused')
+    return result.stdout
+
+
+def export_path(capture):
+    return '/storage/docker/.zfs/snapshot/' + PREFIX + capture + '/media/nextcloud/data'
+
+
+def export_fsid(capture):
+    # A caller cannot choose an existing live export's fsid (or the special zero
+    # fsid) by submitting that UUID as its capture identifier.
+    raw = hashlib.sha256(('urn:home-lab:zfs-snapshot:' + capture).encode('ascii')).digest()[:16]
+    return str(uuid.UUID(bytes=raw, version=4))
+
+
+def export_present(capture):
+    path = export_path(capture)
+    records = []
+    for line in exportfs('-s').splitlines():
+        fields = shlex.split(line)
+        if fields and fields[0] == path:
+            records.extend(fields[1:])
+    if not records:
+        return False
+    if len(records) != 1 or not records[0].startswith(CLIENT + '(') or not records[0].endswith(')'):
+        raise Refusal('unfamiliar_snapshot_export')
+    options = set(records[0][len(CLIENT) + 1:-1].split(','))
+    required = {'ro', 'sync', 'subtree_check', 'no_root_squash', 'secure', 'sec=sys', 'fsid=' + export_fsid(capture)}
+    if not required <= options or options & {'rw', 'async', 'no_subtree_check', 'insecure', 'crossmnt', 'nohide'}:
+        raise Refusal('unfamiliar_snapshot_export')
+    return True
+
+
+def ensure_export(capture):
+    path = Path(export_path(capture))
+    # Trigger the native snapshot automount and reject application-controlled
+    # aliases before sharing a subtree. Never export the whole shared snapshot.
+    for parent in (*reversed(path.parents), path):
+        if parent.is_symlink() or not parent.is_dir():
+            raise Refusal('snapshot_export_type')
+    if not any((path / marker).is_file() and not (path / marker).is_symlink()
+               for marker in ('.ncdata', '.ocdata')):
+        raise Refusal('snapshot_data_marker_missing')
+    if not export_present(capture):
+        options = 'ro,sync,subtree_check,no_root_squash,secure,sec=sys,fsid=' + export_fsid(capture)
+        exportfs('-i', '-o', options, CLIENT + ':' + str(path))
+    if not export_present(capture):
+        raise Refusal('snapshot_export_missing')
+
+
+def withdraw_export(capture):
+    if export_present(capture):
+        exportfs('-u', CLIENT + ':' + export_path(capture))
+    if export_present(capture):
+        raise Refusal('snapshot_export_retained')
+
+
+def validate_request(request):
+    if not isinstance(request, dict) or request.get('action') not in {'create', 'inspect', 'ready', 'complete', 'abandon', 'list'}:
+        raise Refusal('request_shape')
+    action = request['action']
+    expected = {'action'} if action == 'list' else {'action', 'capture', 'owner'}
+    if action in {'ready', 'complete', 'abandon'}:
+        expected |= {'guid'}
+    if action == 'complete':
+        expected |= {'backup'}
+    if set(request) != expected:
+        raise Refusal('request_fields')
+    if action != 'list':
+        if not isinstance(request['capture'], str) or not re.fullmatch('[0-9a-f]{32}', request['capture']):
+            raise Refusal('capture_identity')
+        if not isinstance(request['owner'], str) or not re.fullmatch('[0-9a-f]{64}', request['owner']):
+            raise Refusal('owner_identity')
+    if 'guid' in request and not re.fullmatch('[1-9][0-9]{0,19}', str(request['guid'])):
+        raise Refusal('snapshot_identity')
+    if action == 'complete' and not re.fullmatch('[0-9a-f]{64}', str(request['backup'])):
+        raise Refusal('backup_identity')
+    return action
+
+
+def inspect(name, dataset_guid):
+    properties = ['guid', 'creation', PROPERTY + 'purpose', PROPERTY + 'capture', PROPERTY + 'owner']
+    rows = zfs('get', '-H', '-p', '-o', 'property,value', ','.join(properties), name).splitlines()
+    values = dict(row.split('\t', 1) for row in rows)
+    capture = name.removeprefix(DATASET + '@' + PREFIX)
+    if (values.get(PROPERTY + 'purpose') != PURPOSE or
+            values.get(PROPERTY + 'capture') != capture or
+            not re.fullmatch('[0-9a-f]{32}', capture) or
+            not re.fullmatch('[0-9a-f]{64}', values.get(PROPERTY + 'owner', '')) or
+            not re.fullmatch('[1-9][0-9]{0,19}', values.get('guid', ''))):
+        raise Refusal('snapshot_not_owned')
+    return {'capture': capture, 'owner': values[PROPERTY + 'owner'],
+            'guid': values['guid'], 'created': int(values['creation']),
+            'dataset_guid': dataset_guid}
+
+
+def execute(request, dataset_guid, *, now=None):
+    action = validate_request(request)
+    if not re.fullmatch('[1-9][0-9]{0,19}', str(dataset_guid)):
+        raise Refusal('dataset_identity')
+    if zfs('get', '-H', '-p', '-o', 'value', 'guid', DATASET) != str(dataset_guid):
+        raise Refusal('dataset_replaced')
+    names = zfs('list', '-H', '-r', '-d', '1', '-t', 'snapshot', '-o', 'name', DATASET).splitlines()
+    if action == 'list':
+        return {'snapshots': [inspect(name, dataset_guid) for name in names
+                              if name.startswith(DATASET + '@' + PREFIX)],
+                'pool_healthy': pool_healthy()}
+    name = DATASET + '@' + PREFIX + request['capture']
+    if name not in names:
+        if action != 'create':
+            if action in {'complete', 'abandon'}:
+                withdraw_export(request['capture'])
+                return {'deleted': True, 'already_absent': True}
+            raise Refusal('snapshot_missing')
+        if any(other.startswith(DATASET + '@' + PREFIX) for other in names):
+            raise Refusal('previous_snapshot_requires_inspection')
+        if not pool_healthy():
+            raise Refusal('pool_not_healthy')
+        if not source_is_current():
+            raise Refusal('source_mount_changed')
+        if int(zfs('get', '-H', '-p', '-o', 'value', 'available', DATASET)) < RESERVE:
+            raise Refusal('source_capacity')
+        zfs('snapshot', '-o', PROPERTY + 'purpose=' + PURPOSE,
+            '-o', PROPERTY + 'capture=' + request['capture'],
+            '-o', PROPERTY + 'owner=' + request['owner'], name)
+    record = inspect(name, dataset_guid)
+    if record['owner'] != request['owner']:
+        raise Refusal('snapshot_owner_mismatch')
+    if action in {'ready', 'complete', 'abandon'} and record['guid'] != str(request['guid']):
+        raise Refusal('snapshot_replaced')
+    if action in {'complete', 'abandon'}:
+        if action == 'abandon' and (time.time() if now is None else now) - record['created'] < EXPIRY:
+            raise Refusal('snapshot_not_expired')
+        # Intentionally no -r, -R, -f, -d, rollback, clone, hold release or dataset
+        # destruction. A busy snapshot must refuse, never be forcibly unmounted.
+        withdraw_export(request['capture'])
+        zfs('destroy', name)
+        return {'deleted': True, 'already_absent': False}
+    if action in {'create', 'ready'}:
+        ensure_export(request['capture'])
+    return record
+
+
+def storage_unowned():
+    for marker in ('/var/lib/iac-ansible-production.lock',
+                   '/var/lib/home-lab/reconciliation/apply.lock',
+                   '/var/lib/home-lab/reconciliation/owner.lock',
+                   '/var/lib/home-lab/reconciliation/nix.lock'):
+        candidate = Path(marker)
+        if candidate.exists() or candidate.is_symlink():
+            raise Refusal('storage_operation_owned')
+
+
+def read_request(stream):
+    def expired(_number, _frame):
+        raise Refusal('request_timeout')
+    previous = signal.signal(signal.SIGALRM, expired)
+    signal.alarm(15)
+    try:
+        raw = stream.read(4097)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    if len(raw) > 4096:
+        raise Refusal('request_size')
+    return json.loads(raw)
+
+
+def main():
+    os.umask(0o077)
+    if sys.argv[1:] != ['--privileged'] or os.geteuid() != 0:
+        raise Refusal('fixed_command_required')
+    # Native flock serializes configuration reads, bounded request reception and
+    # side effects; root-only tmpfiles owns the inode.
+    lock_info = LOCK.lstat()
+    if (LOCK.is_symlink() or not LOCK.is_file() or lock_info.st_nlink != 1 or
+            lock_info.st_uid != 0 or lock_info.st_mode & 0o777 != 0o600):
+        raise Refusal('coordination_metadata')
+    with LOCK.open('rb') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        storage_unowned()
+        metadata = CONFIG.lstat()
+        if (CONFIG.is_symlink() or not CONFIG.is_file() or metadata.st_nlink != 1 or
+                metadata.st_uid != 0 or metadata.st_mode & 0o777 != 0o600):
+            raise Refusal('configuration_metadata')
+        config = json.loads(CONFIG.read_text())
+        if set(config) != {'dataset_guid'}:
+            raise Refusal('configuration_shape')
+        request = read_request(sys.stdin.buffer)
+        # Installation publishes its owner then crosses this same gate. Do not
+        # start an operation if an updater arrived during request reception.
+        storage_unowned()
+        print(json.dumps(execute(request, config['dataset_guid']), sort_keys=True))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        # Never emit native ZFS stderr or untrusted request values.
+        raise SystemExit('zfs_backup_snapshot=refused')

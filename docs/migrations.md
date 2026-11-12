@@ -47,11 +47,19 @@ before-images, rollback and post-activation health before production restore.
 ## Complete-backup runtime qualification
 
 The complete staged-capture source is not a production installation receipt.
-Before separately approving installation/cutover, establish the full Nextcloud
-user-data size and a protected staging budget on `/mnt/games`; the bounded
-read-only sizing scan has not completed. Measure the stop/copy/restart window
-for large coupled file trees rather than assuming online SQL exports make those
-files atomic or interruption-free.
+Before separately approving installation/cutover, reobserve the selected data,
+source-pool health and protected staging/repository capacity. Qualify Nextcloud's
+SQL-export/snapshot/restart window, Tailscale-interface-bound snapshot RPC socket,
+allowed/denied peers, host-namespace worker lifecycle and temporary read-only NFS
+export. This does not delegate SSH, SFTP or forwarding access.
+The snapshot covers the existing shared dataset; dataset isolation is deferred,
+not permission to migrate data or broaden exports. New source snapshots refuse an
+unhealthy pool; an independently approved rescue capture is not a standing bypass.
+Measure stop/copy/restart windows for other large coupled trees rather than
+assuming online SQL exports make those files atomic or interruption-free. Exercise
+native mounted-source capture, lost acknowledgements, ready-source retry,
+completion cleanup and 72-hour abandonment on disposable infrastructure before
+installing the scheduled path; mock ZFS tests alone do not qualify it.
 
 Qualify native PostgreSQL/MariaDB imports, Jellyfin archive restoration and
 representative application/user files from the same full capture. Verify selected
