@@ -39,7 +39,7 @@
         cacheable: false
       when: not ansible_check_mode
   tasks:
-    - name: Converge the separately approved restricted account and native adapter
+    - name: Converge the separately approved snapshot socket and native adapter
       ansible.builtin.import_role:
         name: zfs_backup_snapshot
   post_tasks:

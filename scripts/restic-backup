@@ -678,7 +678,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                 if step.get('wolf'):
                     verify_wolf_available(policy, adapter, step, declared)
             adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
-            if settings.get('zfs') and adapter.zfs_inventory(adapter.zfs_spec(policy), require_healthy=True):
+            if settings.get('zfs') and adapter.zfs_inventory(adapter.zfs_spec(policy), require_admissible=True):
                 raise WorkflowError('previous_snapshot_requires_inspection')
             adapter.capacity_check(policy)
         except adapter.CaptureError as error:

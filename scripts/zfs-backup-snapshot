@@ -44,12 +44,26 @@ def zfs(*args):
     return result.stdout.strip()
 
 
-def pool_healthy():
-    result = subprocess.run(['/usr/sbin/zpool', 'status', '-x', 'storage'],
-                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                            timeout=20, check=False,
-                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
-    return result.returncode == 0 and result.stdout.strip() == "pool 'storage' is healthy"
+def pool_status(*, allow_degraded=False):
+    values = []
+    for args in (['list', '-H', '-o', 'health', 'storage'],
+                 ['get', '-H', '-o', 'value', 'readonly', 'storage'],
+                 ['status', '-x', 'storage']):
+        result = subprocess.run(['/usr/sbin/zpool', *args],
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                timeout=20, check=False,
+                                env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+        if result.returncode:
+            return {'pool_healthy': False, 'capture_admissible': False}
+        values.append(result.stdout.strip())
+    state, readonly, report = values
+    healthy = state == 'ONLINE' and report == "pool 'storage' is healthy"
+    reported_state = re.search(r'^\s*state:\s*(\S+)\s*$', report, re.MULTILINE)
+    no_errors = healthy or (reported_state is not None and reported_state[1] == state and
+                            re.search(r'^\s*errors: No known data errors\s*$', report, re.MULTILINE) is not None)
+    allowed_state = state == 'ONLINE' or (allow_degraded and state == 'DEGRADED')
+    return {'pool_healthy': healthy,
+            'capture_admissible': bool(allowed_state and readonly == 'off' and no_errors)}
 
 
 def source_is_current():
@@ -176,7 +190,7 @@ def inspect(name, dataset_guid):
             'dataset_guid': dataset_guid}
 
 
-def execute(request, dataset_guid, *, now=None):
+def execute(request, dataset_guid, *, now=None, allow_degraded=False):
     action = validate_request(request)
     if not re.fullmatch('[1-9][0-9]{0,19}', str(dataset_guid)):
         raise Refusal('dataset_identity')
@@ -186,7 +200,7 @@ def execute(request, dataset_guid, *, now=None):
     if action == 'list':
         return {'snapshots': [inspect(name, dataset_guid) for name in names
                               if name.startswith(DATASET + '@' + PREFIX)],
-                'pool_healthy': pool_healthy()}
+                **pool_status(allow_degraded=allow_degraded)}
     name = DATASET + '@' + PREFIX + request['capture']
     if name not in names:
         if action != 'create':
@@ -196,8 +210,8 @@ def execute(request, dataset_guid, *, now=None):
             raise Refusal('snapshot_missing')
         if any(other.startswith(DATASET + '@' + PREFIX) for other in names):
             raise Refusal('previous_snapshot_requires_inspection')
-        if not pool_healthy():
-            raise Refusal('pool_not_healthy')
+        if not pool_status(allow_degraded=allow_degraded)['capture_admissible']:
+            raise Refusal('pool_not_admissible')
         if not source_is_current():
             raise Refusal('source_mount_changed')
         if int(zfs('get', '-H', '-p', '-o', 'value', 'available', DATASET)) < RESERVE:
@@ -266,13 +280,15 @@ def main():
                 metadata.st_uid != 0 or metadata.st_mode & 0o777 != 0o600):
             raise Refusal('configuration_metadata')
         config = json.loads(CONFIG.read_text())
-        if set(config) != {'dataset_guid'}:
+        if (set(config) != {'dataset_guid', 'allow_degraded_capture'} or
+                type(config['allow_degraded_capture']) is not bool):
             raise Refusal('configuration_shape')
         request = read_request(sys.stdin.buffer)
         # Installation publishes its owner then crosses this same gate. Do not
         # start an operation if an updater arrived during request reception.
         storage_unowned()
-        print(json.dumps(execute(request, config['dataset_guid']), sort_keys=True))
+        print(json.dumps(execute(request, config['dataset_guid'],
+                                 allow_degraded=config['allow_degraded_capture']), sort_keys=True))
 
 
 if __name__ == '__main__':

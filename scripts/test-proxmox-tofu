@@ -7,13 +7,17 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/home-lab-proxmox-test.XXXXXXXX")
 chmod 0700 "$work"
 trap 'rm -rf "$work"' EXIT
 
-for name in proxmox proxmox-access; do
+for name in proxmox proxmox-access proxmox-firewall; do
   source_root="$repo_root/infrastructure/tofu/$name"
   test_root="$work/$name/source"
   mkdir -p "$test_root"
   rsync -a --exclude='imports.tf' --include='*.tf' --include='*.json' \
     --include='.terraform.lock.hcl' --include='cloud-init/***' \
     --include='tests/***' --exclude='*' "$source_root/" "$test_root/"
+  if [[ $name == proxmox-firewall ]]; then
+    mkdir -p "$work/policy"
+    cp "$repo_root/infrastructure/policy/proxmox-firewall.json" "$work/policy/"
+  fi
   export TF_DATA_DIR="$work/$name/data"
   tofu -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
   tofu -chdir="$test_root" test

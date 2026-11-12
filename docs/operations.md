@@ -1015,7 +1015,10 @@ change tailnet policy.
 
 Separately review/apply the scoped tailnet plan, then configure the Docker backup
 runtime. Only the Docker-host tag receives TCP 2444; its Proxmox SSH access remains
-denied. WireGuard supplies transport authentication/encryption; the policy pins
+denied. The separately owned Proxmox cluster firewall must also admit TCP 2444
+from the pinned Docker-host Tailscale IPv4 `/32`, preserving default-deny input.
+Review its separate saved plan and retain independent console access; do not
+replace the firewall policy with an untracked host command. WireGuard supplies transport authentication/encryption; the policy pins
 the peer IPv4 directly, without DNS discovery, keys or passwords. The worker uses
 the host mount namespace so ZFS automount/NFS publication survives a connection's
 exit; do not add filesystem-namespace sandboxing without qualifying that lifecycle.
@@ -1025,10 +1028,17 @@ The adapter pins the native dataset GUID and shares only the named snapshot's
 `media/nextcloud/data` subtree, read-only with subtree checking, to
 `192.168.0.100`. It never enables `crossmnt`, changes permanent exports or exposes
 the whole snapshot. Peer/client-IP replacement requires reviewed source changes.
-New snapshots refuse an unhealthy pool, nested Nextcloud mounts and less than
-20 GiB available on the source dataset. This initial reserve is not a bound on
-later shared-dataset churn. A rescue exception requires an independently approved
-operation, not a standing health bypass.
+New snapshots require an ONLINE pool by default. The root-controlled
+`zfs_backup_snapshot_allow_degraded_capture` option explicitly permits DEGRADED
+backup-first capture; it does not report the pool as healthy. In both modes the
+pool must be writable and report no known data errors. Failed observations,
+FAULTED/UNAVAIL/SUSPENDED states, nested Nextcloud mounts and less than 20 GiB
+available on the source dataset still refuse creation. The worker rechecks these
+conditions at creation; callers cannot request their own exception. Existing
+owned sources remain available for safe recovery/cleanup if admission later fails.
+This initial reserve is not a bound on later shared-dataset churn. Native backup
+read errors remain fatal to completion; degraded admission is not permission to
+repair, clear errors, scrub or reconfigure the pool.
 
 `home-lab-restic-snapshot-cleanup.timer` inspects at boot/hourly under the native
 capture/repository locks. Active capture/maintenance defers cleanup. It detects

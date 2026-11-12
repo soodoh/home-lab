@@ -140,13 +140,13 @@ def zfs_record(spec, value, *, capture=None, owner=None):
     return value
 
 
-def zfs_inventory(spec, require_healthy=False):
+def zfs_inventory(spec, require_admissible=False):
     value = zfs_call(spec, {'action': 'list'})
-    if (set(value) != {'snapshots', 'pool_healthy'} or not isinstance(value['snapshots'], list) or
-            type(value['pool_healthy']) is not bool):
+    if (set(value) != {'snapshots', 'pool_healthy', 'capture_admissible'} or not isinstance(value['snapshots'], list) or
+            type(value['pool_healthy']) is not bool or type(value['capture_admissible']) is not bool):
         raise CaptureError('snapshot_inventory')
-    if require_healthy and not value['pool_healthy']:
-        raise CaptureError('snapshot_pool_not_healthy')
+    if require_admissible and not value['capture_admissible']:
+        raise CaptureError('snapshot_pool_not_admissible')
     records = [zfs_record(spec, row) for row in value['snapshots']]
     if len({row['capture'] for row in records}) != len(records):
         raise CaptureError('snapshot_inventory')

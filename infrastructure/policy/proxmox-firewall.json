@@ -26,6 +26,14 @@
     },
     {
       "action": "ACCEPT",
+      "destination_port": 2444,
+      "direction": "IN",
+      "log": "nolog",
+      "protocol": "tcp",
+      "source": "100.116.163.42/32"
+    },
+    {
+      "action": "ACCEPT",
       "destination_port": 41641,
       "direction": "IN",
       "log": "nolog",

@@ -27,7 +27,9 @@ The desired deployment network policy is limited to:
 
 Snapshot control is a systemd socket-activated bounded JSON worker, not a login
 or general network proxy. The listener pins the Proxmox Tailscale IPv4 and binds
-to `tailscale0`; tailnet policy admits only the Docker-host tag. The client uses
+to `tailscale0`; tailnet policy admits only the Docker-host tag. The separately
+managed Proxmox firewall admits this port only from that peer's pinned Tailscale
+IPv4 `/32`, not from the whole tailnet or LAN. The client uses
 the pinned peer IP over WireGuard directly. No SSH account, key, password, SFTP,
 forwarding or sudo authority is delegated. A restricted login shell would not by
 itself constrain every SSH channel. Qualify the actual interface/peer denial and
