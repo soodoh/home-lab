@@ -1,0 +1,6 @@
+---
+- name: Reload scoped SATA udev policy
+  ansible.builtin.command:
+    argv: [/usr/bin/udevadm, control, --reload-rules]
+  changed_when: true
+  when: not ansible_check_mode

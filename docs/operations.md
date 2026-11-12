@@ -1096,6 +1096,36 @@ consumers rather than relying on age or past migrations.
 
 ## Maintain Proxmox
 
+### Motherboard SATA link-power persistence
+
+[`configure-proxmox-sata-power.yml`](../ansible/playbooks/configure-proxmox-sata-power.yml)
+installs the native udev rule for motherboard SATA controller `0000:0d:00.0`,
+additionally pinned to PCI vendor/device `1022:43f6`. It sets
+`link_power_management_policy=max_performance` on that controller's `scsi_host`
+add events, without depending on boot-assigned host numbers or affecting the
+add-in controller. A changed PCI topology requires independent review, not an
+automatically broadened match.
+
+```sh
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/configure-proxmox-sata-power.yml --check
+# After fresh observation, recovery review, independent console access and approval:
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/configure-proxmox-sata-power.yml \
+  -e proxmox_sata_power_apply_confirmed=true -e proxmox_sata_power_console_confirmed=true
+```
+
+The guarded apply validates the rule with `udevadm verify`, installs it atomically
+and reloads udev rules only when needed. It does **not** trigger existing devices,
+write runtime sysfs settings, reboot, restart applications or repair ZFS. An
+already active runtime setting does not install boot persistence; a Git commit or
+scheduled Compose deployment does not run this host playbook. Check mode is
+read-only and does not prove installation or a future boot's event processing.
+After an independently approved reboot, inspect the actual controller ancestry,
+link policies and kernel errors to qualify persistence. Keep a runtime experiment
+separate from the persistent rule, and do not bypass backup admission or clear
+faulted devices through this interface.
+
+### Package and service maintenance
+
 ```sh
 ansible-playbook ansible/playbooks/observe-proxmox.yml
 ansible-playbook ansible/playbooks/observe-proxmox-packages.yml

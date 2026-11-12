@@ -1,0 +1,42 @@
+---
+# Installs boot persistence only. Does not trigger device events, write sysfs,
+# restart services, reboot, or clear ZFS errors.
+- name: Persist the scoped motherboard SATA link-power policy
+  hosts: proxmox
+  gather_facts: true
+  gather_subset: ['!all', '!min', date_time]
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require separate persistence approval and independent console access
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode or proxmox_sata_power_apply_confirmed | default(false) | bool
+          - ansible_check_mode or proxmox_sata_power_console_confirmed | default(false) | bool
+        quiet: true
+    - name: Observe the native host before acquiring ownership
+      ansible.builtin.import_role:
+        name: proxmox_observe
+    - name: Acquire storage-host ownership for SATA policy persistence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: sata-power-policy-convergence
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
+    - name: Bind persistence to the exact acquired owner
+      ansible.builtin.set_fact:
+        proxmox_sata_power_install_owner: '{{ apply_lock_owner_sha256 }}'
+        cacheable: false
+      when: not ansible_check_mode
+  roles:
+    - role: proxmox_sata_power
+  post_tasks:
+    - name: Release only the exact successful persistence owner
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: sata-power-policy-convergence
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
+        apply_lock_expected_owner_sha256: "{{ proxmox_sata_power_install_owner | default('') }}"

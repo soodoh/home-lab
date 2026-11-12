@@ -61,7 +61,7 @@ jobs:
       - name: Install source-validation system tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes age jq rsync shellcheck
+          sudo apt-get install --yes age jq rsync shellcheck udev
 
       - name: Test required CI admission behavior
         run: python scripts/test-ci.py
@@ -111,6 +111,7 @@ jobs:
         run: |
           ansible-lint ansible/playbooks ansible/roles ansible/tests/controller-sops.yml
           yamllint . --no-warnings
+          udevadm verify ansible/roles/proxmox_sata_power/files/*.rules
           git ls-files -z | python -c '
           import pathlib, sys
           for name in sys.stdin.buffer.read().split(b"\0"):

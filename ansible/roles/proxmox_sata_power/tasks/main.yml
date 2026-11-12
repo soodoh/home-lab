@@ -1,0 +1,117 @@
+---
+- name: Require the reviewed host and exact acquired persistence owner
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox'
+      - ansible_connection == 'ssh'
+      - ansible_become | bool
+      - ansible_check_mode or proxmox_sata_power_apply_confirmed | default(false) | bool
+      - ansible_check_mode or proxmox_sata_power_install_owner | default('') is match('^[0-9a-f]{64}$')
+    quiet: true
+
+- name: Read motherboard controller identities without changing hardware
+  ansible.builtin.slurp:
+    src: '/sys/bus/pci/devices/0000:0d:00.0/{{ item }}'
+  loop: [vendor, device]
+  register: proxmox_sata_power_controller
+
+- name: Refuse persistence for a replaced or moved controller
+  ansible.builtin.assert:
+    that:
+      - proxmox_sata_power_controller.results[0].content | b64decode | trim == '0x1022'
+      - proxmox_sata_power_controller.results[1].content | b64decode | trim == '0x43f6'
+    quiet: true
+
+- name: Inspect the rule directory and existing destination without following aliases
+  ansible.builtin.stat:
+    path: '{{ item }}'
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop:
+    - /etc/udev/rules.d
+    - /etc/udev/rules.d/99-home-lab-sata-power.rules
+  register: proxmox_sata_power_paths
+
+- name: Require a protected rule directory and an absent or protected regular destination
+  ansible.builtin.assert:
+    that:
+      - proxmox_sata_power_paths.results[0].stat.isdir | default(false)
+      - not proxmox_sata_power_paths.results[0].stat.islnk
+      - proxmox_sata_power_paths.results[0].stat.uid == 0
+      - proxmox_sata_power_paths.results[0].stat.gid == 0
+      - proxmox_sata_power_paths.results[0].stat.mode in ['0755', '0750', '0700']
+      - >-
+        not proxmox_sata_power_paths.results[1].stat.exists or
+        (proxmox_sata_power_paths.results[1].stat.isreg and
+         not proxmox_sata_power_paths.results[1].stat.islnk and
+         proxmox_sata_power_paths.results[1].stat.nlink == 1 and
+         proxmox_sata_power_paths.results[1].stat.uid == 0 and
+         proxmox_sata_power_paths.results[1].stat.gid == 0 and
+         proxmox_sata_power_paths.results[1].stat.mode in ['0644', '0600'])
+    quiet: true
+
+- name: Read the exact acquired owner before installing persistence
+  ansible.builtin.stat:
+    path: /var/lib/iac-ansible-production.lock/owner
+    follow: false
+    checksum_algorithm: sha256
+    get_mime: false
+  register: proxmox_sata_power_owner
+  when: not ansible_check_mode
+
+- name: Require the acquired owner still matches its protected file
+  ansible.builtin.assert:
+    that: proxmox_sata_power_owner.stat.checksum | default('') == proxmox_sata_power_install_owner
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Install the natively validated controller-scoped udev rule atomically
+  ansible.builtin.copy:
+    src: 99-home-lab-sata-power.rules
+    dest: /etc/udev/rules.d/99-home-lab-sata-power.rules
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    follow: false
+    unsafe_writes: false
+    validate: /usr/bin/udevadm verify %s
+  register: proxmox_sata_power_copy
+  notify: Reload scoped SATA udev policy
+
+- name: Finish rule reload before verifying persistence and releasing ownership
+  ansible.builtin.meta: flush_handlers
+
+- name: Read installed rule metadata and content identity
+  ansible.builtin.stat:
+    path: /etc/udev/rules.d/99-home-lab-sata-power.rules
+    follow: false
+    checksum_algorithm: sha256
+    get_mime: false
+  register: proxmox_sata_power_installed
+  when: not ansible_check_mode
+
+- name: Verify exact installed rule bytes and protected metadata
+  ansible.builtin.assert:
+    that:
+      - proxmox_sata_power_installed.stat.isreg
+      - not proxmox_sata_power_installed.stat.islnk
+      - proxmox_sata_power_installed.stat.nlink == 1
+      - proxmox_sata_power_installed.stat.uid == 0
+      - proxmox_sata_power_installed.stat.gid == 0
+      - proxmox_sata_power_installed.stat.mode == '0644'
+      - >-
+        proxmox_sata_power_installed.stat.checksum ==
+        (lookup('ansible.builtin.file', role_path ~ '/files/99-home-lab-sata-power.rules', rstrip=false) | hash('sha256'))
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Remove only the verified replacement's native before-image
+  ansible.builtin.file:
+    path: '{{ proxmox_sata_power_copy.backup_file }}'
+    state: absent
+  when:
+    - not ansible_check_mode
+    - proxmox_sata_power_copy.backup_file | default('') | length > 0
