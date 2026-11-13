@@ -114,7 +114,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "d96dd682320fdae855be6cb41c0c0fdad36a5f684ce48c4b24b3f6d4aa9f166a",
+    "adapter_sha256": "ffd3f66a9c15459aef56412a3aeee688f789beacb22b35f8732ce61feedb3e46",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",

@@ -21,6 +21,8 @@ import socket
 import stat
 import subprocess
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -363,7 +365,8 @@ def jellyfin(source, target):
         raise CaptureError('jellyfin_backup_api_key_missing')
     before = set((source / 'data/backups').glob('*.zip'))
     request = urllib.request.Request(jellyfin_endpoint() + '/Backup/Create', method='POST',
-        headers={'X-Emby-Token': row[0], 'Content-Type': 'application/json'},
+        headers={'Authorization': 'MediaBrowser Token="' + urllib.parse.quote(row[0], safe='') + '"',
+                 'Content-Type': 'application/json'},
         data=json.dumps({'Metadata': True, 'Subtitles': True, 'Trickplay': False}).encode())
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -374,6 +377,12 @@ def jellyfin(source, target):
             if response.status != 200:
                 raise CaptureError('jellyfin_backup')
             response.read(1024 * 1024)
+    except urllib.error.HTTPError as error:
+        status = error.code
+        error.close()
+        # Authentication refusals are known; other POST failures can be ambiguous.
+        raise CaptureError('jellyfin_backup_auth' if status in {401, 403}
+                           else 'jellyfin_backup_ambiguous') from None
     except OSError:
         # POST may have completed: do not blindly repeat it.
         raise CaptureError('jellyfin_backup_ambiguous') from None

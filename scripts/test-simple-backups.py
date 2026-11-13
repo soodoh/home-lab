@@ -164,8 +164,12 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         requests, removals = [], []
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                requests.append((self.path, self.headers.get('X-Emby-Token'),
+                requests.append((self.path, self.headers.get('Authorization'), self.headers.get('X-Emby-Token'),
                                  json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+                if self.headers.get('Authorization') != 'MediaBrowser Token="synthetic-api-key"':
+                    self.send_response(401)
+                    self.end_headers()
+                    return
                 with zipfile.ZipFile(archive, 'w') as zipped:
                     zipped.writestr('settings.xml', 'synthetic-settings')
                 self.send_response(200)
@@ -198,7 +202,7 @@ sys.exit(int(os.environ['DUMP_RESULT']))
                 with zipfile.ZipFile(target) as zipped:
                     self.assertEqual(zipped.read('settings.xml'), b'synthetic-settings')
                 self.assertEqual(target.stat().st_mode & 0o777, 0o600)
-                self.assertEqual(requests, [('/Backup/Create', 'synthetic-api-key',
+                self.assertEqual(requests, [('/Backup/Create', 'MediaBrowser Token="synthetic-api-key"', None,
                                            {'Metadata': True, 'Subtitles': True, 'Trickplay': False})])
                 self.assertEqual(removals, ['created.zip'])
                 self.assertFalse(archive.exists())
@@ -206,6 +210,29 @@ sys.exit(int(os.environ['DUMP_RESULT']))
             finally:
                 server.shutdown()
                 thread.join()
+
+    def test_jellyfin_http_refusal_is_classified_without_retry_or_archive_cleanup(self):
+        source = self.root / 'jellyfin-refused'
+        (source / 'data/backups').mkdir(parents=True)
+        with closing(sqlite3.connect(source / 'data/jellyfin.db')) as db:
+            db.execute('CREATE TABLE ApiKeys (Id INTEGER, AccessToken TEXT)')
+            db.execute("INSERT INTO ApiKeys VALUES (1, 'synthetic-api-key')")
+            db.commit()
+        for status, reason in [(401, 'jellyfin_backup_auth'), (403, 'jellyfin_backup_auth'),
+                               (500, 'jellyfin_backup_ambiguous')]:
+            error = CAPTURE.urllib.error.HTTPError('http://127.0.0.1/Backup/Create', status, 'refused', {}, None)
+            opener = mock.Mock()
+            opener.open.side_effect = error
+            target = self.root / 'refused.zip'
+            with self.subTest(status=status), mock.patch.object(CAPTURE, 'jellyfin_endpoint', return_value='http://127.0.0.1'), \
+                    mock.patch.object(CAPTURE.urllib.request, 'build_opener', return_value=opener), \
+                    mock.patch.object(CAPTURE, 'command') as native:
+                with self.assertRaisesRegex(CAPTURE.CaptureError, '^' + reason + '$'):
+                    CAPTURE.jellyfin(source, target)
+                self.assertEqual(opener.open.call_count, 1)
+                native.assert_not_called()
+                self.assertFalse(target.exists())
+                self.assertEqual(list((source / 'data/backups').iterdir()), [])
 
     @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
     def test_online_exports_do_not_restore_stale_journals(self):
