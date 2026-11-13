@@ -993,7 +993,7 @@ Ordinary deployments do not stop replication.
 
 The Proton repository URL embeds rclone's native chunker overlay: 3 MiB physical
 chunks, SHA-1 transport hashes, simple JSON metadata, the reviewed chunk naming
-format, rename transactions and `fail_hard=true`. Restic encryption/integrity and
+format (numbered from 1), rename transactions and `fail_hard=true`. Restic encryption/integrity and
 local/NFS storage formats are unchanged. Existing unchunked objects remain
 readable through the overlay; new composite objects require it for all discovery,
 copy, check, retention and recovery operations. These are durable storage-format
@@ -1002,8 +1002,11 @@ Interrupted writes may leave hidden temporary chunks consuming provider quota.
 Never age-delete raw objects or purge the repository to remove them. Inspect
 provider capacity and qualify native cleanup or migration to a separately verified
 logical copy; a successful logical check alone does not prove no orphaned objects
-remain. The overlay does not qualify an offsite baseline until live copy and
-independent restore verification succeed.
+remain. Chunker reads metadata lazily: a listing may not detect a missing final
+chunk or a metadata object with all pieces absent. Structural listing errors must
+fail closed, but actual reads and native Restic index/pack/data verification remain
+essential; listings alone never prove integrity. The overlay does not qualify an
+offsite baseline until live copy and independent restore verification succeed.
 Tool convergence fences new copy jobs, stops managed transfer units cleanly,
 then requires the exclusive repository gate before replacement. A directly
 launched copy that is still running refuses the update rather than being killed;

@@ -168,16 +168,45 @@ class NativeChunkerTest(unittest.TestCase):
         self.assertEqual((target / 'srv/home-lab-state/common/first').read_bytes(), first)
         self.assertEqual((target / 'srv/home-lab-state/common/second').read_bytes(), second)
 
-        # Missing chunks must fail closed rather than disappear from listings.
-        piece = next(p for p in new if '.rclone_chunk.' in p.name and '/data/' in str(p))
-        held = piece.read_bytes()
-        piece.unlink()
-        damaged = subprocess.run([str(binaries / 'rclone'), 'lsf', overlay.removeprefix('rclone:'),
-                                  '--recursive', '--retries', '1', '--low-level-retries', '1'],
+        # Listings validate gaps but read metadata lazily: removing a final chunk
+        # need not fail listing. Actual reads must reject the truncated object.
+        metadata = []
+        for path in new:
+            if '/data/' not in str(path) or '.rclone_chunk.' in path.name:
+                continue
+            try:
+                info = json.loads(path.read_bytes())
+            except (ValueError, UnicodeError):
+                continue
+            if isinstance(info, dict) and info.get('nchunks', 0) >= 3:
+                metadata.append((path, info))
+        self.assertTrue(metadata, 'no active composite pack found')
+        meta, info = metadata[0]
+        for number, operation in [(2, 'lsf'), (info['nchunks'], 'cat')]:
+            with self.subTest(missing_chunk=number):
+                piece = meta.with_name(f'{meta.name}.rclone_chunk.{number:03d}')
+                held = piece.read_bytes()
+                piece.unlink()
+                remote = overlay.removeprefix('rclone:')
+                target = remote if operation == 'lsf' else remote + meta.relative_to(raw).as_posix()
+                flags = ['--recursive'] if operation == 'lsf' else []
+                damaged = subprocess.run([str(binaries / 'rclone'), operation, target, *flags,
+                                          '--retries', '1', '--low-level-retries', '1'],
+                                         env=environment, text=True, capture_output=True, timeout=30)
+                self.assertNotEqual(damaged.returncode, 0, 'damaged composite object was accepted')
+                piece.write_bytes(held)
+        # Losing every piece can make metadata look like an ordinary tiny file.
+        # Restic's index/pack-size checks must reject it, not trust a listing.
+        pieces = {meta.with_name(f'{meta.name}.rclone_chunk.{number:03d}'): None
+                  for number in range(1, info['nchunks'] + 1)}
+        for path in pieces:
+            pieces[path] = path.read_bytes()
+            path.unlink()
+        damaged = subprocess.run([str(binaries / 'restic'), '--repo', overlay, 'check'],
                                  env=environment, text=True, capture_output=True, timeout=30)
-        self.assertNotEqual(damaged.returncode, 0, 'missing chunks were silently skipped')
-        self.assertIn('chunk', damaged.stderr.lower())
-        piece.write_bytes(held)
+        self.assertNotEqual(damaged.returncode, 0, 'lost pack chunks were accepted')
+        for path, content in pieces.items():
+            path.write_bytes(content)
         call(overlay, 'check', '--read-data')
         # Native retention removes composite objects through the same overlay.
         call(overlay, 'forget', '--keep-last', '1', '--prune')

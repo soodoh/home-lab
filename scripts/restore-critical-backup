@@ -106,14 +106,14 @@ recovery_parent=/srv/home-lab-recovery
   }
   case "$RECOVERY_RESTIC_REPOSITORY" in
     /mnt/games/restic/home-lab|/mnt/storage/restic/home-lab) ;;
-    rclone:proton-backup:Backups/home-lab-restic|"rclone::chunker,remote='proton-backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:")
+    rclone:proton-backup:Backups/home-lab-restic|"rclone::chunker,remote='proton-backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,start_from=1,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:")
       : "${RCLONE_CONFIG:?RCLONE_CONFIG is required for installed Proton recovery}"
       [[ -f $RCLONE_CONFIG && ! -L $RCLONE_CONFIG && $(stat -c %a "$RCLONE_CONFIG") == 600 ]] || exit 1
       for variable in ${!RCLONE_@}; do
         [[ $variable == RCLONE_CONFIG ]] || exit 1
       done
       ;;
-    rclone:proton_backup:Backups/home-lab-restic|"rclone::chunker,remote='proton_backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:")
+    rclone:proton_backup:Backups/home-lab-restic|"rclone::chunker,remote='proton_backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,start_from=1,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:")
       : "${RECOVERY_EXPECTED_RCLONE_SHA256:?RECOVERY_EXPECTED_RCLONE_SHA256 is required}"
       : "${RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID:?RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID is required}"
       [[ $RECOVERY_EXPECTED_RCLONE_SHA256 =~ ^[0-9a-f]{64}$ ]] || exit 1
