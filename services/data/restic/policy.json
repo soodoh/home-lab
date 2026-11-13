@@ -40,7 +40,7 @@
       "copy_chunker_params_from": "games"
     },
     "proton": {
-      "path": "rclone:proton-backup:Backups/home-lab-restic",
+      "path": "rclone::chunker,remote='proton-backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,start_from=1,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:",
       "id": "dce8dbc3cde106047631317a09257c23ee5eab4d9ece5f88d52108ae384a8503",
       "remote": "proton-backup",
       "remote_path": "Backups/home-lab-restic",

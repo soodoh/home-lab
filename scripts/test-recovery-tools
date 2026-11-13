@@ -6,4 +6,11 @@ python3 -m py_compile "$repo_root/scripts/recovery-scope.py"
 python3 -B "$repo_root/scripts/test-recovery-scope.py"
 "$repo_root/scripts/test-restic-restore-branch"
 "$repo_root/scripts/test-restic-recovery-bundle"
+chunked_repository=$(python3 - "$repo_root/services/data/restic/policy.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))["repositories"]["proton"]["path"].replace("proton-backup:", "proton_backup:"))
+PY
+)
+RECOVERY_FIXTURE_REPOSITORY="$chunked_repository" "$repo_root/scripts/test-restic-restore-branch"
+RECOVERY_FIXTURE_REPOSITORY="$chunked_repository" "$repo_root/scripts/test-restic-recovery-bundle"
 echo "recovery tool safety fixtures passed"

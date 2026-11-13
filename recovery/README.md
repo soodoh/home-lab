@@ -89,6 +89,28 @@ explicit recovery-only `RCLONE_CONFIG_PROTON_BACKUP_*` environment and current r
 digest. The helper validates repository identity, snapshot identity, copied ancestry,
 tags, target ownership and restored data before success.
 
+### Proton chunker storage format
+
+Use the exact reviewed inline chunker repository URL from the current policy
+(or the recovery-only `proton_backup` equivalent carried in bundle metadata). It
+contains the 3 MiB chunk size, SHA-1 transport hashes, simple JSON metadata, chunk
+naming/numbering, rename transactions and strict structural chunk handling. No additional
+credential or hand-written reassembly program is needed: stock rclone reconstructs
+the encrypted Restic objects transparently. Keep these nonsecret settings with
+the independently protected recovery tools; do not depend on the surviving host
+or memory to reconstruct them.
+
+The raw Proton folder contains both ordinary historical objects and chunked
+objects plus metadata. Its direct, unwrapped URL is not interchangeable with the
+overlay. Missing pieces/metadata must fail recovery, not be skipped. Chunker may
+list an object before reading its metadata, so missing trailing/all pieces may
+only be detected by actual reads or native Restic integrity checks. Never use a
+successful listing as proof of recoverability. The legacy
+unwrapped recovery contract remains for genuinely unwrapped repositories; it is
+not a fallback for a damaged chunked repository. Changing or removing the overlay
+requires a reviewed conversion, not simply editing a URL. Local/NFS recovery is
+unchanged.
+
 Keep the restore private. Inspect application paths, database integrity and
 representative content without printing private filenames or values.
 
