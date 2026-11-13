@@ -13,6 +13,8 @@ ExecStart={{ restic_systemd.runner_path }} daily-proton
 TimeoutStartSec=12h
 TimeoutStopSec=5min
 KillSignal=SIGINT
+# Runner forwards one interrupt to Restic; keep its backend alive for lock cleanup.
+KillMode=mixed
 NoNewPrivileges=true
 # UUID admission needs device metadata, never raw-device access.
 DevicePolicy=closed

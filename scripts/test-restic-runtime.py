@@ -9,10 +9,12 @@ import json
 import os
 from pathlib import Path
 import runpy
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 from unittest import mock
@@ -572,6 +574,203 @@ class Runtime(unittest.TestCase):
             restic.__globals__['run'].assert_called_once_with(
                 ['/restic', '--repo', '/repository', *args], environment={}, timeout=13 * 3600)
 
+    def test_replication_cancellation_does_not_retry(self):
+        reconcile = RUNNER['reconcile']
+        source = {'id': 'a' * 64, 'time': '2026-11-13T00:00:00Z',
+                  'tags': ['cadence=daily', 'format=full-v2', 'complete=full-v2']}
+        for reason, attempts in [('interrupted', 1), ('copy_stop_timeout', 1), ('copy_proton', 3)]:
+            copying = mock.Mock(side_effect=RUNNER['WorkflowError'](reason))
+            with self.subTest(reason=reason), mock.patch.dict(reconcile.__globals__, {
+                    'preflight': mock.Mock(),
+                    'inventory': lambda _policy, name: [source] if name == 'games' else [],
+                    'copy_snapshot': copying,
+                }), mock.patch('time.sleep'), self.assertRaisesRegex(RUNNER['WorkflowError'], reason):
+                reconcile({}, 'proton')
+            self.assertEqual(copying.call_count, attempts, 'only ordinary copy failures may retry')
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux process ownership checks')
+    def test_copy_stop_keeps_gate_until_child_cleanup_and_never_retries(self):
+        for number, stubborn in [(signal.SIGINT, False), (signal.SIGTERM, False), (signal.SIGINT, True)]:
+            with self.subTest(signal=number, stubborn=stubborn), tempfile.TemporaryDirectory() as directory:
+                root, gate, _ = self.coordination_fixture(directory)
+                owner = root / 'var/lib/iac-ansible-production.lock/owner'
+                owner.parent.mkdir(mode=0o700)
+                owner.write_bytes(b'unrelated production owner must remain unchanged')
+                helper = root / 'restic-fixture'
+                helper.write_text(f'''#!{sys.executable}
+import os, pathlib, signal, sys, time
+root = pathlib.Path({str(root)!r})
+with (root / 'attempts').open('a') as stream: stream.write(str(os.getpid()) + '\\n')
+(root / 'child-pid').write_text(str(os.getpid()))
+(root / 'source-lock').touch()
+(root / 'destination-lock').touch()
+def stop(number, frame):
+    (root / 'stopping').touch()
+    deadline = time.monotonic() + 5
+    while not (root / 'allow-cleanup').exists():
+        if time.monotonic() > deadline: sys.exit(4)
+        time.sleep(0.01)
+    (root / 'source-lock').unlink()
+    (root / 'destination-lock').unlink()
+    (root / 'cleaned').touch()
+    sys.exit(0)
+signal.signal(signal.SIGINT, signal.SIG_IGN if {stubborn!r} else stop)
+signal.signal(signal.SIGTERM, signal.SIG_IGN if {stubborn!r} else stop)
+(root / 'child-ready').touch()
+while True: signal.pause()
+''')
+                helper.chmod(0o755)
+                path = root / 'etc/home-lab/restic-policy.json'
+                policy = json.loads(path.read_text())
+                policy.update({'tools': {'restic': {'installed_path': str(helper)}},
+                               'repositories': {name: {'path': '/' + name} for name in ('games', 'proton')}})
+                path.chmod(0o600); path.write_text(json.dumps(policy)); path.chmod(0o440)
+                probe = root / 'probe.py'
+                probe.write_text(f'''
+import runpy, sys, types
+m = runpy.run_path({str(ROOT / 'scripts/restic-backup')!r})
+g = m['main'].__globals__
+source = {{'id': 'a' * 64, 'time': '2026-11-13T00:00:00Z', 'tags': ['cadence=daily','format=full-v2','complete=full-v2']}}
+g['preflight'] = lambda *a: None
+g['inventory'] = lambda policy, name: [source] if name == 'games' else []
+g['repository_environment'] = lambda *a: {{}}
+g['COPY_STOP_GRACE_SECONDS'] = {0.15 if stubborn else 240}
+g['time'] = types.SimpleNamespace(sleep=lambda seconds: None)
+def copy(policy, source_name, destination, snapshot):
+    result = g['restic_result'](policy, destination, ['copy', snapshot['id']], source=source_name, timeout=30)
+    g['require_success'](result, 'synthetic_copy')
+g['copy_snapshot'] = copy
+sys.argv = ['restic-backup','daily-proton']
+g['main']()
+''')
+                env = {**os.environ, 'HOME_LAB_RESTIC_TESTING': '1', 'HOME_LAB_RESTIC_TEST_ROOT': str(root)}
+                child = subprocess.Popen([sys.executable, str(probe)], env=env, start_new_session=True,
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    deadline = time.monotonic() + 5
+                    while not (root / 'child-ready').exists():
+                        self.assertIsNone(child.poll())
+                        self.assertLess(time.monotonic(), deadline)
+                        time.sleep(0.01)
+                    child.send_signal(number)
+                    if not stubborn:
+                        deadline = time.monotonic() + 3
+                        while not (root / 'stopping').exists():
+                            self.assertLess(time.monotonic(), deadline,
+                                            'copy child never received a graceful stop')
+                            time.sleep(0.01)
+                        with gate.open('a+') as barrier:
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(barrier, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        self.assertIsNone(child.poll(), 'gate owner exited before child cleanup')
+                        (root / 'allow-cleanup').touch()
+                    stdout, stderr = child.communicate(timeout=5)
+                    self.assertNotEqual(child.returncode, 0)
+                    reason = 'copy_stop_timeout' if stubborn else 'interrupted'
+                    self.assertIn('reason=' + reason, stdout + stderr)
+                    self.assertEqual(len((root / 'attempts').read_text().splitlines()), 1)
+                    self.assertEqual((root / 'cleaned').exists(), not stubborn)
+                    self.assertEqual((root / 'source-lock').exists(), stubborn)
+                    self.assertEqual((root / 'destination-lock').exists(), stubborn)
+                    self.assertEqual(owner.read_bytes(), b'unrelated production owner must remain unchanged')
+                    with gate.open('a+') as barrier:
+                        fcntl.flock(barrier, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                finally:
+                    if child.poll() is None:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    child.communicate(timeout=5)
+                    pid_file = root / 'child-pid'
+                    if pid_file.exists():
+                        pid = int(pid_file.read_text())
+                        try:
+                            args = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\\0')
+                            if str(helper).encode() in args:
+                                try: os.killpg(pid, signal.SIGKILL)
+                                except ProcessLookupError: os.kill(pid, signal.SIGKILL)
+                        except (FileNotFoundError, ProcessLookupError):
+                            pass
+
+    @unittest.skipUnless(sys.platform == 'linux' and os.environ.get('RESTIC') and os.environ.get('RCLONE'),
+                         'requires pinned native Linux Restic and rclone')
+    def test_native_copy_stop_removes_both_repository_locks_without_unlock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, gate, _ = self.coordination_fixture(directory)
+            restic = str(Path(os.environ['RESTIC']).resolve())
+            rclone = str(Path(os.environ['RCLONE']).resolve())
+            declared = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+            for name, binary in [('restic', restic), ('rclone', rclone)]:
+                self.assertEqual(hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+                                 declared['tools'][name]['installed_sha256'])
+            config = root / 'rclone.conf'
+            config.write_text(f'[proton-backup]\ntype = alias\nremote = {root / "cloud"}\n')
+            config.chmod(0o600)
+            environment = {'PATH': f'{Path(rclone).parent}:/usr/local/bin:/usr/bin:/bin',
+                           'HOME': str(root), 'RCLONE_CONFIG': str(config),
+                           'RESTIC_PASSWORD': 'synthetic-copy-interruption-password',
+                           'RESTIC_FROM_PASSWORD': 'synthetic-copy-interruption-password',
+                           'RESTIC_CACHE_DIR': str(root / 'cache')}
+            local = str(root / 'local')
+            remote = declared['repositories']['proton']['path']
+            raw = root / 'cloud/Backups/home-lab-restic'
+            data = root / 'payload'
+            data.write_bytes(os.urandom(16 * 1024 * 1024))
+            def command(repository, *args):
+                result = subprocess.run([restic, '--repo', repository, *args], env=environment,
+                                        text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result
+            command(local, 'init')
+            command(local, 'backup', str(data), '--tag', 'cadence=daily',
+                    '--tag', 'format=full-v2', '--tag', 'complete=full-v2')
+            source = json.loads(command(local, 'snapshots', '--json').stdout)[0]
+            command(remote, 'init', '--copy-chunker-params', '--from-repo', local)
+            path = root / 'etc/home-lab/restic-policy.json'
+            policy = json.loads(path.read_text())
+            policy.update({'tools': {'restic': {'installed_path': restic}},
+                           'repositories': {'games': {'path': local}, 'proton': {'path': remote}}})
+            path.chmod(0o600); path.write_text(json.dumps(policy)); path.chmod(0o440)
+            slow_environment = {**environment, 'RCLONE_BWLIMIT': '1MiB'}
+            probe = root / 'probe.py'
+            probe.write_text(f'''
+import runpy, sys
+m = runpy.run_path({str(ROOT / 'scripts/restic-backup')!r})
+g = m['main'].__globals__
+source = {source!r}
+g['preflight'] = lambda *a: None
+g['inventory'] = lambda policy, name: [source] if name == 'games' else []
+g['repository_environment'] = lambda *a: {slow_environment!r}
+sys.argv = ['restic-backup','daily-proton']
+g['main']()
+''')
+            env = {**os.environ, 'HOME_LAB_RESTIC_TESTING': '1', 'HOME_LAB_RESTIC_TEST_ROOT': str(root)}
+            child = subprocess.Popen([sys.executable, str(probe)], env=env, start_new_session=True,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                deadline = time.monotonic() + 20
+                while not (any((Path(local) / 'locks').glob('*')) and any((raw / 'locks').glob('*'))
+                           and any(p.is_file() and p.stat().st_size > 0 for p in (raw / 'data').rglob('*'))):
+                    self.assertIsNone(child.poll(), 'copy ended before its interruption point')
+                    self.assertLess(time.monotonic(), deadline, 'copy never reached payload upload')
+                    time.sleep(0.01)
+                os.killpg(child.pid, signal.SIGINT)
+                stdout, stderr = child.communicate(timeout=20)
+                self.assertNotEqual(child.returncode, 0)
+                self.assertIn('reason=interrupted', stdout + stderr)
+                self.assertEqual(list((Path(local) / 'locks').glob('*')), [])
+                self.assertEqual(list((raw / 'locks').glob('*')), [])
+                self.assertEqual(json.loads(command(remote, 'snapshots', '--json').stdout), [])
+                with gate.open('a+') as barrier:
+                    fcntl.flock(barrier, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                command(remote, 'copy', '--from-repo', local, source['id'])
+                command(remote, 'check', '--read-data')
+                restore = root / 'restore'
+                command(remote, 'restore', 'latest', '--target', str(restore), '--verify')
+                self.assertEqual((restore / str(data).lstrip('/')).read_bytes(), data.read_bytes())
+            finally:
+                if child.poll() is None:
+                    os.killpg(child.pid, signal.SIGKILL)
+                child.communicate(timeout=5)
+
     def test_copy_timeout_reaches_the_subprocess_and_matches_replica_budgets(self):
         copy = RUNNER['copy_snapshot']
         snapshot = {'id': 'a' * 64, 'tags': ['complete=full-v2'], 'tree': 'b' * 64,
@@ -583,16 +782,22 @@ class Runtime(unittest.TestCase):
             unit = configparser.ConfigParser(interpolation=None)
             unit.read(ROOT / f'ansible/roles/restic_backup/templates/home-lab-restic-daily-{destination}.service.j2')
             budget = int(unit['Service']['TimeoutStartSec'].removesuffix('h')) * 3600
+            self.assertEqual(unit['Service']['KillMode'], 'mixed')
+            self.assertLess(RUNNER['COPY_STOP_GRACE_SECONDS'],
+                            int(unit['Service']['TimeoutStopSec'].removesuffix('min')) * 60)
             with self.subTest(destination=destination), mock.patch.dict(copy.__globals__, {
                 'repository_environment': lambda *_: {}, 'inventory': lambda *_: [replica],
                 'testing': lambda: True,
-            }), mock.patch('subprocess.run', return_value=OK) as command:
+                'run': mock.Mock(return_value=OK),
+            }):
+                command = copy.__globals__['run']
                 self.assertEqual(copy(policy, 'games', destination, snapshot), replica['id'])
                 self.assertEqual(command.call_args.args[0], [
                     '/restic', '--repo', '/' + destination, '--from-repo', '/games', 'copy', snapshot['id'],
                 ])
                 self.assertEqual(command.call_count, 1)
                 self.assertEqual(command.call_args.kwargs['timeout'], budget)
+                self.assertTrue(command.call_args.kwargs['graceful_interrupt'])
 
     def test_failed_retries_and_partial_scan_never_qualify_a_snapshot(self):
         daily = RUNNER['daily_local']

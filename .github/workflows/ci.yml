@@ -298,6 +298,8 @@ jobs:
           trap 'sudo rm -rf -- "$work"' EXIT
           sudo env TMPDIR="$work" RESTIC_NATIVE_TEST_DISPOSABLE=true scripts/test-restic-native-restore "$RESTIC"
           RESTIC="$RESTIC" python scripts/test-simple-backups.py
+          RESTIC="$RESTIC" RCLONE="${{ steps.rclone-tool.outputs.rclone }}" TMPDIR="$work" \
+            python scripts/test-restic-runtime.py Runtime.test_native_copy_stop_removes_both_repository_locks_without_unlock
           sudo env TMPDIR="$work" RESTIC="$RESTIC" RCLONE="${{ steps.rclone-tool.outputs.rclone }}" \
             RESTIC_CHUNKER_TEST_DISPOSABLE=true python3 scripts/test-restic-chunker.py
 
