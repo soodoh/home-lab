@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -109,10 +110,21 @@ def export_fsid(capture):
     return str(uuid.UUID(bytes=raw, version=4))
 
 
+def export_table():
+    # exportfs -s/-v omit enabled subtree_check. Read nfs-utils' authoritative
+    # table instead; retain positive validation of the actual safety option.
+    with open('/var/lib/nfs/etab', 'r', opener=lambda path, flags: os.open(path, flags | os.O_NOFOLLOW)) as stream:
+        metadata = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or
+                metadata.st_nlink != 1 or metadata.st_mode & 0o022):
+            raise Refusal('export_table_permissions')
+        return stream.read()
+
+
 def export_present(capture):
     path = export_path(capture)
     records = []
-    for line in exportfs('-s').splitlines():
+    for line in export_table().splitlines():
         fields = shlex.split(line)
         if fields and fields[0] == path:
             records.extend(fields[1:])

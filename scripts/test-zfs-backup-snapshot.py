@@ -236,6 +236,48 @@ class SnapshotAuthority(unittest.TestCase):
             self.call({'action': 'create', 'capture': 'c' * 32, 'owner': 'd' * 64}, '123456')
         self.assertEqual(len(self.native.snapshots), 1)
 
+    def test_native_etab_readback_preserves_subtree_check_omitted_from_exportfs_display(self):
+        present = BROKER['export_present']
+        capture = 'b' * 32
+        path = BROKER['export_path'](capture)
+        fsid = BROKER['export_fsid'](capture)
+        display = path + ' 192.168.0.100(sync,wdelay,hide,fsid=' + fsid + ',sec=sys,ro,secure,no_root_squash,no_all_squash)\n'
+        etab = path + '\t192.168.0.100(ro,sync,wdelay,hide,nocrossmnt,secure,no_root_squash,no_all_squash,subtree_check,secure_locks,acl,no_pnfs,fsid=' + fsid + ',anonuid=65534,anongid=65534,sec=sys,ro,secure,no_root_squash,no_all_squash)\n'
+        with mock.patch.dict(present.__globals__, {'exportfs': mock.Mock(return_value=display), 'export_table': lambda: etab}):
+            self.assertTrue(present(capture))
+        with mock.patch.dict(present.__globals__, {'exportfs': mock.Mock(return_value=display), 'export_table': lambda: etab.replace('subtree_check', 'no_subtree_check')}):
+            with self.assertRaisesRegex(ValueError, 'unfamiliar_snapshot_export'):
+                present(capture)
+
+    def test_native_export_table_requires_protected_regular_file_and_no_symlink(self):
+        reader = BROKER['export_table']
+        real_open = open
+        with tempfile.TemporaryDirectory() as temporary:
+            table = Path(temporary) / 'etab'
+            table.write_text('native export options\n')
+            def redirected(path, *args, **kwargs):
+                self.assertEqual(path, '/var/lib/nfs/etab')
+                return real_open(table, *args, **kwargs)
+            with mock.patch('builtins.open', side_effect=redirected):
+                for mode, uid, links, valid in [(0o100644, 0, 1, True),
+                                              (0o100664, 0, 1, False),
+                                              (0o100646, 0, 1, False),
+                                              (0o100644, 1000, 1, False),
+                                              (0o100644, 0, 2, False),
+                                              (0o040644, 0, 1, False)]:
+                    metadata = types.SimpleNamespace(st_mode=mode, st_uid=uid, st_nlink=links)
+                    with self.subTest(mode=mode, uid=uid, links=links), mock.patch('os.fstat', return_value=metadata):
+                        if valid:
+                            self.assertEqual(reader(), 'native export options\n')
+                        else:
+                            with self.assertRaisesRegex(ValueError, 'export_table_permissions'):
+                                reader()
+                original = table.with_suffix('.original')
+                table.rename(original)
+                table.symlink_to(original)
+                with self.assertRaises(OSError):
+                    reader()
+
     def test_export_lifecycle_is_readonly_one_client_one_immutable_subtree(self):
         ensure = BROKER['ensure_export']
         withdraw = BROKER['withdraw_export']
@@ -245,8 +287,6 @@ class SnapshotAuthority(unittest.TestCase):
         def export(*args):
             nonlocal table
             commands.append(args)
-            if args == ('-s',):
-                return table
             if args[0] == '-i':
                 self.assertEqual(args[-1], '192.168.0.100:' + path)
                 self.assertTrue({'ro', 'sync', 'subtree_check', 'no_root_squash', 'secure', 'sec=sys'} <= set(args[2].split(',')))
@@ -257,7 +297,7 @@ class SnapshotAuthority(unittest.TestCase):
                 table = ''
                 return ''
             raise AssertionError(args)
-        with mock.patch.dict(ensure.__globals__, {'exportfs': export}), \
+        with mock.patch.dict(ensure.__globals__, {'exportfs': export, 'export_table': lambda: table}), \
                 mock.patch('pathlib.Path.is_symlink', return_value=False), \
                 mock.patch('pathlib.Path.is_dir', return_value=True), \
                 mock.patch('pathlib.Path.is_file', return_value=True):
@@ -274,10 +314,10 @@ class SnapshotAuthority(unittest.TestCase):
                                 ('192.168.0.100', 'rw,no_subtree_check,no_root_squash'),
                                 ('192.168.0.101', 'ro,subtree_check,no_root_squash')):
             native = mock.Mock(return_value=path + ' ' + client + '(' + options + ')\n')
-            with mock.patch.dict(inspect.__globals__, {'exportfs': native}):
+            with mock.patch.dict(inspect.__globals__, {'export_table': native}):
                 with self.assertRaisesRegex(ValueError, 'unfamiliar_snapshot_export'):
                     inspect('b' * 32)
-                self.assertEqual(native.call_args_list, [mock.call('-s')])
+                self.assertEqual(native.call_args_list, [mock.call()])
 
     def test_request_stream_is_size_and_time_bounded_before_native_commands(self):
         read = BROKER['read_request']
