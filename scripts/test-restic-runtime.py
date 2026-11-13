@@ -34,6 +34,41 @@ class Runtime(unittest.TestCase):
         for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
             self.assertNotIn(service, policy['stop_groups']['applications'])
 
+    def test_nfs_preflight_accepts_only_exact_host_export_or_bound_repository(self):
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        repository = policy['repositories']['nfs']
+        preflight = RUNNER['preflight']
+        root = repository['mountpoint']
+        path = repository['path']
+        source = repository['mount_source']
+        subtree = source + '/' + str(Path(path).relative_to(root))
+        for target, native_source in [(root, source), (path, subtree)]:
+            row = {'target': target, 'fstype': 'nfs4', 'source': native_source, 'uuid': None}
+            native = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps({'filesystems': [row]}), ''))
+            with self.subTest(target=target), mock.patch.dict(preflight.__globals__, {
+                    'testing': lambda: False, 'run': native,
+                    'verify_repository': lambda *_: {'chunker_polynomial': 'synthetic'}}):
+                preflight(policy, ['nfs'])
+                self.assertEqual(native.call_args.args[0][native.call_args.args[0].index('--target') + 1], path)
+
+    def test_nfs_preflight_refuses_wrong_server_export_target_or_bound_subtree(self):
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        repository = policy['repositories']['nfs']
+        preflight = RUNNER['preflight']
+        root, path, source = repository['mountpoint'], repository['path'], repository['mount_source']
+        for target, native_source, filesystem in [
+                (path, source, 'nfs4'), (path, source + '/other', 'nfs4'),
+                (path, '192.168.0.124:/storage/docker/restic/home-lab', 'nfs4'),
+                (path, '192.168.0.123:/storage/other/restic/home-lab', 'nfs4'),
+                (root + '/restic', source, 'nfs4'), (root, source, 'ext4')]:
+            row = {'target': target, 'fstype': filesystem, 'source': native_source, 'uuid': None}
+            native = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps({'filesystems': [row]}), ''))
+            with self.subTest(target=target, source=native_source), mock.patch.dict(preflight.__globals__, {
+                    'testing': lambda: False, 'run': native,
+                    'verify_repository': mock.Mock(side_effect=AssertionError('must refuse before repository access'))}):
+                with self.assertRaisesRegex(RUNNER['WorkflowError'], 'source_mount_identity'):
+                    preflight(policy, ['nfs'])
+
     def coordination_fixture(self, directory):
         root = Path(directory).resolve()
         gate = root / 'run/lock/home-lab-restic-repositories.lock'

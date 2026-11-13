@@ -238,7 +238,10 @@ def preflight(policy: dict[str, Any], names: list[str]) -> None:
             repository = policy['repositories'][name]
             identity = {'fstype': repository['filesystem']}
             identity['uuid' if name == 'games' else 'source'] = repository.get('filesystem_uuid', repository.get('mount_source'))
-            verify_sources({'capture': {'mounts': [{'path': repository['path'], 'identity': identity}]}})
+            mount = {'path': repository['path'], 'identity': identity}
+            if name == 'nfs':
+                mount['bind_root'] = repository['mountpoint']
+            verify_sources({'capture': {'mounts': [mount]}})
     configs = {name: verify_repository(policy, name) for name in names}
     if "games" in configs:
         chunker = configs["games"]["chunker_polynomial"]
@@ -425,7 +428,22 @@ def verify_sources(policy):
                       '--output', 'TARGET,FSTYPE,SOURCE,UUID'])
         require_success(result, 'source_mount')
         entries = json.loads(result.stdout).get('filesystems', [])
-        if len(entries) != 1 or any(entries[0].get(k) != v for k, v in mount['identity'].items()):
+        if len(entries) != 1:
+            raise WorkflowError('source_mount_identity')
+        identity = dict(mount['identity'])
+        if 'bind_root' in mount:
+            # nfs-utils reports a systemd-bound repository as export/subtree.
+            # Admit only the two exact target/source pairs, never arbitrary
+            # suffixes, another repository or the whole export bound here.
+            root = Path(mount['bind_root'])
+            relative = Path(mount['path']).relative_to(root)
+            if str(relative) == '.' or identity.get('fstype') != 'nfs4':
+                raise WorkflowError('source_mount_identity')
+            identity['target'] = str(root)
+            if entries[0].get('target') == mount['path']:
+                identity['target'] = mount['path']
+                identity['source'] = identity['source'].rstrip('/') + '/' + str(relative)
+        if any(entries[0].get(k) != v for k, v in identity.items()):
             raise WorkflowError('source_mount_identity')
 
 
