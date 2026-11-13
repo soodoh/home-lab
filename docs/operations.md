@@ -991,6 +991,14 @@ budgets an existing 12-hour copy plus maintenance. Admission remains blocked whi
 maintenance is pending or running, and genuine failures still require inspection.
 Ordinary deployments do not stop replication.
 
+Stop managed replica units through systemd. Their mixed kill mode signals only
+the runner initially; it forwards one interrupt to its isolated Restic child and
+keeps repository coordination until cleanup finishes. The rclone backend stays
+available for native Restic lock removal. Cancellation and a failed stop never
+start a replacement copy. A hung owned process group can still require escalation
+within the existing five-minute unit stop budget; retain any resulting repository
+locks for fresh inspection, never automatic unlock or forced deletion.
+
 The Proton repository URL embeds rclone's native chunker overlay: 3 MiB physical
 chunks, SHA-1 transport hashes, simple JSON metadata, the reviewed chunk naming
 format (numbered from 1), rename transactions and `fail_hard=true`. Restic encryption/integrity and

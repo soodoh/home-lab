@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 SUBCOMMANDS = {"preflight", "daily-local", "daily-nfs", "daily-proton", "diagnose-proton", "maintenance", "status", "recover", "expire-snapshots"}
+# Leave headroom for the replica unit's authoritative five-minute stop budget.
+COPY_STOP_GRACE_SECONDS = 240
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -90,6 +92,7 @@ def load_policy() -> tuple[dict[str, Any], str]:
 
 def run(
     arguments: list[str], *, environment: dict[str, str] | None = None, timeout: int = 7200,
+    graceful_interrupt: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     if not arguments or any(not isinstance(argument, str) or not argument for argument in arguments):
         raise WorkflowError("command_shape")
@@ -97,6 +100,8 @@ def run(
     if environment:
         merged.update(environment)
     try:
+        if graceful_interrupt:
+            return run_copy_process(arguments, merged, timeout)
         return subprocess.run(
             arguments,
             check=False,
@@ -108,6 +113,52 @@ def run(
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise WorkflowError("command_execution") from error
+
+
+def run_copy_process(arguments, environment, timeout):
+    # Separate foreground-terminal signals from the child. Replica units use
+    # KillMode=mixed: only this runner gets the initial signal; systemd still
+    # owns final cgroup-wide escalation. Restic must keep rclone alive long
+    # enough to remove its own repository locks before closing the backend.
+    with subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True, env=environment,
+                          start_new_session=True) as child:
+        def kill_owned_group():
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.communicate()
+
+        def stop_child():
+            try:
+                child.send_signal(signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            try:
+                child.communicate(timeout=COPY_STOP_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                kill_owned_group()
+                raise WorkflowError('copy_stop_timeout') from None
+            except BaseException:
+                kill_owned_group()
+                raise
+
+        try:
+            stdout, stderr = child.communicate(timeout=timeout)
+        except WorkflowError as error:
+            if str(error) == 'interrupted':
+                stop_child()
+            else:
+                kill_owned_group()
+            raise
+        except subprocess.TimeoutExpired:
+            stop_child()
+            raise WorkflowError('command_execution') from None
+        except BaseException:
+            kill_owned_group()
+            raise
+        return subprocess.CompletedProcess(arguments, child.returncode, stdout, stderr)
 
 
 def require_success(result: subprocess.CompletedProcess[str], reason: str) -> None:
@@ -215,7 +266,8 @@ def restic_result(
         command = ['/usr/sbin/runuser', '--user', 'restic-proton', '--', '/usr/bin/env',
                    *[f'{k}={v}' for k, v in environment.items()], *command]
         environment = {}
-    return run([*command, *arguments], environment=environment, timeout=timeout)
+    options = {'graceful_interrupt': True} if source is not None else {}
+    return run([*command, *arguments], environment=environment, timeout=timeout, **options)
 
 
 def verify_repository(policy: dict[str, Any], name: str) -> dict[str, Any]:
@@ -834,8 +886,8 @@ def reconcile(policy, destination):
                 try:
                     copy_snapshot(policy, 'games', destination, source)
                     break
-                except WorkflowError:
-                    if attempt == 2:
+                except WorkflowError as error:
+                    if str(error) in {'interrupted', 'copy_stop_timeout'} or attempt == 2:
                         raise
                     time.sleep(10)
 
