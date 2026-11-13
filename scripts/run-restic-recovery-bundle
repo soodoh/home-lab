@@ -168,11 +168,17 @@ def main() -> None:
         metadata = json.loads(contents["metadata.json"])
         if canonical(metadata) != contents["metadata.json"] or type(metadata.get("version")) is not int or metadata["version"] != 1:
             fail("recovery bundle metadata encoding differs")
+        repository = metadata.get("repository")
+        if repository not in (
+            "rclone:proton_backup:Backups/home-lab-restic",
+            "rclone::chunker,remote='proton_backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:",
+        ):
+            fail("recovery bundle repository differs")
         bindings = {
             "artifact_sha256": arguments.expected_artifact_sha256,
             "original_snapshot_id": arguments.expected_original_snapshot_id,
             "policy_sha256": arguments.expected_policy_sha256,
-            "repository": "rclone:proton_backup:Backups/home-lab-restic",
+            "repository": repository,
             "repository_id": arguments.expected_repository_id,
             "snapshot_id": arguments.expected_snapshot_id,
         }

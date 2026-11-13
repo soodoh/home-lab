@@ -285,6 +285,10 @@ jobs:
         id: tool
         uses: ./.github/actions/setup-restic
 
+      - name: Admit the pinned public rclone tool
+        id: rclone-tool
+        uses: ./.github/actions/setup-rclone
+
       - name: Test native full capture and selective recovery
         env:
           RESTIC: ${{ steps.tool.outputs.restic }}
@@ -294,6 +298,8 @@ jobs:
           trap 'sudo rm -rf -- "$work"' EXIT
           sudo env TMPDIR="$work" RESTIC_NATIVE_TEST_DISPOSABLE=true scripts/test-restic-native-restore "$RESTIC"
           RESTIC="$RESTIC" python scripts/test-simple-backups.py
+          sudo env TMPDIR="$work" RESTIC="$RESTIC" RCLONE="${{ steps.rclone-tool.outputs.rclone }}" \
+            RESTIC_CHUNKER_TEST_DISPOSABLE=true python3 scripts/test-restic-chunker.py
 
   application-integration:
     runs-on: ubuntu-latest

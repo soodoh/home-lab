@@ -112,7 +112,7 @@ common_env=(
   FIXTURE_ORIGINAL="$original"
   FIXTURE_POLICY="$policy"
   FIXTURE_ARTIFACT="$artifact"
-  RECOVERY_RESTIC_REPOSITORY='rclone:proton_backup:Backups/home-lab-restic' \
+  RECOVERY_RESTIC_REPOSITORY="${RECOVERY_FIXTURE_REPOSITORY:-rclone:proton_backup:Backups/home-lab-restic}" \
   RECOVERY_RESTIC_PASSWORD_FILE="$password"
   RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID="$repository"
   RECOVERY_EXPECTED_POLICY_SHA256="$policy"
@@ -173,6 +173,12 @@ reject forbidden-client-cache env RCLONE_CONFIG_PROTON_BACKUP_CLIENT_UID=forbidd
 reject host-config env RCLONE_CONFIG="$work/host-rclone.conf"
 reject wrong-rclone-hash env RECOVERY_EXPECTED_RCLONE_SHA256="$(printf 'c%.0s' {1..64})"
 reject backend-override env RCLONE_PROTONDRIVE_ENABLE_CACHING=true
+if [[ ${RECOVERY_FIXTURE_REPOSITORY:-} == *:chunker,* ]]; then
+  reject chunk-size env RECOVERY_RESTIC_REPOSITORY="${RECOVERY_FIXTURE_REPOSITORY/chunk_size=3MiB/chunk_size=4MiB}"
+  reject missing-chunk-policy env RECOVERY_RESTIC_REPOSITORY="${RECOVERY_FIXTURE_REPOSITORY/fail_hard=true/fail_hard=false}"
+  reject foreign-remote env RECOVERY_RESTIC_REPOSITORY="${RECOVERY_FIXTURE_REPOSITORY/home-lab-restic/foreign}"
+  reject transaction-format env RECOVERY_RESTIC_REPOSITORY="${RECOVERY_FIXTURE_REPOSITORY/transactions=rename/transactions=auto}"
+fi
 bad_password="$work/bad-password"
 cp "$password" "$bad_password"
 chmod 0644 "$bad_password"
