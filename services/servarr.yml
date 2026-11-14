@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   shelfmark:
-    image: ghcr.io/calibrain/shelfmark:v1.6.2@sha256:543d8696a140938438ae5a5838f8b0d258429b2fdeb462e1c52bd69ee5ed07e2
+    image: ghcr.io/calibrain/shelfmark:v1.7.0@sha256:94217011ca1b743ba4ad2923fe8c435b932840dc4e4a227114c83b677b52e51c
     container_name: shelfmark
     restart: unless-stopped
     logging: *default-logging
@@ -244,7 +244,7 @@ services:
       RADARR_4K_URL: $RADARR_4K_URL
 
   sonarr:
-    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:673dc4609a5672bc8e46069c86ffcea283a86b48d34a6c93d8da8c24a1b87571
+    image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:c7d1df25e428da6c9ace05daea0d34e59522978a3843ea1944812f855af4086c
     container_name: sonarr
     restart: unless-stopped
     logging: *default-logging
