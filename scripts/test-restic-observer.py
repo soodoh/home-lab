@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest import mock
 
@@ -106,6 +107,37 @@ class Admission(unittest.TestCase):
             OBSERVER.validate_timer_state('home-lab-restic-replication.timer', values)
         OBSERVER.validate_timer_state('home-lab-restic-replication.timer', {
             **values, 'Unit': 'home-lab-restic-replication.target'})
+
+    def test_slow_healthy_proton_metadata_has_a_bounded_remote_read_budget(self):
+        policy = {'tools': {'restic': {'installed_path': '/restic'}},
+                  'repositories': {'proton': {'path': 'rclone:fixture:repository'}, 'games': {'path': '/local'}},
+                  'runner': {'local_cache_path': '/cache'}}
+        def slow_metadata(args, **kwargs):
+            if kwargs['timeout'] < 90:
+                raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+            return subprocess.CompletedProcess(args, 0, '[]', '')
+        for arguments in [['cat', 'config'], ['snapshots', '--json']]:
+            with self.subTest(arguments=arguments), mock.patch('subprocess.run', side_effect=slow_metadata) as command:
+                self.assertEqual(OBSERVER.proton_restic(policy, arguments), '[]')
+                self.assertEqual(command.call_args.kwargs['timeout'], 180)
+                self.assertEqual(command.call_count, 1)
+        with mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, '{}', '')) as command:
+            OBSERVER.local_restic(policy, 'games', ['cat', 'config'])
+            self.assertEqual(command.call_args.kwargs['timeout'], 60)
+            OBSERVER.run(['/usr/bin/systemctl', 'show', 'fixture.service'])
+            self.assertEqual(command.call_args.kwargs['timeout'], 60)
+
+    def test_proton_read_timeout_and_errors_still_fail_closed_without_retry(self):
+        policy = {'tools': {'restic': {'installed_path': '/restic'}},
+                  'repositories': {'proton': {'path': 'rclone:fixture:repository'}}}
+        with mock.patch('subprocess.run', side_effect=subprocess.TimeoutExpired(['/restic'], 180)) as command:
+            with self.assertRaisesRegex(OBSERVER.ObservationError, 'command_execution'):
+                OBSERVER.proton_restic(policy, ['snapshots', '--json'])
+            self.assertEqual(command.call_count, 1)
+        with mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'failure')) as command:
+            with self.assertRaisesRegex(OBSERVER.ObservationError, 'command_failed'):
+                OBSERVER.proton_restic(policy, ['snapshots', '--json'])
+            self.assertEqual(command.call_count, 1)
 
     def test_wrong_repository_identity_is_never_replication_lag(self):
         with self.assertRaises(OBSERVER.ObservationError):

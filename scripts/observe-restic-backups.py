@@ -63,7 +63,7 @@ def require_regular(path: Path, mode: int, expected_sha256: str | None = None) -
         raise ObservationError("reviewed_source_drift")
 
 
-def run(arguments: list[str], environment: dict[str, str] | None = None) -> str:
+def run(arguments: list[str], environment: dict[str, str] | None = None, *, timeout: int = 60) -> str:
     if not arguments or any(not isinstance(value, str) or not value for value in arguments):
         raise ObservationError("command_shape")
     merged = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C", "TZ": "UTC"}
@@ -76,7 +76,7 @@ def run(arguments: list[str], environment: dict[str, str] | None = None) -> str:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout,
             env=merged,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -208,7 +208,10 @@ def proton_restic(policy: dict[str, Any], arguments: list[str]) -> str:
             f"RESTIC_PASSWORD_FILE={PROTON_PASSWORD}", f"RESTIC_CACHE_DIR={PROTON_CACHE}",
             f"RCLONE_CONFIG={PROTON_CONFIG}", "HOME=/var/lib/restic-proton",
             restic, "--repo", repository, *arguments,
-        ]
+        ],
+        # Proton metadata reads include backend startup and authenticated object
+        # discovery; healthy inventories can exceed the local command budget.
+        timeout=180,
     )
 
 
