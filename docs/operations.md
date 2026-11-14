@@ -811,7 +811,18 @@ The installed controller implementation, inventory, scripts and dependencies nev
 self-update from the selected checkout. The shared Compose module routes selected
 application source to its nested readers; standalone roles retain independent
 source selection. Executable code and backup policy remain installed-controller
-inputs, never selected application source. The existing production/backup locks
+inputs, never selected application source. After a manually approved backup
+policy/runtime change, establish current-policy coverage and separately refresh
+the installed controller from reviewed, published source before retrying routine
+deployment. An older controller must refuse `reviewed_source_drift`; do not edit
+individual installed files or relax source identity checks to bypass it.
+
+Proton admission metadata reads have a bounded three-minute command budget for
+backend startup and authenticated inventory reads; local commands retain their
+one-minute budget. Timeouts still fail closed and retain ownership. These read
+budgets do not extend capture, replication or service stop limits.
+
+The existing production/backup locks
 exclude manual applies and backup writers; Compose images are pre-pulled without
 stopping services. Native Ansible retries a failed pre-pull up to three times with
 a ten-second delay for transient registry failures. Exhausted retries still refuse
