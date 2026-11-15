@@ -69,6 +69,16 @@ if phase == 'deploy':
     if result.returncode:
         print(result.stdout, result.stderr, flush=True); sys.exit(result.returncode)
     assert pathlib.Path(os.environ['ANSIBLE_REMOTE_TEMP']).is_relative_to(pathlib.Path(os.environ['TMPDIR']))
+    # The real observer switches from the root controller to its unprivileged
+    # Proton identity. Check that boundary, not only a root stand-in executable.
+    status = dict(line.split(':', 1) for line in pathlib.Path('/proc/self/status').read_text().splitlines())
+    assert os.geteuid() == 0 and status['NoNewPrivs'].strip() == '1'
+    identity = subprocess.run(['/usr/sbin/runuser', '--user', 'nobody', '--', '/usr/bin/id', '-un'],
+                              text=True, capture_output=True)
+    if identity.returncode:
+        print(identity.stderr, flush=True); sys.exit(identity.returncode)
+    assert identity.stdout.strip() == 'nobody'
+    (work / 'identity-switch').write_text('verified')
     event('admission')
     spec = importlib.util.spec_from_file_location('observer', {str(ROOT / 'scripts/observe-restic-backups.py')!r})
     observer = importlib.util.module_from_spec(spec); spec.loader.exec_module(observer)
@@ -144,6 +154,7 @@ ExecStart={sys.executable} {helper} {phase}
             systemctl("stop", path.name, check=False)
             systemctl("reset-failed", path.name, check=False)
         self.events.unlink(missing_ok=True)
+        self.work.joinpath('identity-switch').unlink(missing_ok=True)
         self.work.joinpath('release-copy').unlink(missing_ok=True)
         for phase in ("local", "proton"):
             self.work.joinpath(phase + "-result").write_text("0")
@@ -257,6 +268,11 @@ ExecStart={sys.executable} {helper} {phase}
         self.assertEqual([e for e in events if e.startswith('local')], ['local-start', 'local-end'])
         self.assertNotIn('admission', events)
         self.assertNotIn('deploy', events)
+
+    def test_root_controller_can_switch_to_the_unprivileged_observer_identity(self):
+        events = self.start_scheduled()
+        self.assertIn('deploy', events)
+        self.assertEqual((self.work / 'identity-switch').read_text(), 'verified')
 
     def test_timer_runs_deployment_after_local_capture_while_copy_is_active(self):
         events = self.start_scheduled()
