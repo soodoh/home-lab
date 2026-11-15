@@ -1195,7 +1195,22 @@ production resources; review their complete remote-backed plan first. The deploy
 preserves the bridge's implicit MTU through its committed null variable; an explicit
 MTU configuration and network reload need separate review.
 
-Reboots require explicit playbook inputs and fresh observation. Networking,
+Reboots use `ansible/playbooks/reboot-proxmox.yml` with explicit reboot, backup
+and independent-console confirmations and fresh host/package/backup observation.
+The default refuses a degraded pool. For an independently approved diagnostic
+reboot, `proxmox_reboot_degraded_confirmed=true` acknowledges the increased risk;
+it is not repair authority. Native OpenZFS JSON must show a writable ONLINE or
+DEGRADED pool with no known data errors, ordinary mirrors with online survivors,
+and no active scrub/resilver. Unsupported topology or unreadable evidence refuses
+shutdown. All backup/copy/maintenance and routine-deployment writers must be idle.
+After reboot, pool and mirror/leaf GUID membership must match and every previously
+online member must remain online; acknowledged existing degradation may remain.
+New degradation, missing survivors or known data errors fails verification and
+retains attended recovery. No fault clearing, offlining, scrub or replacement is
+performed. Recovered disk communication still needs separate SMART/kernel review;
+reboot success is not disk health or a repaired pool.
+
+Networking,
 firewall, storage and boot changes require independent console access. The
 cluster firewall is OpenTofu-owned, **not** a second Ansible writer; its native
 host observer checks rule order and both backends. New state-key or IAM grants

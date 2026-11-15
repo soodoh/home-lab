@@ -1,0 +1,63 @@
+---
+# Native OpenZFS JSON is the observation interface; reject unfamiliar topologies.
+- name: Require a readable writable pool without known data errors
+  ansible.builtin.assert:
+    that:
+      - proxmox_reboot_pool.name == 'storage'
+      - proxmox_reboot_pool.pool_guid is match('^[0-9]+$')
+      - proxmox_reboot_pool.state in ['ONLINE', 'DEGRADED']
+      - proxmox_reboot_pool.state == 'ONLINE' or proxmox_reboot_degraded_confirmed
+      - proxmox_reboot_pool.error_count | string == '0'
+      - proxmox_reboot_pool_readonly == 'off'
+      - proxmox_reboot_pool.vdevs.keys() | list == ['storage']
+      - proxmox_reboot_pool.vdevs.storage.vdev_type == 'root'
+      - proxmox_reboot_pool.vdevs.storage.vdevs | length > 0
+      - proxmox_reboot_pool_phase in ['before', 'after']
+    fail_msg: Pool is unavailable, unreadable, unacknowledged degraded, read-only or has known data errors.
+
+- name: Refuse an active scrub or resilver before shutdown
+  ansible.builtin.assert:
+    that:
+      - proxmox_reboot_pool.get('scan_stats', {}).get('state', 'NONE') in ['NONE', 'FINISHED', 'CANCELED']
+    fail_msg: A storage scan is active or ambiguous; wait without interrupting it.
+  when: proxmox_reboot_pool_phase == 'before'
+
+- name: Require online survivors in every ordinary mirror
+  ansible.builtin.assert:
+    that:
+      - item.value.vdev_type == 'mirror'
+      - item.value.class == 'normal'
+      - item.value.state in ['ONLINE', 'DEGRADED']
+      - item.value.vdevs | length >= 2
+      - item.value.vdevs.values() | map(attribute='vdev_type') | unique | list == ['disk']
+      - item.value.vdevs.values() | map(attribute='state') | difference(['ONLINE', 'FAULTED', 'OFFLINE', 'UNAVAIL', 'REMOVED']) | length == 0
+      - item.value.vdevs.values() | selectattr('state', 'equalto', 'ONLINE') | list | length > 0
+      - proxmox_reboot_pool.state != 'ONLINE' or item.value.vdevs.values() | selectattr('state', 'equalto', 'ONLINE') | list | length == item.value.vdevs | length
+      - item.value.vdevs.values() | map(attribute='guid') | unique | list | length == item.value.vdevs | length
+    quiet: true
+    fail_msg: Pool redundancy or topology requires independent review; no pool repair was attempted.
+  loop: '{{ proxmox_reboot_pool.vdevs.storage.vdevs | dict2items }}'
+  loop_control:
+    label: '{{ item.key }}'
+
+- name: Normalize mirror membership and live leaf identities for before-after comparison
+  ansible.builtin.set_fact:
+    proxmox_reboot_pool_snapshot: >-
+      {%- set ns = namespace(mirrors={}, online=[]) -%}
+      {%- for mirror in proxmox_reboot_pool.vdevs.storage.vdevs.values() -%}
+      {%- set members = mirror.vdevs.values() | map(attribute='guid') | sort | list -%}
+      {%- set ns.mirrors = ns.mirrors | combine({mirror.guid: members}) -%}
+      {%- set ns.online = ns.online + (mirror.vdevs.values() | selectattr('state', 'equalto', 'ONLINE') | map(attribute='guid') | list) -%}
+      {%- endfor -%}
+      {{ {'pool_guid': proxmox_reboot_pool.pool_guid, 'state': proxmox_reboot_pool.state,
+          'mirrors': ns.mirrors, 'online': ns.online | sort} }}
+
+- name: Require unchanged membership and no newly unavailable survivors after reboot
+  ansible.builtin.assert:
+    that:
+      - proxmox_reboot_pool_snapshot.pool_guid == proxmox_reboot_pool_baseline.pool_guid
+      - proxmox_reboot_pool_snapshot.mirrors == proxmox_reboot_pool_baseline.mirrors
+      - proxmox_reboot_pool_baseline.online | difference(proxmox_reboot_pool_snapshot.online) | length == 0
+      - proxmox_reboot_pool_baseline.state != 'ONLINE' or proxmox_reboot_pool_snapshot.state == 'ONLINE'
+    fail_msg: Pool identity, membership or availability worsened; preserve evidence and inspect through the console.
+  when: proxmox_reboot_pool_phase == 'after'

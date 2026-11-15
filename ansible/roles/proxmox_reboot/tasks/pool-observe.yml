@@ -1,0 +1,31 @@
+---
+- name: Read native OpenZFS status including stable vdev identities
+  ansible.builtin.command:
+    argv: [/usr/sbin/zpool, status, -j, -p, -P, storage]
+  register: proxmox_reboot_pool_json
+  changed_when: false
+  check_mode: false
+  timeout: 30
+  no_log: true
+
+- name: Read native pool writability
+  ansible.builtin.command:
+    argv: [/usr/sbin/zpool, get, -H, -o, value, readonly, storage]
+  register: proxmox_reboot_readonly_result
+  changed_when: false
+  check_mode: false
+  timeout: 30
+
+- name: Require successful unambiguous native pool observations
+  ansible.builtin.assert:
+    that:
+      - proxmox_reboot_pool_json.stderr == ''
+      - proxmox_reboot_readonly_result.stderr == ''
+      - (proxmox_reboot_pool_json.stdout | from_json).pools.keys() | list == ['storage']
+    fail_msg: Native pool observation failed; no repair or error clearing was attempted.
+
+- name: Apply the shared pool admission and before-after comparison
+  ansible.builtin.include_tasks: pool-admission.yml
+  vars:
+    proxmox_reboot_pool: '{{ (proxmox_reboot_pool_json.stdout | from_json).pools.storage }}'
+    proxmox_reboot_pool_readonly: '{{ proxmox_reboot_readonly_result.stdout }}'
