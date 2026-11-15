@@ -191,6 +191,13 @@ controller decryption authority for **every** ciphertext covered by that identit
 a runtime secret set is not equivalent to this grant. Preserve independent custody.
 Deleting a GitHub secret is not key rotation or approval to revoke a shared identity.
 
+The root controller retains `CAP_SETUID` ambiently so the observer can switch to
+the existing unprivileged Proton identity under `NoNewPrivileges=true`. The
+explicit root user/group and private-temp, home and kernel protections remain in
+place; this does not add Proton credentials or provider authority. Native scheduled
+qualification exercises the actual root-to-unprivileged transition rather than
+assuming a root stand-in can open the repository.
+
 The source repository is public. Anonymous HTTPS Git and GitHub API reads require
 no GitHub token, deploy key or dispatch permission. API unavailability, rate limits,
 unknown identities or unqualified CI refuse deployment rather than bypassing checks.

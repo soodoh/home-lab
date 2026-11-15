@@ -24,6 +24,8 @@ ExecStart={{ compose_schedule_venv }}/bin/ansible-playbook {{ compose_schedule_c
 TimeoutStartSec=4h
 KillSignal=SIGINT
 NoNewPrivileges=true
+# Retain only the identity-switch capability required by the Proton observer.
+AmbientCapabilities=CAP_SETUID
 PrivateTmp=true
 ProtectHome=read-only
 ProtectKernelTunables=true
