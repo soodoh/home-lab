@@ -796,7 +796,14 @@ journals or staging, unknown owners, missing/freshness-deficient local coverage
 and inconsistent identities block admission. Only the known morning timer under
 the exact validated scheduled owner receives the narrow running-timer exception.
 The existing daily timer's `Persistent=false` remains unchanged; the independent
-replication timer is persistent.
+replication timer is persistent. Admission does not require current-boot trigger
+or job timestamps: reboot clears them, and this nonpersistent daily timer has no
+durable trigger stamp. Completed Restic snapshots supply durable daily-scope and
+freshness evidence, with the current-policy/artifact, owner and replica checks for
+the requested admission class. Live timer/calendar, active-writer and failed-local
+checks remain mandatory. This does not prove a wall-clock timer firing; observe
+that separately rather than creating a timestamp file or triggering a backup just
+to populate service history.
 
 The root-owned installed controller executes
 [`deploy-compose-automatic.yml`](../ansible/playbooks/deploy-compose-automatic.yml)
@@ -953,7 +960,10 @@ remain external authorization risks that no backup can remove.
 
 Staging is `/mnt/games/home-lab-backup/capture`, below a root-only parent. Source
 mount/repository identities, idle Wolf/native writer checks, radio-backup freshness and a conservative
-native `du`/free-space check run before interruption. Wolf availability is checked
+native `du`/free-space check run before interruption. The local state source is
+pinned to its filesystem UUID, filesystem type and exact mountpoint, not a
+boot-assigned `/dev/sdX` name. Device renumbering is harmless; another filesystem,
+a missing mount or a fallback directory still refuses capture. Wolf availability is checked
 before staging is created, then rechecked at its capture window. Activity already
 present at preflight leaves no incomplete staging; activity beginning later still
 fails closed and retains incomplete capture material for inspection. Ready-stage

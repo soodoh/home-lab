@@ -36,6 +36,30 @@ class Runtime(unittest.TestCase):
         for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
             self.assertNotIn(service, policy['stop_groups']['applications'])
 
+    def test_state_source_survives_device_renumbering_but_not_identity_or_mount_loss(self):
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        mount = next(item for item in policy['capture']['mounts'] if item['path'] == '/srv/home-lab-state')
+        verify = RUNNER['verify_sources']
+        policy = {'capture': {'mounts': [mount]}}
+        row = {'target': mount['path'], 'fstype': 'ext4', 'source': '/dev/sdb1',
+               'uuid': 'd4a19647-7879-4079-9fc9-b3e79711b449'}
+        def findmnt(entries):
+            return mock.Mock(return_value=subprocess.CompletedProcess(
+                [], 0, json.dumps({'filesystems': entries}), ''))
+        for device in ('/dev/sda1', '/dev/sdb1', '/dev/vda1'):
+            native = findmnt([{**row, 'source': device}])
+            with self.subTest(device=device), mock.patch.dict(verify.__globals__, {'run': native}):
+                verify(policy)
+                self.assertEqual(native.call_args.args[0], [
+                    '/usr/bin/findmnt', '--json', '--nofsroot', '--target', mount['path'],
+                    '--output', 'TARGET,FSTYPE,SOURCE,UUID'])
+        for entries in ([], [row, row], [{**row, 'uuid': 'another-filesystem'}],
+                        [{**row, 'uuid': None}], [{**row, 'fstype': 'xfs'}],
+                        [{**row, 'target': '/'}], [{**row, 'target': '/somewhere-else'}]):
+            with self.subTest(entries=entries), mock.patch.dict(verify.__globals__, {'run': findmnt(entries)}):
+                with self.assertRaisesRegex(RUNNER['WorkflowError'], 'source_mount_identity'):
+                    verify(policy)
+
     def test_nfs_preflight_accepts_only_exact_host_export_or_bound_repository(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         repository = policy['repositories']['nfs']
