@@ -501,7 +501,7 @@ under the observed host/backup admission: it takes the production host lock,
 changes only credentials that differ, verifies persistence/authentication and
 syncs Shelfmark from those same authorities before releasing ownership.
 Immediately apply the reviewed saved Arr plan using the separate apply
-confirmation, then test every Sonarr, Radarr, Radarr-4k and Prowlarr download
+confirmation, then test every Sonarr, Radarr and Prowlarr download
 client and require a fresh no-op plan. These cross-application changes are **not
 atomic**: do not call a partial rotation complete or automatically restore an
 old credential when an apply fails. Preserve the lock and private evidence
@@ -519,11 +519,7 @@ indexers; Recyclarr remains the sole writer of its profiles and custom formats. 
 OpenTofu-owned. Arr host settings are not provider-owned: Compose owns runtime
 ports/API-key injection, while native login settings remain in backed-up app
 databases; the provider host resource overlaps those owners and cannot read
-back the existing password. Radarr-4k's existing Radarr import list is
-OpenTofu-owned. Its top-level `rootFolderPath` is already `/data/movies/4k`;
-the separate `fields.rootFolderPaths` list is empty. The reviewed import plan
-must preserve the top-level root and must not treat the empty field list as
-permission to change it. Disabled metadata providers remain application
+back the existing password. Disabled metadata providers remain application
 defaults, not managed resources.
 
 ### VPN transport and torrent connectability
@@ -1269,6 +1265,6 @@ recovery payloads. Then remove private per-run work rather than archiving it.
 Package, Tailscale, provider and non-routine image updates remain reviewed changes.
 Only the approved routine Compose policy above authorizes automatic convergence;
 image tags do not override tracked digest pins. Sonarr,
-Radarr and Radarr-4k's `downloadPropersAndRepacks: doNotPrefer` lives in their
+Radarr's `downloadPropersAndRepacks: doNotPrefer` lives in their
 backed-up application databases, not Compose. Verify it in each application
 after restore; do not start a real download merely to test that setting.

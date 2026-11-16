@@ -17,15 +17,6 @@
       "3": {"name": "SABnzbd", "host": "gluetun", "port": 8080, "category": "movies", "priority": 1}
     }
   },
-  "radarr_4k": {
-    "qbittorrent": {
-      "3": {"name": "qBittorrent", "host": "gluetun", "port": 8081, "category": "radarr-4k", "priority": 1, "remove_completed": true},
-      "4": {"name": "qBittorrent (Private)", "host": "gluetun", "port": 8081, "category": "radarr-4k-private", "priority": 1, "remove_completed": false}
-    },
-    "sabnzbd": {
-      "5": {"name": "SABnzbd", "host": "localhost", "port": 8080, "category": "movies", "priority": 1}
-    }
-  },
   "prowlarr": {
     "qbittorrent": {
       "1": {"name": "qBittorrent", "host": "gluetun", "port": 8081, "category": "prowlarr", "priority": 1},

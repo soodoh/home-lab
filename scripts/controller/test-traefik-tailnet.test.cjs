@@ -62,7 +62,7 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
 
 test('the private router allowlist has no catch-all backend or public routes', () => {
   const expected = { omada: 'omada', llm: 'cli-proxy-api', proxmox: 'proxmox', zwave: 'authentik' };
-  const apiRoutes = { 'sonarr-api': 'v3', 'radarr-api': 'v3', 'radarr-4k-api': 'v3', 'prowlarr-api': 'v1' };
+  const apiRoutes = { 'sonarr-api': 'v3', 'radarr-api': 'v3', 'prowlarr-api': 'v1' };
   assert.deepEqual(Object.keys(routes.routers).sort(), [...Object.keys(expected), ...Object.keys(apiRoutes)].sort());
   for (const [name, service] of Object.entries(expected)) {
     const router = routes.routers[name];
@@ -87,7 +87,7 @@ test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   const transport = routes.serversTransports['omada-backend'];
   const cert = new X509Certificate(fs.readFileSync('services/data/traefik-tailnet/omada.pem'));
   assert.deepEqual(Object.keys(routes.services).sort(), [
-    'authentik', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'radarr-4k-api', 'prowlarr-api',
+    'authentik', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'prowlarr-api',
   ].sort());
   assert.deepEqual(Object.keys(routes.serversTransports).sort(), ['omada-backend', 'proxmox-lan']);
   assert.equal(routes.services.omada.loadBalancer.serversTransport, 'omada-backend');
@@ -107,7 +107,7 @@ test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   assert.equal(routes.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(routes.services.authentik.loadBalancer.serversTransport, undefined);
   assert.ok(readYaml('services/servarr.yml').services.gluetun.networks.includes('proxy'));
-  for (const [name, port] of Object.entries({ 'sonarr-api': 8989, 'radarr-api': 7878, 'radarr-4k-api': 7879, 'prowlarr-api': 9696 })) {
+  for (const [name, port] of Object.entries({ 'sonarr-api': 8989, 'radarr-api': 7878, 'prowlarr-api': 9696 })) {
     assert.equal(routes.services[name].loadBalancer.servers[0].url, `http://gluetun:${port}`);
     assert.equal(routes.services[name].loadBalancer.serversTransport, undefined);
   }

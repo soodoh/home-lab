@@ -100,7 +100,6 @@
       "prowlarr",
       "sonarr",
       "radarr",
-      "radarr-4k",
       "qbittorrent",
       "sabnzbd",
       "tachidesk",
@@ -343,15 +342,6 @@
         ]
       },
       {
-        "name": "radarr-4k",
-        "services": [
-          "radarr-4k"
-        ],
-        "paths": [
-          "/srv/home-lab-state/radarr-4k-data"
-        ]
-      },
-      {
         "name": "qbittorrent",
         "services": [
           "qbittorrent"
@@ -416,7 +406,6 @@
           "prowlarr",
           "sonarr",
           "radarr",
-          "radarr-4k",
           "sabnzbd",
           "qbittorrent",
           "flaresolverr",

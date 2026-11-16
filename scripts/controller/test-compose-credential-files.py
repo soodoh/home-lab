@@ -253,7 +253,7 @@ class NativeFileRendering(unittest.TestCase):
             self.assertEqual(aws["default"]["aws_access_key_id"], production["TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID"])
             self.assertEqual(aws["default"]["aws_secret_access_key"], production["TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY"])
             recyclarr = yaml.safe_load((work / "recyclarr-secrets.yml").read_text())
-            for key in ("SONARR_API_KEY", "RADARR_API_KEY", "RADARR_4K_API_KEY"):
+            for key in ("SONARR_API_KEY", "RADARR_API_KEY"):
                 self.assertEqual(recyclarr[key], production[key])
             cli = yaml.safe_load((work / "cli-proxy-api-config.yaml").read_text())
             self.assertEqual(cli["api-keys"], ['synthetic-"api"'])

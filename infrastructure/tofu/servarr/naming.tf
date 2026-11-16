@@ -20,25 +20,11 @@ resource "radarr_naming" "existing" {
   movie_folder_format        = "{Movie Title} ({Release Year})"
 }
 
-resource "radarr_naming" "uhd" {
-  provider = radarr.uhd
-
-  rename_movies              = true
-  replace_illegal_characters = true
-  colon_replacement_format   = "delete"
-  standard_movie_format      = "{Movie Title} ({Release Year}) {Quality Full}"
-  movie_folder_format        = "{Movie Title} ({Release Year})"
-}
-
 import {
   to = sonarr_naming.existing
   id = "1"
 }
 import {
   to = radarr_naming.existing
-  id = "1"
-}
-import {
-  to = radarr_naming.uhd
   id = "1"
 }

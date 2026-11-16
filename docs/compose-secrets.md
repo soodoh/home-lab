@@ -89,7 +89,7 @@ values from the same authoritative encrypted sources.
 | `nextcloud`, `nextcloud-cron` | `NEXTCLOUD_SMTP_PASSWORD` → `SMTP_PASSWORD` | `SMTP_PASSWORD_FILE=/run/secrets/nextcloud_smtp_password` | Native PHP SMTP config reads the file on configuration load. Both containers need the mount; cron overrides the image entrypoint, so do not rely on an entrypoint export. The PHP/cron service user must be able to read the file. [N1] |
 | `frigate` | `FRIGATE_MQTT_PASSWORD` | File `/run/secrets/FRIGATE_MQTT_PASSWORD`; remove the value from `environment` | Frigate discovers files by their **exact uppercase names**, populating its substitution dictionary. Retain `{FRIGATE_MQTT_PASSWORD}` in app config. It does not require `FRIGATE_MQTT_PASSWORD_FILE`. [F1] |
 | `frigate` | `FRIGATE_BACKYARD_PW`, `FRIGATE_DOORBELL_PW`, `FRIGATE_DRIVEWAY_PW`, `FRIGATE_BACK_STUDIO_PW`, `FRIGATE_FRONTYARD_PW`, `FRIGATE_STUDIO_PW`, `FRIGATE_BACK_HOUSE_PW` | One `/run/secrets/<exact variable name>` file each | Supported by Frigate and the go2rtc config generator. This only helps if camera config actually uses those placeholders; migrate inline URL credentials separately and investigate unused supplied vars before adding more files. [F1, F2] |
-| `unpackerr` | `SONARR_API_KEY` → `UN_SONARR_0_API_KEY`; `RADARR_API_KEY` → `UN_RADARR_0_API_KEY`; `RADARR_4K_API_KEY` → `UN_RADARR_1_API_KEY` | Keep each container variable; replace the value with `filepath:/run/secrets/<corresponding key>` | Version 0.16.1 recursively resolves `filepath:` strings **after** environment parsing. No custom wrapper or plaintext TOML file is necessary. Do not invent `UN_*_API_KEY_FILE`. [U1, U2] |
+| `unpackerr` | `SONARR_API_KEY` → `UN_SONARR_0_API_KEY`; `RADARR_API_KEY` → `UN_RADARR_0_API_KEY` | Keep each container variable; replace the value with `filepath:/run/secrets/<corresponding key>` | Version 0.16.1 recursively resolves `filepath:` strings **after** environment parsing. No custom wrapper or plaintext TOML file is necessary. Do not invent `UN_*_API_KEY_FILE`. [U1, U2] |
 | `mindwtr-cloud` | `MINDWTR_CLOUD_AUTH_TOKENS` | `MINDWTR_CLOUD_AUTH_TOKENS_FILE=/run/secrets/mindwtr_cloud_tokens`, with `user: "0:0"` | Version 1.2.6 already supports this. Its official entrypoint requires root for file input, copies to a protected runtime file and drops to `bun:bun`. The server reads that file directly. Inline and file tokens are **unioned**, not overridden: remove the old inline input. Preserve token bytes and data namespaces. [M1, M2] |
 | `zwave` | `SESSION_SECRET` | Preserve the existing secret in `/usr/src/app/store/.session-secret`; remove the environment input | Version 11.24.1 reads this fixed file after checking the environment. Render into the existing backed-up store, or mount a protected file at that exact location. There is **no** `SESSION_SECRET_FILE` setting. Do not merely unset the variable: a different persisted value or newly generated key would change sessions/JWTs. [Z3] |
 
@@ -112,7 +112,6 @@ without an extra trailing newline. [L1, L2]
 | --- | --- | --- |
 | `sonarr` | `SONARR_API_KEY` → `SONARR__AUTH__APIKEY` | `FILE__SONARR__AUTH__APIKEY=/run/secrets/sonarr_api_key` |
 | `radarr` | `RADARR_API_KEY` → `RADARR__AUTH__APIKEY` | `FILE__RADARR__AUTH__APIKEY=/run/secrets/radarr_api_key` |
-| `radarr-4k` | `RADARR_4K_API_KEY` → `RADARR__AUTH__APIKEY` | `FILE__RADARR__AUTH__APIKEY=/run/secrets/radarr_4k_api_key` |
 | `prowlarr` | `PROWLARR_API_KEY` → `PROWLARR__AUTH__APIKEY` | `FILE__PROWLARR__AUTH__APIKEY=/run/secrets/prowlarr_api_key` |
 
 Do not infer support solely from an image family. Verify `init-envfile` exists
@@ -120,17 +119,13 @@ in each pinned image and test the actual application consumer. [L1, L2]
 
 ## Native protected configuration file
 
-Recyclarr's legacy environment supplied `SONARR_API_KEY`, `RADARR_API_KEY` and
-`RADARR_4K_API_KEY`. Its native mechanism is a protected `/config/secrets.yml`
-(or `.yaml`) and `api_key: !secret <key>` in its instance configuration.
-Replace existing `!env_var` key references, then remove the three credential
-variables from Compose. URLs can remain environmental configuration. This
-requires managing the relevant existing instance configuration, not just adding
-Compose mounts. The container runs as `1000:1000`. [R1, R2]
+Recyclarr reads `SONARR_API_KEY` and `RADARR_API_KEY` from a protected
+`/config/secrets.yml` (or `.yaml`) through `api_key: !secret <key>` in its
+instance configuration. URLs remain environmental configuration. The container
+runs as `1000:1000`. [R1, R2]
 
-A single read-only secrets YAML file is preferable to a custom adapter that
-loads three files into environment variables. Ansible can render it from the
-same three production SOPS keys; do not introduce a second credential authority.
+Ansible renders one read-only secrets YAML file from those same production SOPS
+keys; do not introduce a second credential authority or an environment adapter.
 
 ## Openfit runtime delivery and obsolete input
 

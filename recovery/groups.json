@@ -52,7 +52,6 @@
         "recyclarr",
         "sonarr",
         "radarr",
-        "radarr-4k",
         "unpackerr",
         "qbittorrent",
         "sabnzbd"
@@ -63,7 +62,6 @@
         "/srv/home-lab-state/seerr-data",
         "/srv/home-lab-state/prowlarr-data",
         "/srv/home-lab-state/qbittorrent-data",
-        "/srv/home-lab-state/radarr-4k-data",
         "/srv/home-lab-state/radarr-data",
         "/srv/docker-compose/current/services/data/recyclarr/configs",
         "/srv/docker-compose/current/services/data/recyclarr/includes",

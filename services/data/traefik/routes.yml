@@ -34,10 +34,6 @@ http:
       rule: "Host(`qb.diloreto.com`)"
       entryPoints: [websecure]
       service: authentik
-    radarr-4k:
-      rule: "Host(`radarr-4k.diloreto.com`)"
-      entryPoints: [websecure]
-      service: authentik
     radarr:
       rule: "Host(`radarr.diloreto.com`)"
       entryPoints: [websecure]

@@ -52,14 +52,6 @@ http:
         certResolver: tailnet
         domains:
           - main: "*.ts.diloreto.com"
-    radarr-4k-api:
-      rule: "Host(`radarr-4k.ts.diloreto.com`) && (Path(`/api/v3`) || PathPrefix(`/api/v3/`))"
-      entryPoints: [tailnet]
-      service: radarr-4k-api
-      tls:
-        certResolver: tailnet
-        domains:
-          - main: "*.ts.diloreto.com"
     prowlarr-api:
       rule: "Host(`prowlarr.ts.diloreto.com`) && (Path(`/api/v1`) || PathPrefix(`/api/v1/`))"
       entryPoints: [tailnet]
@@ -109,10 +101,6 @@ http:
       loadBalancer:
         servers:
           - url: http://gluetun:7878
-    radarr-4k-api:
-      loadBalancer:
-        servers:
-          - url: http://gluetun:7879
     prowlarr-api:
       loadBalancer:
         servers:

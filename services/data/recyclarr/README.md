@@ -16,8 +16,7 @@ Custom-format definitions and their default scores still follow TRaSH Guides.
 Review the complete `recyclarr sync --preview` before approving a normal sync.
 
 Sonarr's two profiles share one instance-wide `series` quality definition. An
-anime profile does not have independent size limits. Radarr-4K keeps its
-4K-only grouped quality cutoff; the unrelated `Unused` profile is not managed.
+anime profile does not have independent size limits.
 
 URLs retain native `!env_var` references, and API keys retain native `!secret`
 references. Configuration changes require reviewed deployment; editing the
