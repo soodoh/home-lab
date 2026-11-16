@@ -1,7 +1,11 @@
 [Unit]
 Description=Snapshot-only backup RPC over the Tailscale interface
+# tailscaled starts after basic.target, so this is not an early boot socket.
+DefaultDependencies=no
 After=tailscaled.service
 Requires=tailscaled.service
+Before=shutdown.target
+Conflicts=shutdown.target
 
 [Socket]
 ListenStream={{ zfs_backup_snapshot_tailscale_ipv4 }}:2444
@@ -13,4 +17,4 @@ MaxConnectionsPerSource=2
 Backlog=4
 
 [Install]
-WantedBy=sockets.target
+WantedBy=multi-user.target

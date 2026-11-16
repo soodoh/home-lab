@@ -213,6 +213,14 @@
     - home-lab-zfs-backup-snapshot@.service
   register: zfs_backup_snapshot_units
 
+- name: Move existing enablement to the socket's declared late startup target
+  ansible.builtin.command:
+    argv: [systemctl, --no-reload, reenable, home-lab-zfs-backup-snapshot.socket]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - zfs_backup_snapshot_units.changed
+
 - name: Enable only the snapshot RPC listener without any login or forwarding service
   ansible.builtin.systemd_service:
     name: home-lab-zfs-backup-snapshot.socket

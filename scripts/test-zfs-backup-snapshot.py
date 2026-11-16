@@ -18,6 +18,8 @@ import types
 import unittest
 from unittest import mock
 
+from jinja2 import Environment, StrictUndefined
+
 ROOT = Path(__file__).resolve().parents[1]
 BROKER = runpy.run_path(str(ROOT / 'scripts/zfs-backup-snapshot'))
 
@@ -628,6 +630,60 @@ class SnapshotCapture(unittest.TestCase):
         self.assertFalse(native.called)
 
 
+@unittest.skipUnless(sys.platform == 'linux' and shutil.which('systemd-analyze')
+                     and shutil.which('systemctl'), 'requires native offline systemd tools')
+class SnapshotBootOrdering(unittest.TestCase):
+    """Build actual systemd transactions; never boot or start a host service."""
+
+    def test_boot_shutdown_and_native_reenable_move_the_existing_socket(self):
+        with tempfile.TemporaryDirectory(prefix='snapshot-boot-') as directory:
+            root = Path(directory)
+            units = root / 'etc/systemd/system'
+            units.mkdir(parents=True)
+            # Minimal OS target semantics; normal service/socket defaults are
+            # supplied by systemd itself, not a hand-written graph checker.
+            for name, extra in {
+                'sysinit.target': '', 'shutdown.target': '',
+                'sockets.target': '',
+                'basic.target': 'Requires=sockets.target\nAfter=sockets.target\n',
+                'multi-user.target': 'Requires=basic.target\nAfter=basic.target\n',
+                'sys-subsystem-net-devices-tailscale0.device': '',
+            }.items():
+                (units / name).write_text('[Unit]\nDefaultDependencies=no\n' + extra)
+            for name in ('tailscaled.service', 'nfs-server.service'):
+                (units / name).write_text('[Service]\nExecStart=/bin/true\n[Install]\nWantedBy=multi-user.target\n')
+            for name in ('bin/true', 'usr/bin/python3'):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('#!/bin/sh\nexit 0\n')
+                path.chmod(0o755)
+            for name in ('home-lab-zfs-backup-snapshot.socket', 'home-lab-zfs-backup-snapshot@.service'):
+                template = ROOT / 'ansible/roles/zfs_backup_snapshot/templates' / (name + '.j2')
+                definition = Environment(undefined=StrictUndefined).from_string(template.read_text()).render(
+                    zfs_backup_snapshot_tailscale_ipv4='100.113.54.34')
+                (units / name).write_text(definition)
+            # Reproduce the previously enabled early socket. Reenable, not enable,
+            # must remove its old target link when the installed unit changes.
+            early = units / 'sockets.target.wants'
+            early.mkdir()
+            (early / 'home-lab-zfs-backup-snapshot.socket').symlink_to('../home-lab-zfs-backup-snapshot.socket')
+            env = os.environ | {'SYSTEMD_LOG_LEVEL': 'warning'}
+            enabled = subprocess.run(['systemctl', '--root=' + str(root), 'reenable',
+                                      'tailscaled.service', 'home-lab-zfs-backup-snapshot.socket'],
+                                     env=env, text=True, capture_output=True, timeout=20)
+            self.assertEqual(enabled.returncode, 0, enabled.stdout + enabled.stderr)
+            for target in ('multi-user.target', 'shutdown.target'):
+                checked = subprocess.run(['systemd-analyze', '--root=' + str(root), 'verify',
+                                          '--man=no', target, 'home-lab-zfs-backup-snapshot@fixture.service'],
+                                         env=env, text=True, capture_output=True, timeout=20)
+                self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+                # systemd can drop a job to break a cycle and still exit zero.
+                self.assertNotIn('ordering cycle', checked.stderr.lower(), checked.stderr)
+                self.assertNotIn('deleted to break', checked.stderr.lower(), checked.stderr)
+            self.assertFalse((early / 'home-lab-zfs-backup-snapshot.socket').is_symlink())
+            self.assertTrue((units / 'multi-user.target.wants/home-lab-zfs-backup-snapshot.socket').is_symlink())
+
+
 INSTALL_FIXTURE = (sys.platform == 'linux' and os.geteuid() == 0 and
                    os.environ.get('HOME_LAB_ZFS_TEST_DISPOSABLE') == 'true' and
                    Path('/.dockerenv').is_file())
@@ -676,7 +732,7 @@ class SnapshotInstallation(unittest.TestCase):
                 + " print('BindToDevice='+('eth0' if d['foreign'] else 'tailscale0'))\n"
                 + " print('Listen=100.113.54.34:2444 (Stream)')\n"
                 + "elif 'is-enabled' in args: print('enabled' if d['enabled'] else 'disabled'); sys.exit(0 if d['enabled'] else 1)\n"
-                + "elif 'enable' in args: d['enabled']=True\n"
+                + "elif 'enable' in args or 'reenable' in args: d['enabled']=True\n"
                 + "elif 'start' in args or 'restart' in args: d['active']=True\n"
                 + "elif 'daemon-reload' not in args: sys.exit(1)\n"
                 + 'p.write_text(json.dumps(d))\n')

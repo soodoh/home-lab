@@ -1049,6 +1049,18 @@ refuses pending snapshots, changed peer addresses and foreign/broader listeners;
 failures retain the exact host owner. Installation does not create snapshots or
 change tailnet policy.
 
+The listener is a late-starting socket wanted by `multi-user.target`, after and
+requiring `tailscaled.service`. It disables the default early-socket dependencies
+and explicitly retains shutdown conflict/ordering. An early `sockets.target`
+listener waiting for Tailscale creates a cycle through `basic.target`, which can
+cause systemd to discard Tailscale's startup job without marking it failed.
+Changed-unit installation uses native `systemctl reenable` to remove the old
+startup link, then reloads systemd and restarts only this bounded listener. It
+never restarts Tailscale or changes its authentication. Native offline systemd
+boot/shutdown transaction tests reject cycle diagnostics even when verification
+exits zero. A live graph check is not a substitute for later attended boot
+qualification; do not reboot a recovering pool just to qualify socket ordering.
+
 Separately review/apply the scoped tailnet plan, then configure the Docker backup
 runtime. Only the Docker-host tag receives TCP 2444; its Proxmox SSH access remains
 denied. The separately owned Proxmox cluster firewall must also admit TCP 2444
