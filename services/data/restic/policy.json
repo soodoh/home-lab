@@ -132,7 +132,8 @@
         "path": "/srv/home-lab-state",
         "identity": {
           "fstype": "ext4",
-          "source": "/dev/sda1"
+          "uuid": "d4a19647-7879-4079-9fc9-b3e79711b449",
+          "target": "/srv/home-lab-state"
         }
       },
       {

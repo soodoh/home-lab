@@ -215,15 +215,6 @@ def proton_restic(policy: dict[str, Any], arguments: list[str]) -> str:
     )
 
 
-def daily_history_present(parsed: dict[str, dict[str, str]]) -> bool:
-    if parsed["home-lab-restic-daily.timer"].get("LastTriggerUSec"):
-        return True
-    return all(
-        parsed[unit].get("ExecMainStartTimestamp") and parsed[unit].get("ExecMainExitTimestamp")
-        for unit in ("home-lab-restic-daily-local.service", "home-lab-restic-daily-proton.service")
-    )
-
-
 def validate_unit_state(unit: str, values: dict[str, str], *, routine: bool = False) -> None:
     if values.get("ActiveState") == "inactive" and values.get("SubState") == "dead":
         pass
@@ -289,8 +280,9 @@ def validate_units(
             raise ObservationError("unit_load_state")
     for timer in ('home-lab-restic-daily.timer', 'home-lab-restic-maintenance.timer', 'home-lab-restic-replication.timer'):
         validate_timer_state(timer, parsed[timer], scheduled_deployment=scheduled_deployment)
-    if not routine and not daily_history_present(parsed):
-        raise ObservationError("daily_cadence_history")
+    # Current-boot execution timestamps disappear on reboot. Durable daily
+    # completion/freshness evidence comes from select_full(), not timer/job
+    # history. Keep live timer, failed-writer and calendar checks independent.
     for unit in UNITS:
         if unit.endswith(".timer"):
             continue

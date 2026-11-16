@@ -97,6 +97,69 @@ class Admission(unittest.TestCase):
                 with self.assertRaises(OBSERVER.ObservationError):
                     OBSERVER.validate_owners(journal, None)
 
+    def rebooted_units(self, directory):
+        policy = {'schedule': {'daily_calendar': '*-*-* 05:00:00',
+                               'maintenance_calendar': 'Sun *-*-* 07:00:00'}}
+        units = {name: {'LoadState': 'loaded', 'ActiveState': 'inactive',
+                        'SubState': 'dead', 'Result': 'success', 'LastTriggerUSec': '',
+                        'ExecMainStartTimestamp': '', 'ExecMainExitTimestamp': ''}
+                 for name in OBSERVER.UNITS}
+        for name in units:
+            if name.endswith('.timer'):
+                units[name].update(ActiveState='active', SubState='waiting', NextElapseUSecRealtime='next-trigger')
+        root = Path(directory)
+        for name, calendar in policy['schedule'].items():
+            timer = 'daily' if name == 'daily_calendar' else 'maintenance'
+            (root / ('home-lab-restic-' + timer + '.timer')).write_text(
+                '[Timer]\nOnCalendar=' + calendar + '\nPersistent=false\n')
+        return policy, units
+
+    def validate_rebooted_units(self, directory, policy, units):
+        def native_show(args):
+            self.assertEqual(args[:2], ['/usr/bin/systemctl', 'show'])
+            return '\n'.join(key + '=' + value for key, value in units[args[-1]].items())
+        with mock.patch.object(OBSERVER, 'run', side_effect=native_show), \
+                mock.patch.object(OBSERVER, 'require_regular'), \
+                mock.patch.object(OBSERVER, 'Path', side_effect=lambda name: Path(directory) / Path(name).name):
+            return OBSERVER.validate_units(policy)
+
+    def test_strict_admission_uses_durable_complete_daily_snapshots_after_reboot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            policy, units = self.rebooted_units(directory)
+            observed = self.validate_rebooted_units(directory, policy, units)
+            self.assertEqual(set(observed), set(OBSERVER.UNITS))
+            source = snapshot()
+            self.assertEqual(self.select([source], [copied(source, '2')], [copied(source, '3')], routine=False)[0], source)
+            # No wall-clock/job history is invented; the durable chain must still
+            # prove the current policy/artifact, daily scope, completion and age.
+            for bad in [snapshot(age=49), snapshot(age=-1), snapshot(artifact='e' * 64)] + [
+                    {**source, 'tags': [tag for tag in source['tags'] if tag != required]}
+                    for required in ('cadence=daily', 'complete=full-v2', 'policy=' + POLICY)]:
+                with self.subTest(bad=bad), self.assertRaises(OBSERVER.ObservationError):
+                    self.select([bad], [copied(bad, '2')], [copied(bad, '3')], routine=False)
+            for games, nfs, proton in (([], [], []), ([source], [], [copied(source, '3')]),
+                                       ([source], [copied(source, '2')], [])):
+                with self.assertRaises(OBSERVER.ObservationError):
+                    self.select(games, nfs, proton, routine=False)
+
+    def test_reboot_does_not_waive_live_timer_writer_failure_or_calendar_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            policy, units = self.rebooted_units(directory)
+            for name, changes in [
+                    ('home-lab-restic-daily.timer', {'ActiveState': 'inactive'}),
+                    ('home-lab-restic-daily.timer', {'NextElapseUSecRealtime': ''}),
+                    ('home-lab-restic-daily-local.service', {'ActiveState': 'active', 'SubState': 'running'}),
+                    ('home-lab-restic-daily-local.service', {'Result': 'exit-code'}),
+                    ('home-lab-restic-maintenance-local.service', {'Result': 'exit-code'})]:
+                changed = {key: dict(value) for key, value in units.items()}
+                changed[name].update(changes)
+                with self.subTest(name=name, changes=changes), self.assertRaises(OBSERVER.ObservationError):
+                    self.validate_rebooted_units(directory, policy, changed)
+            timer = Path(directory) / 'home-lab-restic-daily.timer'
+            timer.write_text('[Timer]\nOnCalendar=hourly\n')
+            with self.assertRaisesRegex(OBSERVER.ObservationError, 'timer_cadence'):
+                self.validate_rebooted_units(directory, policy, units)
+
     def test_scheduled_timer_exception_remains_narrow(self):
         values = {'ActiveState': 'active', 'SubState': 'running', 'Unit': 'home-lab-morning.target',
                   'LastTriggerUSec': 'scheduled'}
