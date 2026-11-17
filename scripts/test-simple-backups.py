@@ -58,6 +58,38 @@ class Files(unittest.TestCase):
         self.assertFalse(Path(str(target) + '-wal').exists())
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and
+                         os.environ.get('HOME_LAB_READONLY_WAL_TEST_DISPOSABLE') == 'true',
+                         'requires explicitly admitted disposable Linux mount privileges')
+    def test_online_capture_from_readonly_wal_mount_finishes_and_preserves_committed_data(self):
+        self.assertFalse(Path('/etc/home-lab/restic-policy.json').exists(), 'never run native fixtures on a managed host')
+        source = self.root / 'source'
+        source.mkdir(mode=0o700)
+        stage = self.root / 'stage'
+        stage.mkdir(mode=0o700)
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        with closing(sqlite3.connect(source / 'state.db')) as writer:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('PRAGMA wal_autocheckpoint=0')
+            writer.execute('CREATE TABLE items (payload BLOB)')
+            # More than one former 256-page backup step; keep the WAL live.
+            writer.execute('INSERT INTO items VALUES (zeroblob(2097152))')
+            writer.commit()
+            writer.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            writer.execute('INSERT INTO items VALUES (zeroblob(17))')
+            writer.commit()
+            result = subprocess.run([
+                'unshare', '--mount', '--propagation', 'private', sys.executable, str(Path(__file__).resolve()),
+                '--readonly-wal-child', str(source), str(stage), str(excludes),
+            ], capture_output=True, text=True, timeout=8)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        restored = stage / str(source / 'state.db').lstrip('/')
+        with closing(sqlite3.connect(restored)) as db:
+            self.assertEqual(db.execute('SELECT length(payload) FROM items').fetchall(), [(2097152,), (17,)])
+            self.assertEqual(db.execute('PRAGMA integrity_check').fetchone(), ('ok',))
+        self.assertFalse(restored.with_name('state.db-wal').exists())
+
     def test_stable_store_validates_json_and_cookie_state_without_mutating_sources(self):
         source = self.root / 'store'
         source.mkdir()
@@ -144,6 +176,39 @@ class Files(unittest.TestCase):
             self.assertEqual(json.loads((restored / 'config.json').read_text()), {'setting': 'saved'})
             self.assertFalse((restored / 'state.sqlite3-wal').exists())
             self.assertFalse((restored / 'state.sqlite3-shm').exists())
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_readonly_connection_cache_epoch_is_not_mistaken_for_an_application_write(self):
+        source = self.root / 'readonly-epoch'
+        source.mkdir()
+        database = source / 'state.db'
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        target = self.root / 'stage'
+        target.mkdir()
+        connect = sqlite3.connect
+        class ReadonlyEpoch(sqlite3.Connection):
+            epoch = 0
+            def execute(self, sql, *args):
+                if sql == 'PRAGMA data_version':
+                    # Read-only WAL connections can rebuild a private wal-index
+                    # between read transactions without an application commit.
+                    self.epoch += 1
+                    return mock.Mock(fetchone=lambda: (self.epoch,))
+                return super().execute(sql, *args)
+        def readonly_connect(path, *args, **kwargs):
+            if str(path).startswith('file:'):
+                kwargs['factory'] = ReadonlyEpoch
+            return connect(path, *args, **kwargs)
+        with closing(connect(database)) as writer:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('CREATE TABLE items (value TEXT)')
+            writer.execute("INSERT INTO items VALUES ('saved')")
+            writer.commit()
+            with mock.patch.object(CAPTURE.sqlite3, 'connect', side_effect=readonly_connect):
+                CAPTURE.online_tree([str(source)], target, excludes, sqlite_paths=[str(database)])
+        with closing(connect(target / str(database).lstrip('/'))) as restored:
+            self.assertEqual(restored.execute('SELECT value FROM items').fetchall(), [('saved',)])
 
     @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
     def test_online_tree_refuses_database_commits_or_file_mutation_during_capture(self):
@@ -861,4 +926,26 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         return path
 
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) == 5 and sys.argv[1] == '--readonly-wal-child':
+        if (os.geteuid() != 0 or os.environ.get('HOME_LAB_READONLY_WAL_TEST_DISPOSABLE') != 'true'
+                or Path('/etc/home-lab/restic-policy.json').exists()):
+            raise SystemExit('disposable fixture admission required')
+        source, target, excludes = map(Path, sys.argv[2:])
+        subprocess.run(['mount', '--bind', str(source), str(source)], check=True)
+        subprocess.run(['mount', '-o', 'remount,bind,ro', str(source)], check=True)
+        if not os.statvfs(source).f_flag & os.ST_RDONLY:
+            raise SystemExit('fixture source must be read-only')
+        try:
+            descriptor = os.open(source / 'state.db-shm', os.O_RDWR)
+        except OSError as error:
+            if error.errno != errno.EROFS:
+                raise
+        else:
+            os.close(descriptor)
+            raise SystemExit('fixture WAL index unexpectedly writable')
+        with closing(sqlite3.connect('file:' + str(source / 'state.db') + '?mode=ro', uri=True)) as reader:
+            reader.execute('PRAGMA journal_mode').fetchone()
+            CAPTURE.sqlite_backup(source / 'state.db', target / 'probe.db', reader=reader)
+        CAPTURE.online_tree([str(source)], target, excludes, sqlite_paths=[str(source / 'state.db')])
+    else:
+        unittest.main()

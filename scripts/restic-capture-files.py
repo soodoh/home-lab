@@ -7,8 +7,9 @@ installed-controller inputs, not candidate application source.
 """
 from __future__ import annotations
 
-from contextlib import ExitStack, closing, nullcontext
+from contextlib import closing, nullcontext
 import fcntl
+import hashlib
 import json
 import http.client
 import ipaddress
@@ -92,6 +93,20 @@ def file_inventory(paths):
                                  info.st_mtime_ns, info.st_ctime_ns, info.st_uid, info.st_gid)
             if stat.S_ISDIR(info.st_mode):
                 pending.extend(path.iterdir())
+    return result
+
+
+def database_fingerprints(names, inventory):
+    """Private comparisons only: never log or persist database content digests.
+
+    SQLite can fchown an existing WAL to its unchanged owner when opening it,
+    advancing ctime without an application write. Compare actual bytes instead.
+    """
+    result = {}
+    for name in sorted(names & inventory.keys()):
+        metadata = inventory[name]
+        with safe_source(name).open('rb') as stream:
+            result[name] = (metadata[:4], metadata[6:], hashlib.file_digest(stream, 'sha256').digest())
     return result
 
 
@@ -197,51 +212,44 @@ def mosquitto(step, target, excludes, *, container, running):
 
 
 def online_tree(paths, target, excludes, *, sqlite_paths):
-    """Native SQLite backups plus files from an observed write-free interval.
+    """Native SQLite snapshots plus companion files from a write-free interval.
 
-    Hold each reader open so PRAGMA data_version can detect commits throughout
-    capture, not just during SQLite's individually consistent backup operation.
-    Concurrent DB/file writes refuse completion; callers retry boundedly without
-    stopping a service. This is not a claim that arbitrary live copies are atomic.
+    Before/after inode, size, mtime and ctime checks include the databases and
+    WAL/journals, not the advisory SHM read-marks. Read-only WAL connections may
+    rebuild a private wal-index and advance data_version without a real commit;
+    that connection-local cache epoch is not an application-write detector.
     """
     before = file_inventory(paths)
     if any(stat.S_ISLNK(signature[0]) for signature in before.values()):
         raise CaptureError('online_source_symlink')
-    readers, omitted = {}, set()
-    with ExitStack() as opened:
-        # Only declared application databases are converted. A SQLite-looking
-        # user attachment is an opaque file, never a database to open/rewrite.
-        for name in sqlite_paths:
-            path = Path(name)
-            if name not in before or not stat.S_ISREG(before[name][0]):
-                raise CaptureError('online_sqlite_missing')
-            with path.open('rb') as stream:
-                if stream.read(16) != b'SQLite format 3\x00':
-                    raise CaptureError('online_sqlite_format')
-            reader = opened.enter_context(closing(sqlite3.connect('file:' + str(path) + '?mode=ro', uri=True, timeout=10)))
-            readers[name] = (reader, reader.execute('PRAGMA data_version').fetchone())
-            omitted.update(name + suffix for suffix in ('', '-wal', '-shm', '-journal'))
-        if not readers:
+    if not sqlite_paths:
+        raise CaptureError('online_sqlite_missing')
+    omitted = set()
+    # Only declared application databases are converted. User uploads stay opaque.
+    for name in sqlite_paths:
+        if name not in before or not stat.S_ISREG(before[name][0]):
             raise CaptureError('online_sqlite_missing')
-        copy_paths(paths, target, excludes, exclude=sorted(omitted), synchronize=True)
-        for name, (reader, _) in readers.items():
-            destination = target / name.lstrip('/')
-            for suffix in ('-wal', '-shm', '-journal'):
-                destination.with_name(destination.name + suffix).unlink(missing_ok=True)
-            sqlite_backup(Path(name), destination, reader=reader)
-            shutil.copystat(name, destination)
-            if os.geteuid() == 0:
-                info = Path(name).stat()
-                os.chown(destination, info.st_uid, info.st_gid)
-        after = file_inventory(paths)
-        selected = lambda inventory: {name: value for name, value in inventory.items() if name not in omitted}
-        # Database inode replacement is also a refusal: data_version belongs to
-        # the still-open inode, and cannot alone detect a path replacement.
-        if (selected(before) != selected(after) or any(
-                before[name][1:3] != after.get(name, (None, None, None))[1:3] or
-                version != reader.execute('PRAGMA data_version').fetchone()
-                for name, (reader, version) in readers.items())):
-            raise CaptureError('online_source_changed')
+        with Path(name).open('rb') as stream:
+            if stream.read(16) != b'SQLite format 3\x00':
+                raise CaptureError('online_sqlite_format')
+        omitted.update(name + suffix for suffix in ('', '-wal', '-shm', '-journal'))
+    database_files = {name + suffix for name in sqlite_paths for suffix in ('', '-wal', '-journal')}
+    before_databases = database_fingerprints(database_files, before)
+    copy_paths(paths, target, excludes, exclude=sorted(omitted), synchronize=True)
+    for name in sqlite_paths:
+        destination = target / name.lstrip('/')
+        for suffix in ('-wal', '-shm', '-journal'):
+            destination.with_name(destination.name + suffix).unlink(missing_ok=True)
+        sqlite_backup(Path(name), destination)
+        shutil.copystat(name, destination)
+        if os.geteuid() == 0:
+            info = Path(name).stat()
+            os.chown(destination, info.st_uid, info.st_gid)
+    after = file_inventory(paths)
+    selected = lambda inventory: {name: value for name, value in inventory.items() if name not in omitted}
+    if (selected(before) != selected(after) or
+            before_databases != database_fingerprints(database_files, after)):
+        raise CaptureError('online_source_changed')
 
 
 ZFS_DATA_PATH = '/mnt/storage/media/nextcloud/data'
@@ -392,7 +400,9 @@ def sqlite_backup(source, target, *, reader=None):
                 def progress(*_):
                     if time.monotonic() > deadline:
                         raise CaptureError('sqlite_timeout')
-                reader.backup(writer, pages=256, progress=progress)
+                # Finish in one native step. Chunked reads can repeatedly restart
+                # on a read-only WAL heap-index, even without application writes.
+                reader.backup(writer, pages=-1, progress=progress)
                 writer.execute('PRAGMA journal_mode=DELETE')
                 if writer.execute('PRAGMA quick_check').fetchone() != ('ok',):
                     raise CaptureError('sqlite_integrity')

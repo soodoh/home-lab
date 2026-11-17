@@ -928,10 +928,15 @@ not globally atomic; the format manifest records group capture times.
 
 Native PostgreSQL/MariaDB exports run while coupled application writers are
 paused. Vaultwarden and OpenFit stay online: native SQLite backups capture
-committed WAL data without copying live journals. A write-free interval across
-their database and companion files is verified using SQLite's connection-local
-`data_version` plus inode/ctime/file-inventory checks; concurrent writes cause a
-bounded retry, never an automatic service stop or a falsely complete recovery set.
+committed WAL data without copying live journals. A single native backup step
+avoids repeated restarts on read-only WAL heap-indexes. A write-free interval
+across companion files is verified using inode/size/mtime/ctime inventories;
+databases and durable journals additionally use private content fingerprints.
+SQLite's own WAL metadata changes and SHM reader coordination are not application
+writes. Read-only WAL cache epochs make `PRAGMA data_version` unsuitable as the
+write signal here. Fingerprints never enter output or retained metadata.
+Concurrent writes cause a bounded retry, never an automatic service stop or a
+falsely complete recovery set.
 Only declared application databases are converted; user attachments remain opaque
 files even when their names or bytes resemble SQLite or JSON.
 Jellyfin uses its native archive. Mosquitto stays online and flushes persistence
