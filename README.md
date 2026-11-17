@@ -86,7 +86,7 @@ and CI alone do not prove them. Some application state also lives outside the
 configuration: create/revoke the `gost-proxy` Authentik app password manually
 and protect the work-Mac client credential as described in
 [security](docs/security.md#tailscale-coordination-proxy); after a restore,
-verify Sonarr/Radarr/Radarr-4k's download-propers setting in their databases
+verify Sonarr/Radarr's download-propers setting in their databases
 (see [operations](docs/operations.md#operation-ownership-and-cleanup)). See
 [outstanding work](docs/migrations.md) for unresolved recovery, identity and
 ingress qualifications.

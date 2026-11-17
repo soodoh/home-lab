@@ -30,7 +30,7 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Books Users | personal | Grimmory |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
-| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, Radarr 4K, SABnzbd, Shelfmark, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
+| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
 
 Grimmory has a create-only provider/application, not an invented
 import ID. It uses the existing personal entitlement without

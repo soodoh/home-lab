@@ -84,8 +84,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         )
         self.assertEqual(DESIRED["applications"]["jellyfin"]["provider_id"], "jellyfin")
         self.assertEqual(
-            DESIRED["applications"]["radarr-4k"]["meta_launch_url"],
-            DESIRED["proxyProviders"]["8"]["external_host"],
+            DESIRED["applications"]["radarr"]["meta_launch_url"],
+            DESIRED["proxyProviders"]["19"]["external_host"],
         )
         bound_applications = {
             binding["application_slug"]
@@ -175,7 +175,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(group["parents"], [])
         self.assertEqual(group["roles"], [])
         self.assertEqual({binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()
-                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","radarr-4k","sabnzbd","shelfmark","sonarr","tachidesk","vaultwarden","zwave"})
+                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","sabnzbd","shelfmark","sonarr","tachidesk","vaultwarden","zwave"})
         owned_groups = {value["pk"] for value in DESIRED["groups"].values()}
         self.assertTrue(all(binding["group"] in owned_groups and binding["user"] is None
                             for binding in DESIRED["applicationPolicyBindings"].values()))

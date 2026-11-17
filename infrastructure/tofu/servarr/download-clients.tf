@@ -81,46 +81,6 @@ resource "radarr_download_client_sabnzbd" "existing" {
   remove_failed_downloads    = true
 }
 
-resource "radarr_download_client_qbittorrent" "uhd" {
-  provider = radarr.uhd
-  for_each = local.download_clients.radarr_4k.qbittorrent
-
-  name                       = each.value.name
-  enable                     = true
-  host                       = each.value.host
-  port                       = each.value.port
-  use_ssl                    = false
-  movie_category             = each.value.category
-  priority                   = each.value.priority
-  username                   = var.qbittorrent_username
-  password                   = var.qbittorrent_password
-  initial_state              = 0
-  sequential_order           = false
-  first_and_last             = false
-  older_movie_priority       = 0
-  recent_movie_priority      = 0
-  remove_completed_downloads = each.value.remove_completed
-  remove_failed_downloads    = true
-}
-
-resource "radarr_download_client_sabnzbd" "uhd" {
-  provider = radarr.uhd
-  for_each = local.download_clients.radarr_4k.sabnzbd
-
-  name                       = each.value.name
-  enable                     = true
-  host                       = each.value.host
-  port                       = each.value.port
-  use_ssl                    = false
-  movie_category             = each.value.category
-  priority                   = each.value.priority
-  api_key                    = var.sabnzbd_api_key
-  older_movie_priority       = -100
-  recent_movie_priority      = -100
-  remove_completed_downloads = true
-  remove_failed_downloads    = true
-}
-
 resource "prowlarr_download_client_qbittorrent" "existing" {
   for_each = local.download_clients.prowlarr.qbittorrent
 
@@ -166,16 +126,6 @@ import {
 import {
   for_each = local.download_clients.radarr.sabnzbd
   to       = radarr_download_client_sabnzbd.existing[each.key]
-  id       = each.key
-}
-import {
-  for_each = local.download_clients.radarr_4k.qbittorrent
-  to       = radarr_download_client_qbittorrent.uhd[each.key]
-  id       = each.key
-}
-import {
-  for_each = local.download_clients.radarr_4k.sabnzbd
-  to       = radarr_download_client_sabnzbd.uhd[each.key]
   id       = each.key
 }
 import {

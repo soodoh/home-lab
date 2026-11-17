@@ -8,15 +8,6 @@ variable "radarr_api_key" {
   type      = string
   sensitive = true
 }
-# Pinned internal Radarr URL from production SOPS, used by the existing 4K
-# Radarr-to-Radarr import list. Do not point it at the tailnet provider route.
-variable "radarr_internal_url" {
-  type = string
-}
-variable "radarr_4k_api_key" {
-  type      = string
-  sensitive = true
-}
 variable "prowlarr_api_key" {
   type      = string
   sensitive = true
