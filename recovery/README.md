@@ -125,8 +125,15 @@ restoring any files.
 The helper verifies Restic bytes then uses `prepare-restic-files.py` to move
 captured files into their original relative layout beneath private staging.
 SQLite online exports replace their live file at that path, without stale
-WAL/SHM/journal files. Cold-copied databases retain their complete physical set;
-never combine restored files with journals left in an existing destination.
+WAL/SHM/journal files. Vaultwarden and OpenFit include these native SQLite exports
+at their original paths, with companion files captured during a verified write-free
+interval; restore source ownership/modes as recorded. Mindwtr's JSON store is
+validated and copied online without changing its native layout. Mosquitto's
+`mosquitto.db` is its fresh native online persistence output, restored through the
+normal broker startup, not a separate SQL import. Cold-copied databases retain
+their complete physical set; never combine restored files with journals left in
+an existing destination. Pre-copy seeds are never independently recoverable:
+only a completed full-v2 capture has reconciled the stopped final delta/deletions.
 Logical exports and native archives remain in `recovery-exports/`:
 
 - `databases/authentik.dump`: native PostgreSQL custom format, for `pg_restore`

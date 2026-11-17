@@ -167,7 +167,7 @@ def require_success(result: subprocess.CompletedProcess[str], reason: str) -> No
 
 
 def report_phase(phase: str, started: float) -> None:
-    print(f"restic_backup=phase name={phase} seconds={time.monotonic() - started:.1f}")
+    print(f"restic_backup=phase name={phase} seconds={time.monotonic() - started:.1f}", flush=True)
 
 
 def proton_identity() -> tuple[int, int]:
@@ -685,6 +685,12 @@ def cold_capture(policy, adapter, step, stage, declared):
         verify_wolf_available(policy, adapter, step, declared)
     for path in paths:
         adapter.safe_source(path)
+    baseline = None
+    if step.get('precopy'):
+        started = time.monotonic()
+        baseline = adapter.retry(lambda: adapter.precopy(
+            paths, stage / 'files', rooted(policy['runner']['exclude_file_path'])))
+        report_phase('precopy_' + step['name'], started)
     running = [s for s in services if service_running(policy, s)]
     snapshot = step.get('snapshot') == 'zfs'
     if snapshot:
@@ -699,6 +705,7 @@ def cold_capture(policy, adapter, step, stage, declared):
     journal = {'version': 1, 'running_services': running, 'stop_order': services,
                'started_at': int(time.time()), 'owner': policy.get('_owner')}
     atomic_json(journal_path(policy), journal, 0o600)
+    interrupted = time.monotonic()
     try:
         if running:
             require_success(compose(policy, ['stop', '--timeout', '120', *running]), 'service_stop')
@@ -709,7 +716,11 @@ def cold_capture(policy, adapter, step, stage, declared):
             # stop/recreate ephemeral game containers or infer daemon quiescence
             # from the exit of a Docker CLI caller.
             raise WorkflowError('wolf_active_writer')
-        adapter.retry(lambda: adapter.copy_paths(paths, stage / 'files', rooted(policy['runner']['exclude_file_path'])))
+        if baseline is not None:
+            adapter.retry(lambda: adapter.finish_copy(
+                paths, stage / 'files', rooted(policy['runner']['exclude_file_path']), baseline=baseline))
+        else:
+            adapter.retry(lambda: adapter.copy_paths(paths, stage / 'files', rooted(policy['runner']['exclude_file_path'])))
         for dump in step.get('databases', []):
             adapter.retry(lambda: adapter.database_dump(dump, stage / 'databases' / dump['name']))
         if snapshot:
@@ -723,6 +734,7 @@ def cold_capture(policy, adapter, step, stage, declared):
             atomic_json(stage / 'zfs-source.json', state)
     finally:
         restart_recorded(policy, journal)
+        report_phase('interruption_' + step['name'], interrupted)
     return links
 
 
@@ -779,6 +791,26 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                                  'finished_at': datetime.now(timezone.utc).isoformat()})
                 report_phase('cold_capture_' + step['name'], started)
             online_started = datetime.now(timezone.utc).isoformat()
+            for step in settings.get('online', []):
+                started = time.monotonic()
+                began = datetime.now(timezone.utc).isoformat()
+                if step.get('native') == 'mosquitto':
+                    container = service_container(policy, step['service'])
+                    running = service_running(policy, step['service'])
+                    adapter.retry(lambda: adapter.mosquitto(
+                        step, stage / 'files', rooted(policy['runner']['exclude_file_path']),
+                        container=container, running=running))
+                elif 'native' in step:
+                    raise WorkflowError('unknown_native_capture')
+                else:
+                    adapter.retry(lambda: adapter.online_tree(
+                        step['paths'], stage / 'files', rooted(policy['runner']['exclude_file_path']),
+                        sqlite_paths=step['sqlite']))
+                captures.append({'name': step['name'], 'started_at': began,
+                                 'finished_at': datetime.now(timezone.utc).isoformat()})
+                report_phase('online_capture_' + step['name'], started)
+            for path in settings.get('online_stores', []):
+                adapter.stable_store(Path(path), stage / 'files' / path.lstrip('/'))
             for path in settings['live_files']:
                 adapter.retry(lambda: adapter.copy_paths(
                     [path], stage / 'files', rooted(policy['runner']['exclude_file_path']),

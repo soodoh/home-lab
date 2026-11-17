@@ -6,7 +6,8 @@ const yaml = require('js-yaml');
 const compose = yaml.load(fs.readFileSync('services/apps.yml', 'utf8')).services;
 const policy = JSON.parse(fs.readFileSync('services/data/restic/policy.json', 'utf8'));
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.applications;
-const paths = policy.capture.cold.flatMap(group => group.paths);
+const paths = [...policy.capture.cold, ...policy.capture.online].flatMap(group => group.paths)
+  .concat(policy.capture.online_stores);
 const encrypted = yaml.load(fs.readFileSync('secrets/production.sops.yaml', 'utf8'));
 
 test('Mindwtr runs a pinned, token-authenticated cloud without publishing a host port', () => {
@@ -39,8 +40,7 @@ test('the host admission count matches the complete included Compose project', (
   assert.equal(host.compose_native_expected_service_count, declared.length);
 });
 
-test('the only durable Mindwtr writer is stopped for backup and included in restore', () => {
-  assert.ok(policy.stop_groups.applications.includes('mindwtr-cloud'));
+test('the durable Mindwtr store remains covered by capture and restore', () => {
   assert.ok(paths.includes('/srv/home-lab-state/mindwtr-data'));
   assert.ok(recovery.services.includes('mindwtr-cloud'));
   assert.ok(recovery.paths.includes('/srv/home-lab-state/mindwtr-data'));

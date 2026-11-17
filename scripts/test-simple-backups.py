@@ -58,6 +58,159 @@ class Files(unittest.TestCase):
         self.assertFalse(Path(str(target) + '-wal').exists())
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
+    def test_stable_store_validates_json_and_cookie_state_without_mutating_sources(self):
+        source = self.root / 'store'
+        source.mkdir()
+        (source / 'settings.json').write_text('{"saved":true}')
+        (source / 'session.cookies').write_text('# Netscape HTTP Cookie File\nexample.invalid\tFALSE\t/\tTRUE\t0\tsession\tsynthetic\n')
+        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in source.iterdir()}
+        target = self.root / 'copied'
+        CAPTURE.stable_store(source, target)
+        self.assertEqual({p.name: p.read_bytes() for p in target.iterdir()}, {k: v[0] for k, v in before.items()})
+        self.assertTrue(all(p.stat().st_mode & 0o777 == 0o600 for p in target.iterdir()))
+        self.assertEqual({p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in source.iterdir()}, before)
+        for name, payload in [('settings.json', '{broken'), ('session.cookies', 'truncated'), ('unknown.bin', 'unknown')]:
+            original = source / name
+            previous = original.read_bytes() if original.exists() else None
+            original.write_text(payload)
+            try:
+                with self.subTest(name=name), mock.patch('time.sleep'), self.assertRaises(CAPTURE.CaptureError):
+                    CAPTURE.stable_store(source, self.root / ('bad-' + name))
+            finally:
+                original.unlink() if previous is None else original.write_bytes(previous)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_precopy_reconciles_deletion_and_same_metadata_changes_without_touching_other_groups(self):
+        source = self.root / 'library'
+        source.mkdir()
+        (source / 'changed').write_bytes(b'before')
+        (source / 'removed').write_text('remove me')
+        (source / 'unchanged').write_text('keep me')
+        target = self.root / 'stage'
+        target.mkdir()
+        # Real capture groups share implied /srv/home-lab-state-like ancestors.
+        other = target / str(source.parent).lstrip('/') / 'other-group/state'
+        other.parent.mkdir(parents=True)
+        other.write_text('preserved')
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        baseline = CAPTURE.precopy([str(source)], target, excludes)
+        unchanged = target / str(source).lstrip('/') / 'unchanged'
+        seed_inode = unchanged.stat().st_ino
+        saved = (source / 'changed').stat()
+        (source / 'changed').write_bytes(b'after!')
+        os.utime(source / 'changed', ns=(saved.st_atime_ns, saved.st_mtime_ns))
+        (source / 'removed').unlink()
+        (source / 'new').write_text('new file')
+        CAPTURE.finish_copy([str(source)], target, excludes, baseline=baseline)
+        copied = target / str(source).lstrip('/')
+        self.assertEqual({p.name: p.read_bytes() for p in copied.iterdir()},
+                         {'changed': b'after!', 'unchanged': b'keep me', 'new': b'new file'})
+        self.assertEqual(other.read_text(), 'preserved')
+        self.assertEqual(unchanged.stat().st_ino, seed_inode, 'unchanged bulk files must not be copied again while stopped')
+        self.assertEqual((source / 'changed').stat().st_mtime_ns, saved.st_mtime_ns)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_online_tree_captures_sqlite_wal_and_related_files_without_stale_journals(self):
+        source = self.root / 'online'
+        source.mkdir()
+        (source / 'config.json').write_text('{"setting":"saved"}')
+        (source / 'attachments').mkdir()
+        (source / 'attachments/item').write_bytes(b'synthetic attachment')
+        # User uploads are opaque bytes, not databases for the adapter to convert.
+        opaque = b'SQLite format 3\x00opaque-user-attachment'
+        (source / 'attachments/upload.sqlite3').write_bytes(opaque)
+        (source / 'attachments/upload.json').write_bytes(b'opaque encrypted attachment, not JSON')
+        db_path = source / 'state.sqlite3'
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        stage = self.root / 'files'
+        stage.mkdir()
+        with closing(sqlite3.connect(db_path)) as db:
+            db.execute('PRAGMA journal_mode=WAL')
+            db.execute('CREATE TABLE items (value TEXT)')
+            db.execute("INSERT INTO items VALUES ('saved')")
+            db.commit()
+            CAPTURE.online_tree([str(source)], stage, excludes, sqlite_paths=[str(db_path)])
+            db.execute("INSERT INTO items VALUES ('later')")
+            db.commit()
+            restored = stage / str(source).lstrip('/')
+            with closing(sqlite3.connect(restored / 'state.sqlite3')) as copied:
+                self.assertEqual(copied.execute('SELECT value FROM items').fetchall(), [('saved',)])
+                self.assertEqual(copied.execute('PRAGMA integrity_check').fetchone(), ('ok',))
+            self.assertEqual((restored / 'attachments/item').read_bytes(), b'synthetic attachment')
+            self.assertEqual((restored / 'attachments/upload.sqlite3').read_bytes(), opaque)
+            self.assertEqual((restored / 'attachments/upload.json').read_bytes(), b'opaque encrypted attachment, not JSON')
+            self.assertEqual(json.loads((restored / 'config.json').read_text()), {'setting': 'saved'})
+            self.assertFalse((restored / 'state.sqlite3-wal').exists())
+            self.assertFalse((restored / 'state.sqlite3-shm').exists())
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_online_tree_refuses_database_commits_or_file_mutation_during_capture(self):
+        source = self.root / 'busy'
+        source.mkdir()
+        settings = source / 'config.json'
+        settings.write_text('{"setting":"before"}')
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        copy = CAPTURE.copy_paths
+        with closing(sqlite3.connect(source / 'state.db')) as writer:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('CREATE TABLE items (value TEXT)')
+            writer.commit()
+            for kind in ('database', 'file'):
+                target = self.root / kind
+                target.mkdir()
+                def mutate(*args, **kwargs):
+                    copy(*args, **kwargs)
+                    if kind == 'database':
+                        writer.execute("INSERT INTO items VALUES ('concurrent')")
+                        writer.commit()
+                    else:
+                        settings.write_text('{"setting":"changed"}')
+                with self.subTest(kind=kind), mock.patch.object(CAPTURE, 'copy_paths', side_effect=mutate):
+                    with self.assertRaisesRegex(CAPTURE.CaptureError, 'online_source_changed'):
+                        CAPTURE.online_tree([str(source)], target, excludes, sqlite_paths=[str(source / 'state.db')])
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_mosquitto_requires_a_fresh_atomic_native_flush_and_preserves_stopped_state(self):
+        source = self.root / 'mosquitto'
+        source.mkdir()
+        persistence = source / 'mosquitto.db'
+        persistence.write_bytes(b'previous-native-database')
+        (source / 'mosquitto.conf').write_text('persistence true\n')
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        step = {'paths': [str(source)], 'persistence': str(persistence)}
+        command = CAPTURE.command
+        signals = []
+        def publish(args, *a, **kwargs):
+            if args[0] != '/usr/bin/docker':
+                return command(args, *a, **kwargs)
+            self.assertEqual(args, ['/usr/bin/docker', 'kill', '--signal', 'USR1', 'synthetic-container'])
+            signals.append(args)
+            temporary = source / 'mosquitto.db.new'
+            temporary.write_bytes(b'fresh-native-database')
+            temporary.replace(persistence)
+        target = self.root / 'online-mqtt'
+        target.mkdir()
+        with mock.patch.object(CAPTURE, 'command', side_effect=publish):
+            CAPTURE.mosquitto(step, target, excludes, container='synthetic-container', running=True)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual((target / str(persistence).lstrip('/')).read_bytes(), b'fresh-native-database')
+        offline = self.root / 'offline-mqtt'
+        offline.mkdir()
+        command = CAPTURE.command
+        def no_signal(args, *a, **kw):
+            self.assertNotEqual(args[0], '/usr/bin/docker', 'intentionally stopped MQTT must not be signalled/started')
+            return command(args, *a, **kw)
+        with mock.patch.object(CAPTURE, 'command', side_effect=no_signal):
+            CAPTURE.mosquitto(step, offline, excludes, container='synthetic-container', running=False)
+        with mock.patch.object(CAPTURE, 'command'), mock.patch.object(CAPTURE, 'copy_paths') as copied, \
+                mock.patch('time.monotonic', side_effect=[0, 31]), self.assertRaisesRegex(CAPTURE.CaptureError, 'mqtt_flush_timeout'):
+            CAPTURE.mosquitto(step, self.root / 'unacknowledged', excludes, container='synthetic-container', running=True)
+        copied.assert_not_called()
+
     @unittest.skipUnless(shutil.which('my_print_defaults'), 'requires the native MariaDB option parser')
     def test_mariadb_password_round_trip_and_private_option_file_cleanup(self):
         parser = shutil.which('my_print_defaults')
@@ -563,8 +716,19 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         stage = fixture / PREPARE.STAGE
         (stage / 'files/mnt/storage/media/nextcloud/data').mkdir(parents=True)
         (stage / 'files/mnt/storage/media/nextcloud/data/user.txt').write_text('user data')
-        (stage / 'files/srv/home-lab-state/example').mkdir(parents=True)
-        CAPTURE.sqlite_backup(self.sqlite_fixture(), stage / 'files/srv/home-lab-state/example/db.sqlite')
+        online = self.root / 'online-application'
+        online.mkdir()
+        (online / 'config.json').write_text('{"setting":"captured"}')
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        with closing(sqlite3.connect(online / 'db.sqlite')) as writer:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('CREATE TABLE items (value TEXT)')
+            writer.execute("INSERT INTO items VALUES ('saved')")
+            writer.commit()
+            CAPTURE.online_tree([str(online)], stage / 'files', excludes, sqlite_paths=[str(online / 'db.sqlite')])
+            writer.execute("INSERT INTO items VALUES ('later')")
+            writer.commit()
         (stage / 'native').mkdir()
         (stage / 'native/jellyfin.zip').write_bytes(b'native-archive-fixture')
         (stage / 'databases').mkdir()
@@ -598,8 +762,12 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         recovered.chmod(0o700)
         PREPARE.normalize(recovered)
         self.assertEqual((recovered / 'mnt/storage/media/nextcloud/data/user.txt').read_text(), 'user data')
-        with closing(sqlite3.connect(recovered / 'srv/home-lab-state/example/db.sqlite')) as db:
-            self.assertEqual(db.execute('SELECT value FROM items').fetchone(), ('saved',))
+        restored_online = recovered / str(online).lstrip('/')
+        with closing(sqlite3.connect(restored_online / 'db.sqlite')) as db:
+            self.assertEqual(db.execute('SELECT value FROM items').fetchall(), [('saved',)])
+            self.assertEqual(db.execute('PRAGMA integrity_check').fetchone(), ('ok',))
+        self.assertEqual(json.loads((restored_online / 'config.json').read_text()), {'setting': 'captured'})
+        self.assertFalse((restored_online / 'db.sqlite-wal').exists())
         self.assertEqual((recovered / 'recovery-exports/databases/authentik.dump').read_bytes(), b'PGDMP-fixture')
         self.assertFalse((recovered / PREPARE.STAGE).exists())
 

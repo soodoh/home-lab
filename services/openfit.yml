@@ -8,10 +8,19 @@ services:
   openfit:
     image: ghcr.io/soodoh/openfit:0.6.7@sha256:b2542c6b27ef0f0c37d7de9c1418d11b1ec4c86103bf9ecbaa43bd41bd41d825
     container_name: openfit
+    init: true
+    # Keep native initialization/draining; the adapter exits after Nitro closes.
+    entrypoint: ["/bin/sh", "-ec", "/app/scripts/init.sh; exec bun /opt/home-lab-openfit-start.mjs"]
     restart: unless-stopped
     logging: *default-logging
     volumes:
       - /srv/home-lab-state/openfit-data:/app/data
+      - type: bind
+        source: ./data/openfit/start.mjs
+        target: /opt/home-lab-openfit-start.mjs
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       TZ: $TZ
       BETTER_AUTH_BASE_URL: $OPENFIT_BASE_URL
@@ -23,6 +32,7 @@ services:
       interval: 30s
       timeout: 10s
       start_period: 60s
+      start_interval: 5s
       retries: 3
     networks:
       - proxy

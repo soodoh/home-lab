@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "1ae8b52a9f2d867711c06abe462fc00bb017b0e61bfc69815568caf9eb35e82a",
+    "sha256": "94e7a197df0162e713b5ec1535c58b22626702d97bd5cf9d2647912709d7068f",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -90,12 +90,7 @@
       "zwave",
       "frigate",
       "karaoke-eternal",
-      "mosquitto",
       "omada",
-      "ddns-updater",
-      "openfit",
-      "vaultwarden",
-      "mindwtr-cloud",
       "seerr",
       "prowlarr",
       "sonarr",
@@ -104,16 +99,13 @@
       "sabnzbd",
       "tachidesk",
       "caro-tachidesk",
-      "recyclarr",
-      "wolf",
-      "flaresolverr",
-      "gluetun"
+      "wolf"
     ],
     "databases": []
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "ffd3f66a9c15459aef56412a3aeee688f789beacb22b35f8732ce61feedb3e46",
+    "adapter_sha256": "1c1805adea11db2950632ef0c0723efc9795ee5f39e392406c8ac1ff67c36116",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -173,6 +165,7 @@
       },
       {
         "name": "books",
+        "precopy": true,
         "services": [
           "shelfmark",
           "grimmory"
@@ -251,58 +244,12 @@
         ]
       },
       {
-        "name": "mosquitto",
-        "services": [
-          "mosquitto"
-        ],
-        "paths": [
-          "/srv/home-lab-state/mosquitto-data/config",
-          "/srv/home-lab-state/mosquitto-data/data"
-        ]
-      },
-      {
         "name": "omada",
         "services": [
           "omada"
         ],
         "paths": [
           "/srv/home-lab-state/omada-data/data"
-        ]
-      },
-      {
-        "name": "ddns",
-        "services": [
-          "ddns-updater"
-        ],
-        "paths": [
-          "/srv/home-lab-state/ddns-updater-data"
-        ]
-      },
-      {
-        "name": "openfit",
-        "services": [
-          "openfit"
-        ],
-        "paths": [
-          "/srv/home-lab-state/openfit-data"
-        ]
-      },
-      {
-        "name": "vaultwarden",
-        "services": [
-          "vaultwarden"
-        ],
-        "paths": [
-          "/srv/home-lab-state/vaultwarden-data"
-        ]
-      },
-      {
-        "name": "mindwtr",
-        "services": [
-          "mindwtr-cloud"
-        ],
-        "paths": [
-          "/srv/home-lab-state/mindwtr-data"
         ]
       },
       {
@@ -361,6 +308,7 @@
       },
       {
         "name": "tachidesk",
+        "precopy": true,
         "services": [
           "tachidesk"
         ],
@@ -371,6 +319,7 @@
       },
       {
         "name": "caro-tachidesk",
+        "precopy": true,
         "services": [
           "caro-tachidesk"
         ],
@@ -380,43 +329,43 @@
         ]
       },
       {
-        "name": "recyclarr",
-        "services": [
-          "recyclarr"
-        ],
-        "paths": [
-          "/srv/home-lab-state/recyclarr-data/settings.yml"
-        ]
-      },
-      {
         "name": "wolf",
         "services": [
           "wolf"
         ],
         "paths": [],
         "wolf": "/mnt/games/wolf"
-      },
-      {
-        "name": "vpn",
-        "services": [
-          "shelfmark",
-          "seerr",
-          "tachidesk",
-          "caro-tachidesk",
-          "prowlarr",
-          "sonarr",
-          "radarr",
-          "sabnzbd",
-          "qbittorrent",
-          "flaresolverr",
-          "gluetun"
-        ],
-        "paths": [
-          "/srv/home-lab-state/gluetun-data"
-        ]
       }
     ],
+    "online": [
+      {
+        "name": "mosquitto",
+        "native": "mosquitto",
+        "service": "mosquitto",
+        "persistence": "/srv/home-lab-state/mosquitto-data/data/mosquitto.db",
+        "paths": [
+          "/srv/home-lab-state/mosquitto-data/config",
+          "/srv/home-lab-state/mosquitto-data/data"
+        ]
+      },
+      {
+        "name": "vaultwarden",
+        "paths": ["/srv/home-lab-state/vaultwarden-data"],
+        "sqlite": ["/srv/home-lab-state/vaultwarden-data/db.sqlite3"]
+      },
+      {
+        "name": "openfit",
+        "paths": ["/srv/home-lab-state/openfit-data"],
+        "sqlite": ["/srv/home-lab-state/openfit-data/openfit.db"]
+      }
+    ],
+    "online_stores": [
+      "/srv/home-lab-state/mindwtr-data",
+      "/srv/home-lab-state/gluetun-data",
+      "/srv/home-lab-state/ddns-updater-data"
+    ],
     "live_files": [
+      "/srv/home-lab-state/recyclarr-data/settings.yml",
       "/etc/docker-compose/production.env",
       "/etc/docker-compose/credentials",
       "/var/lib/docker-compose/source.tar",

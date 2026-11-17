@@ -76,6 +76,9 @@ services:
   nextcloud-cron:
     image: *nextcloud-image
     container_name: nextcloud-cron
+    init: true
+    # This process is crond, not Apache; the image's SIGWINCH is inappropriate.
+    stop_signal: SIGTERM
     restart: always
     entrypoint: /cron.sh
     logging: *default-logging

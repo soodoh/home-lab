@@ -7,7 +7,7 @@ installed-controller inputs, not candidate application source.
 """
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import ExitStack, closing, nullcontext
 import fcntl
 import json
 import http.client
@@ -65,14 +65,183 @@ def safe_source(path):
     return path
 
 
-def copy_paths(paths, target, excludes, online_sqlite=False):
+def copy_paths(paths, target, excludes, online_sqlite=False, *, exclude=(), synchronize=False):
     for path in paths:
         safe_source(path)
-    options = []
+    options = ['--exclude=' + str(path) for path in exclude]
     if online_sqlite:
-        options = ['--exclude=*.db', '--exclude=*.db-wal', '--exclude=*.db-shm', '--exclude=*.db-journal']
+        options.extend(['--exclude=*.db', '--exclude=*.db-wal', '--exclude=*.db-shm', '--exclude=*.db-journal'])
+    if synchronize:
+        options.extend(['--delete-delay', '--modify-window=-1'])
     command(['/usr/bin/rsync', '--archive', '--relative', '--numeric-ids', '--hard-links', '--acls', '--xattrs',
              '--exclude-from=' + str(excludes), *options, '--', *paths, str(target) + '/'])
+
+
+def file_inventory(paths):
+    """lstat only: never traverse links or inspect a file's private payload."""
+    result = {}
+    for source in paths:
+        source = safe_source(source)
+        pending = [source]
+        while pending:
+            path = pending.pop()
+            info = path.lstat()
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+                raise CaptureError('capture_special_file')
+            result[str(path)] = (info.st_mode, info.st_dev, info.st_ino, info.st_size,
+                                 info.st_mtime_ns, info.st_ctime_ns, info.st_uid, info.st_gid)
+            if stat.S_ISDIR(info.st_mode):
+                pending.extend(path.iterdir())
+    return result
+
+
+def precopy(paths, target, excludes):
+    """Seed private staging while writers are online; this is NOT recovery data."""
+    before = file_inventory(paths)
+    copy_paths(paths, target, excludes)
+    return before
+
+
+def finish_copy(paths, target, excludes, *, baseline):
+    """After writer exclusion, invalidate changed seeds and synchronize natively.
+
+    ctime/inode detect replacements and writes even if size/mtime were preserved.
+    Only changed staged files are discarded; the final rsync owns deletion and
+    metadata preservation. There are no hard links back to the production tree.
+    """
+    after = file_inventory(paths)
+    for path, signature in after.items():
+        if signature == baseline.get(path) or stat.S_ISDIR(signature[0]):
+            continue
+        destination = target / path.lstrip('/')
+        # Resolve ancestors, not the leaf: a copied symlink is removed, not followed.
+        if destination.is_symlink() or destination.is_file():
+            safe_source(destination.parent)
+            destination.unlink()
+    copy_paths(paths, target, excludes, synchronize=True)
+
+
+def stable_store(source, target):
+    """Read small JSON/curl cookie stores without stopping their network writers."""
+    source = safe_source(source)
+    def capture():
+        before = file_inventory([source])
+        payloads = {}
+        for name, signature in before.items():
+            path = Path(name)
+            if path == source:
+                continue
+            if path.parent != source or not stat.S_ISREG(signature[0]) or signature[3] > 16 * 1024 * 1024:
+                raise CaptureError('online_store_type')
+            raw = path.read_bytes()
+            try:
+                if path.suffix == '.json':
+                    if not isinstance(json.loads(raw), (dict, list)):
+                        raise ValueError
+                elif path.suffix == '.cookies':
+                    lines = raw.decode().splitlines()
+                    if not lines or lines[0] != '# Netscape HTTP Cookie File':
+                        raise ValueError
+                    for line in lines[1:]:
+                        if line.startswith('#HttpOnly_'):
+                            line = line[len('#HttpOnly_'):]
+                        elif not line or line.startswith('#'):
+                            continue
+                        fields = line.split('\t')
+                        if len(fields) != 7 or fields[1] not in {'TRUE', 'FALSE'} or fields[3] not in {'TRUE', 'FALSE'} or not fields[4].isdigit():
+                            raise ValueError
+                else:
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                raise CaptureError('online_store_invalid') from None
+            payloads[path.name] = raw
+        if not payloads or before != file_inventory([source]):
+            raise CaptureError('online_source_changed')
+        # Re-read bytes as well as metadata, including in-place writes on NFS.
+        if any(raw != (source / name).read_bytes() for name, raw in payloads.items()):
+            raise CaptureError('online_source_changed')
+        target.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for old in target.iterdir():
+            if old.name not in payloads:
+                old.unlink()
+        for name, raw in payloads.items():
+            destination = target / name
+            destination.write_bytes(raw)
+            destination.chmod(0o600)
+            if os.geteuid() == 0:
+                info = (source / name).stat()
+                os.chown(destination, info.st_uid, info.st_gid)
+    retry(capture)
+
+
+def mosquitto(step, target, excludes, *, container, running):
+    """SIGUSR1 publishes Mosquitto's native persistence DB by atomic replacement."""
+    persistence = Path(step['persistence'])
+    if running:
+        before = persistence.stat().st_ino if persistence.exists() else None
+        command(['/usr/bin/docker', 'kill', '--signal', 'USR1', container])
+        deadline = time.monotonic() + 30
+        while True:
+            if persistence.exists():
+                safe_source(persistence)
+                info = persistence.stat()
+                if stat.S_ISREG(info.st_mode) and info.st_size and info.st_ino != before:
+                    break
+            if time.monotonic() >= deadline:
+                raise CaptureError('mqtt_flush_timeout')
+            time.sleep(.1)
+    before = file_inventory(step['paths'])
+    copy_paths(step['paths'], target, excludes, synchronize=True)
+    if before != file_inventory(step['paths']):
+        raise CaptureError('online_source_changed')
+
+
+def online_tree(paths, target, excludes, *, sqlite_paths):
+    """Native SQLite backups plus files from an observed write-free interval.
+
+    Hold each reader open so PRAGMA data_version can detect commits throughout
+    capture, not just during SQLite's individually consistent backup operation.
+    Concurrent DB/file writes refuse completion; callers retry boundedly without
+    stopping a service. This is not a claim that arbitrary live copies are atomic.
+    """
+    before = file_inventory(paths)
+    if any(stat.S_ISLNK(signature[0]) for signature in before.values()):
+        raise CaptureError('online_source_symlink')
+    readers, omitted = {}, set()
+    with ExitStack() as opened:
+        # Only declared application databases are converted. A SQLite-looking
+        # user attachment is an opaque file, never a database to open/rewrite.
+        for name in sqlite_paths:
+            path = Path(name)
+            if name not in before or not stat.S_ISREG(before[name][0]):
+                raise CaptureError('online_sqlite_missing')
+            with path.open('rb') as stream:
+                if stream.read(16) != b'SQLite format 3\x00':
+                    raise CaptureError('online_sqlite_format')
+            reader = opened.enter_context(closing(sqlite3.connect('file:' + str(path) + '?mode=ro', uri=True, timeout=10)))
+            readers[name] = (reader, reader.execute('PRAGMA data_version').fetchone())
+            omitted.update(name + suffix for suffix in ('', '-wal', '-shm', '-journal'))
+        if not readers:
+            raise CaptureError('online_sqlite_missing')
+        copy_paths(paths, target, excludes, exclude=sorted(omitted), synchronize=True)
+        for name, (reader, _) in readers.items():
+            destination = target / name.lstrip('/')
+            for suffix in ('-wal', '-shm', '-journal'):
+                destination.with_name(destination.name + suffix).unlink(missing_ok=True)
+            sqlite_backup(Path(name), destination, reader=reader)
+            shutil.copystat(name, destination)
+            if os.geteuid() == 0:
+                info = Path(name).stat()
+                os.chown(destination, info.st_uid, info.st_gid)
+        after = file_inventory(paths)
+        selected = lambda inventory: {name: value for name, value in inventory.items() if name not in omitted}
+        # Database inode replacement is also a refusal: data_version belongs to
+        # the still-open inode, and cannot alone detect a path replacement.
+        if (selected(before) != selected(after) or any(
+                before[name][1:3] != after.get(name, (None, None, None))[1:3] or
+                version != reader.execute('PRAGMA data_version').fetchone()
+                for name, (reader, version) in readers.items())):
+            raise CaptureError('online_source_changed')
 
 
 ZFS_DATA_PATH = '/mnt/storage/media/nextcloud/data'
@@ -210,13 +379,14 @@ def zfs_unmount(stage):
         raise CaptureError('snapshot_unmount_inspection')
 
 
-def sqlite_backup(source, target):
+def sqlite_backup(source, target, *, reader=None):
     safe_source(source)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = target.with_name(target.name + '.partial')
     temporary.unlink(missing_ok=True)
     try:
-        with closing(sqlite3.connect('file:' + str(source) + '?mode=ro', uri=True, timeout=10)) as reader:
+        with (nullcontext(reader) if reader is not None else
+              closing(sqlite3.connect('file:' + str(source) + '?mode=ro', uri=True, timeout=10))) as reader:
             with closing(sqlite3.connect(temporary)) as writer:
                 deadline = time.monotonic() + 300
                 def progress(*_):
@@ -518,6 +688,9 @@ def capacity_check(policy):
     paths = list(policy['capture']['live_files']) + [policy['capture']['cli_auth'], policy['capture']['jellyfin']]
     paths.extend(policy['capture']['estimate_paths'])
     paths.extend(policy['capture']['online_json'])
+    paths.extend(policy['capture'].get('online_stores', []))
+    for step in policy['capture'].get('online', []):
+        paths.extend(step['paths'])
     for step in policy['capture']['cold']:
         paths.extend(step['paths'])
         if step.get('wolf'):

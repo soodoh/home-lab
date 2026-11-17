@@ -421,15 +421,17 @@ class Runtime(unittest.TestCase):
         self.assertEqual(events, [['stop', '--timeout', '120', 'app'], 'copy', 'dump', 'restart'])
         self.assertEqual(recorded.call_args.args[1]['owner'], policy['_owner'])
 
-    def test_reviewed_capture_plan_never_interrupts_cli_or_either_ingress(self):
+    def test_reviewed_capture_plan_keeps_online_writers_and_stops_other_services_at_most_once(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-        kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet'}
+        kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
+                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto'}
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
         running = set(declared)
+        stopped = []
         adapter = mock.Mock()
         adapter.wolf_paths.return_value = ([], {})
         adapter.retry.side_effect = lambda operation: operation()
-        adapter.copy_paths.side_effect = lambda *_: self.assertTrue(kept <= running)
+        adapter.copy_paths.side_effect = lambda *_, **__: self.assertTrue(kept <= running)
         policy['_capture'] = 'b' * 32
         adapter.ZFS_DATA_PATH = CAPTURE['ZFS_DATA_PATH']
         adapter.zfs_spec.return_value = policy['capture']['zfs']
@@ -441,6 +443,7 @@ class Runtime(unittest.TestCase):
         def compose(_policy, args):
             if args[0] == 'stop':
                 self.assertTrue(kept.isdisjoint(args[3:]))
+                stopped.extend(args[3:])
                 running.difference_update(args[3:])
             else:
                 running.update(args[1:])
@@ -456,6 +459,53 @@ class Runtime(unittest.TestCase):
             for step in policy['capture']['cold']:
                 cold(policy, adapter, step, Path('/unused'), declared)
                 self.assertEqual(running, declared)
+        self.assertEqual(len(stopped), len(set(stopped)), 'VPN clients must not be stopped a second time')
+
+    def test_failed_precopy_never_interrupts_a_writer_or_publishes_a_journal(self):
+        cold = RUNNER['cold_capture']
+        adapter = mock.Mock()
+        adapter.retry.side_effect = lambda operation: operation()
+        adapter.precopy.side_effect = CAPTURE['CaptureError']('copy_failed')
+        journal, compose = mock.Mock(), mock.Mock()
+        with mock.patch.dict(cold.__globals__, {'rooted': Path, 'atomic_json': journal, 'compose': compose}), \
+                self.assertRaisesRegex(CAPTURE['CaptureError'], 'copy_failed'):
+            cold({'runner': {'exclude_file_path': '/excluded'}}, adapter,
+                 {'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}, Path('/stage'), {'app'})
+        journal.assert_not_called()
+        compose.assert_not_called()
+
+    def test_precopy_runs_online_and_final_sync_finishes_before_restart(self):
+        cold = RUNNER['cold_capture']
+        events, running = [], {'app'}
+        baseline = {'synthetic': 'before'}
+        adapter = mock.Mock()
+        adapter.retry.side_effect = lambda operation: operation()
+        def precopy(*_):
+            self.assertEqual(running, {'app'})
+            events.append('precopy')
+            return baseline
+        def finish(*_, **kwargs):
+            self.assertEqual(running, set())
+            self.assertEqual(kwargs['baseline'], baseline)
+            events.append('final-sync')
+        adapter.precopy.side_effect = precopy
+        adapter.finish_copy.side_effect = finish
+        def compose(_policy, args):
+            self.assertEqual(args, ['stop', '--timeout', '120', 'app'])
+            events.append('stop')
+            running.clear()
+            return OK
+        def restart(*_):
+            events.append('restart')
+            running.add('app')
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
+            'service_running': lambda _, s: s in running, 'compose': compose, 'restart_recorded': restart,
+        }):
+            cold({'runner': {'exclude_file_path': '/excluded'}}, adapter,
+                 {'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}, Path('/stage'), {'app'})
+        self.assertEqual(events, ['precopy', 'stop', 'final-sync', 'restart'])
+        self.assertEqual(running, {'app'})
 
     def test_failed_stop_or_copy_always_attempts_restart(self):
         cold = RUNNER['cold_capture']
@@ -473,7 +523,7 @@ class Runtime(unittest.TestCase):
                     'restart_recorded': restart,
                 }), self.assertRaises((RUNNER['WorkflowError'], CAPTURE['CaptureError'])):
                     cold({'runner': {'exclude_file_path': '/unused'}}, adapter,
-                         {'services': ['app'], 'paths': ['/data']}, Path('/unused'), {'app'})
+                         {'name': 'app', 'services': ['app'], 'paths': ['/data']}, Path('/unused'), {'app'})
                 self.assertEqual(restart.call_args.args[1]['running_services'], ['app'])
 
     def test_busy_wolf_refuses_before_staging_or_interruption_and_can_retry_when_idle(self):

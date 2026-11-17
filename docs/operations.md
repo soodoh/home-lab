@@ -927,19 +927,58 @@ not application generations or mixed-age admission. Captures are sequential,
 not globally atomic; the format manifest records group capture times.
 
 Native PostgreSQL/MariaDB exports run while coupled application writers are
-paused. SQLite online backups and Jellyfin's native archive cover online inputs.
+paused. Vaultwarden and OpenFit stay online: native SQLite backups capture
+committed WAL data without copying live journals. A write-free interval across
+their database and companion files is verified using SQLite's connection-local
+`data_version` plus inode/ctime/file-inventory checks; concurrent writes cause a
+bounded retry, never an automatic service stop or a falsely complete recovery set.
+Only declared application databases are converted; user attachments remain opaque
+files even when their names or bytes resemble SQLite or JSON.
+Jellyfin uses its native archive. Mosquitto stays online and flushes persistence
+with native `SIGUSR1`; capture waits for its fresh atomic database replacement.
+An intentionally stopped Mosquitto is copied without starting or signalling it.
+
+Gluetun and FlareSolverr remain running. Gluetun's JSON/cookie store, Mindwtr's JSON
+store and DDNS's JSON store use bounded validated stable reads. VPN namespace clients are interrupted
+only for their own coupled-state capture, never again for Gluetun. Recyclarr's
+selected settings file is read under the existing production/capture exclusion.
+Home Assistant and Omada retain their short consistent stopped captures; native
+exports would require separately approved privileged application credentials and
+qualified restores, not reuse of an unrelated administrator identity.
+
 Nextcloud's local configuration and native SQL export are captured while its web
 and cron writers are stopped. The storage host then snapshots the existing
 `storage/docker` ZFS dataset; writers resume and native `occ status` must pass
 before the long file read. A temporary read-only export exposes only that
 snapshot's Nextcloud subtree to the fixed Docker-host NFS client. Restic reads it
 through a private NFS mount at the original staged path: no full user-data staging
-copy or restore-layout change. Other protected state is copied completely into
-private disk-backed staging inside its service/dependency group's stop/copy/restart
-window. Previously
-stopped services stay stopped. Restart/health checks finish **before** unrelated
+copy or restore-layout change. Other coupled state is fully materialized in private
+disk-backed staging; each service/dependency group stays stopped through its final
+synchronization and database export, then resumes before repository work. Books and both Tachidesks first pre-copy their selected trees while
+writers are online. After writer exclusion, inode/ctime changes invalidate seeded
+files even when their size and mtime were preserved; native rsync reconciles the
+final delta, deletions and metadata. Seeds are never completed recovery inputs.
+Failed pre-copy never stops a writer, and interrupted staging still requires
+inspection rather than reuse. Separate `precopy_*` and `interruption_*` phase
+metrics distinguish online copying from the actual stop/restart/health window;
+phase messages are flushed immediately instead of appearing only at process exit.
+
+Previously stopped services stay stopped. Restart/health checks finish **before** unrelated
 groups, Restic scanning or replication. Gluetun's namespace clients resume only
-after VPN health. A durable interruption journal records the previous running
+after VPN health when recovering a previously recorded interruption. The normal
+capture no longer restarts the VPN. Nextcloud cron uses a reaping init and `SIGTERM`,
+not the image's Apache `SIGWINCH`. OpenFit uses a reaping init and a small
+read-only startup adapter: the pinned Nitro handler closes connections but leaves
+background handles alive, so the adapter awaits that native async handler before
+exiting Bun. Unknown shutdown interfaces refuse startup; remove the adapter once
+a pinned upstream replacement passes native lifecycle qualification without it.
+Mindwtr runs its signal-handling server directly instead of through Bun's workspace runner.
+Startup health checks retain their normal recurring intervals but use a short
+startup interval. Qualify these with synthetic pinned-image fixtures:
+`BACKUP_CONTAINER_TESTS=true python3 scripts/test-backup-container-lifecycle.py`.
+The test requires a disposable Docker context and never mounts production data.
+
+A durable interruption journal records the previous running
 set and the strict capture's production-owner digest. Boot recovery may resume
 that set only when the journal matches the retained owner; it never releases
 production ownership or resumes deployment. Unowned daily captures can recover

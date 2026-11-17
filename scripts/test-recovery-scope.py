@@ -17,8 +17,8 @@ class RecoveryScopeTests(unittest.TestCase):
         scope = module.load_scope(ROOT / "recovery/groups.json")
         selected = module.resolve(scope, ["all"])
         policy = json.loads((ROOT / "services/data/restic/policy.json").read_text())
-        inputs = [p for step in policy["capture"]["cold"] for p in step["paths"]]
-        inputs += policy["capture"]["live_files"] + policy["capture"]["online_json"]
+        inputs = [p for step in policy["capture"]["cold"] + policy["capture"]["online"] for p in step["paths"]]
+        inputs += policy["capture"]["live_files"] + policy["capture"]["online_json"] + policy["capture"]["online_stores"]
         inputs += [policy["capture"]["cli_auth"], policy["capture"]["jellyfin"]]
         self.assertTrue(all(any(p == root or p.startswith(root + "/") for root in selected["paths"]) for p in inputs))
         self.assertIn("mindwtr-cloud", selected["services"])
