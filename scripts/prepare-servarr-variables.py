@@ -15,7 +15,7 @@ import sys
 import time
 
 
-KEYS = ("SONARR", "RADARR", "RADARR_4K", "PROWLARR")
+KEYS = ("SONARR", "RADARR", "PROWLARR")
 
 
 def require_private_session(path: Path) -> None:
@@ -39,7 +39,6 @@ def load_sops(path: Path) -> dict:
 def build_inputs(production: dict, clients: dict, servarr: dict) -> dict:
     values = {f"{name.lower()}_api_key": production[f"{name}_API_KEY"] for name in KEYS}
     values.update({
-        "radarr_internal_url": production["RADARR_URL"],
         "qbittorrent_username": clients["qbittorrent_username"],
         "qbittorrent_password": clients["qbittorrent_password"],
         "sabnzbd_api_key": clients["sabnzbd_api_key"],
