@@ -78,14 +78,17 @@ def copy_paths(paths, target, excludes, online_sqlite=False, *, exclude=(), sync
              '--exclude-from=' + str(excludes), *options, '--', *paths, str(target) + '/'])
 
 
-def file_inventory(paths):
+def file_inventory(paths, *, exclude=()):
     """lstat only: never traverse links or inspect a file's private payload."""
+    excluded = tuple(Path(path) for path in exclude)
     result = {}
     for source in paths:
         source = safe_source(source)
         pending = [source]
         while pending:
             path = pending.pop()
+            if any(path == root or root in path.parents for root in excluded):
+                continue
             info = path.lstat()
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)):
                 raise CaptureError('capture_special_file')
@@ -155,16 +158,20 @@ def stable_store(source, target):
                         raise ValueError
                 elif path.suffix == '.cookies':
                     lines = raw.decode().splitlines()
-                    if not lines or lines[0] != '# Netscape HTTP Cookie File':
-                        raise ValueError
-                    for line in lines[1:]:
+                    header = False
+                    for line in lines:
+                        if line == '# Netscape HTTP Cookie File':
+                            header = True
+                            continue
                         if line.startswith('#HttpOnly_'):
                             line = line[len('#HttpOnly_'):]
                         elif not line or line.startswith('#'):
                             continue
                         fields = line.split('\t')
-                        if len(fields) != 7 or fields[1] not in {'TRUE', 'FALSE'} or fields[3] not in {'TRUE', 'FALSE'} or not fields[4].isdigit():
+                        if not header or len(fields) != 7 or fields[1] not in {'TRUE', 'FALSE'} or fields[3] not in {'TRUE', 'FALSE'} or not fields[4].isdigit():
                             raise ValueError
+                    if not header:
+                        raise ValueError
                 else:
                     raise ValueError
             except (ValueError, UnicodeError):
@@ -211,7 +218,7 @@ def mosquitto(step, target, excludes, *, container, running):
         raise CaptureError('online_source_changed')
 
 
-def online_tree(paths, target, excludes, *, sqlite_paths):
+def online_tree(paths, target, excludes, *, sqlite_paths, json_roots=(), ephemeral=()):
     """Native SQLite snapshots plus companion files from a write-free interval.
 
     Before/after inode, size, mtime and ctime checks include the databases and
@@ -219,11 +226,13 @@ def online_tree(paths, target, excludes, *, sqlite_paths):
     rebuild a private wal-index and advance data_version without a real commit;
     that connection-local cache epoch is not an application-write detector.
     """
-    before = file_inventory(paths)
+    before = file_inventory(paths, exclude=ephemeral)
     if any(stat.S_ISLNK(signature[0]) for signature in before.values()):
         raise CaptureError('online_source_symlink')
-    if not sqlite_paths:
-        raise CaptureError('online_sqlite_missing')
+    if not sqlite_paths and not json_roots:
+        raise CaptureError('online_capture_scope_missing')
+    if any(root not in before or not stat.S_ISDIR(before[root][0]) for root in json_roots):
+        raise CaptureError('online_json_root_missing')
     omitted = set()
     # Only declared application databases are converted. User uploads stay opaque.
     for name in sqlite_paths:
@@ -235,7 +244,7 @@ def online_tree(paths, target, excludes, *, sqlite_paths):
         omitted.update(name + suffix for suffix in ('', '-wal', '-shm', '-journal'))
     database_files = {name + suffix for name in sqlite_paths for suffix in ('', '-wal', '-journal')}
     before_databases = database_fingerprints(database_files, before)
-    copy_paths(paths, target, excludes, exclude=sorted(omitted), synchronize=True)
+    copy_paths(paths, target, excludes, exclude=sorted(omitted | set(ephemeral)), synchronize=True)
     for name in sqlite_paths:
         destination = target / name.lstrip('/')
         for suffix in ('-wal', '-shm', '-journal'):
@@ -245,11 +254,19 @@ def online_tree(paths, target, excludes, *, sqlite_paths):
         if os.geteuid() == 0:
             info = Path(name).stat()
             os.chown(destination, info.st_uid, info.st_gid)
-    after = file_inventory(paths)
+    after = file_inventory(paths, exclude=ephemeral)
     selected = lambda inventory: {name: value for name, value in inventory.items() if name not in omitted}
     if (selected(before) != selected(after) or
             before_databases != database_fingerprints(database_files, after)):
         raise CaptureError('online_source_changed')
+    for name in before:
+        path = Path(name)
+        if str(path.parent) in json_roots and path.suffix == '.json' and stat.S_ISREG(before[name][0]):
+            try:
+                if not isinstance(json.loads((target / name.lstrip('/')).read_bytes()), (dict, list)):
+                    raise ValueError
+            except ValueError:
+                raise CaptureError('online_json_invalid') from None
 
 
 ZFS_DATA_PATH = '/mnt/storage/media/nextcloud/data'

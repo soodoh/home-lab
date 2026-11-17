@@ -94,7 +94,7 @@ class Files(unittest.TestCase):
         source = self.root / 'store'
         source.mkdir()
         (source / 'settings.json').write_text('{"saved":true}')
-        (source / 'session.cookies').write_text('# Netscape HTTP Cookie File\nexample.invalid\tFALSE\t/\tTRUE\t0\tsession\tsynthetic\n')
+        (source / 'session.cookies').write_text('# home-lab-bootstrap=synthetic-generation\n# Netscape HTTP Cookie File\nexample.invalid\tFALSE\t/\tTRUE\t0\tsession\tsynthetic\n')
         before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in source.iterdir()}
         target = self.root / 'copied'
         CAPTURE.stable_store(source, target)
@@ -141,6 +141,33 @@ class Files(unittest.TestCase):
         self.assertEqual(other.read_text(), 'preserved')
         self.assertEqual(unchanged.stat().st_ino, seed_inode, 'unchanged bulk files must not be copied again while stopped')
         self.assertEqual((source / 'changed').stat().st_mtime_ns, saved.st_mtime_ns)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_native_json_tree_preserves_attachments_but_not_runtime_sqlite_locks(self):
+        source = self.root / 'json-store'
+        source.mkdir()
+        (source / 'namespace.json').write_text('{"tasks":[],"saved":true}')
+        attachments = source / 'namespace/attachments'
+        attachments.mkdir(parents=True)
+        (attachments / 'opaque.json').write_bytes(b'opaque upload, not JSON')
+        locks = source / '.locks'
+        locks.mkdir()
+        (locks / 'shard-00.sqlite').touch()
+        (locks / 'shard-00.sqlite-journal').write_bytes(b'live coordination')
+        target = self.root / 'json-copy'
+        target.mkdir()
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        CAPTURE.online_tree([str(source)], target, excludes, sqlite_paths=[],
+                            json_roots=[str(source)], ephemeral=[str(locks)])
+        restored = target / str(source).lstrip('/')
+        self.assertEqual(json.loads((restored / 'namespace.json').read_text()), {'tasks': [], 'saved': True})
+        self.assertEqual((restored / 'namespace/attachments/opaque.json').read_bytes(), b'opaque upload, not JSON')
+        self.assertFalse((restored / '.locks').exists())
+        (source / 'namespace.json').write_text('{broken')
+        with self.assertRaisesRegex(CAPTURE.CaptureError, 'online_json_invalid'):
+            CAPTURE.online_tree([str(source)], target, excludes, sqlite_paths=[],
+                                json_roots=[str(source)], ephemeral=[str(locks)])
 
     @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
     def test_online_tree_captures_sqlite_wal_and_related_files_without_stale_journals(self):

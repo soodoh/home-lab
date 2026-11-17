@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "94e7a197df0162e713b5ec1535c58b22626702d97bd5cf9d2647912709d7068f",
+    "sha256": "9453be9fe53bcbb958e3a2fef3a7d08636389e023862d311f773899f8cc689ef",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -105,7 +105,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "a4257b20fb6fdacce734205844609d2b99472cf98e25c0ba1a87780ba4761231",
+    "adapter_sha256": "771e113ec6d7b0a08e998920a1079c2d9ead0b5ef0c494aa993f4fb67c6a230e",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -339,6 +339,12 @@
     ],
     "online": [
       {
+        "name": "mindwtr",
+        "paths": ["/srv/home-lab-state/mindwtr-data"],
+        "json_roots": ["/srv/home-lab-state/mindwtr-data"],
+        "ephemeral": ["/srv/home-lab-state/mindwtr-data/.locks"]
+      },
+      {
         "name": "mosquitto",
         "native": "mosquitto",
         "service": "mosquitto",
@@ -360,7 +366,6 @@
       }
     ],
     "online_stores": [
-      "/srv/home-lab-state/mindwtr-data",
       "/srv/home-lab-state/gluetun-data",
       "/srv/home-lab-state/ddns-updater-data"
     ],

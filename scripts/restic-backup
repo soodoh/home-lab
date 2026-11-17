@@ -805,7 +805,8 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                 else:
                     adapter.retry(lambda: adapter.online_tree(
                         step['paths'], stage / 'files', rooted(policy['runner']['exclude_file_path']),
-                        sqlite_paths=step['sqlite']))
+                        sqlite_paths=step.get('sqlite', []), json_roots=step.get('json_roots', []),
+                        ephemeral=step.get('ephemeral', [])))
                 captures.append({'name': step['name'], 'started_at': began,
                                  'finished_at': datetime.now(timezone.utc).isoformat()})
                 report_phase('online_capture_' + step['name'], started)

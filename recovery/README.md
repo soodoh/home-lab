@@ -128,7 +128,9 @@ SQLite online exports replace their live file at that path, without stale
 WAL/SHM/journal files. Vaultwarden and OpenFit include these native SQLite exports
 at their original paths, with companion files captured during a verified write-free
 interval; restore source ownership/modes as recorded. Mindwtr's JSON store is
-validated and copied online without changing its native layout. Mosquitto's
+validated and copied online, including attachments, without changing its native
+layout. Its `.locks` SQLite shards are runtime coordination and are recreated by
+the application rather than restored. Mosquitto's
 `mosquitto.db` is its fresh native online persistence output, restored through the
 normal broker startup, not a separate SQL import. Cold-copied databases retain
 their complete physical set; never combine restored files with journals left in

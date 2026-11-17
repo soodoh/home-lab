@@ -943,8 +943,11 @@ Jellyfin uses its native archive. Mosquitto stays online and flushes persistence
 with native `SIGUSR1`; capture waits for its fresh atomic database replacement.
 An intentionally stopped Mosquitto is copied without starting or signalling it.
 
-Gluetun and FlareSolverr remain running. Gluetun's JSON/cookie store, Mindwtr's JSON
-store and DDNS's JSON store use bounded validated stable reads. VPN namespace clients are interrupted
+Gluetun and FlareSolverr remain running. Gluetun's JSON/cookie store and DDNS's JSON store use bounded validated stable
+reads. Curl generation comments may precede the cookie jar's Netscape header.
+Mindwtr's JSON documents and opaque attachments use a verified stable tree;
+its native `.locks` SQLite shards are runtime coordination, not recovery data,
+and are excluded from both copying and stability checks. VPN namespace clients are interrupted
 only for their own coupled-state capture, never again for Gluetun. Recyclarr's
 selected settings file is read under the existing production/capture exclusion.
 Home Assistant and Omada retain their short consistent stopped captures; native
