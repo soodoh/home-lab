@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# Synthetic active-vs-retained prefix proof. Never run on a managed host.
+set -euo pipefail
+umask 077
+[[ ${WOLF_ACTIVE_BACKUP_TEST_DISPOSABLE:-} == true && $EUID == 0 && $(uname -s) == Linux && ! -e /etc/home-lab ]]
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+if [[ ${1:-} != private ]]; then
+  [[ $# == 1 ]]
+  exec unshare --mount --propagation private -- bash "$0" private "$(realpath -- "$1")"
+fi
+[[ $(readlink /proc/self/ns/mnt) != "$(readlink /proc/1/ns/mnt)" ]]
+restic=$2
+[[ $("$restic" version) == 'restic 0.19.1 '* ]]
+w=$(mktemp -d /tmp/wolf-active-fixture.XXXXXXXX)
+mounts=()
+cleanup() {
+  rc=$?
+  trap - EXIT
+  set +e
+  for (( idx=${#mounts[@]}-1; idx>=0; idx-- )); do
+    p=${mounts[$idx]}
+    if findmnt -n --mountpoint "$p" >/dev/null; then umount --recursive "$p" || exit 2; fi
+  done
+  rm -rf -- "$w"
+  exit "$rc"
+}
+trap cleanup EXIT
+mount -t tmpfs -o size=12m,nodev,nosuid tmpfs /mnt
+mounts+=(/mnt)
+base=/mnt/games/wolf
+apps="$base/profile-data/fake/Steam/.steam/steam/steamapps"
+legacy="$apps/compatdata/117"
+second="$apps/compatdata/118"
+save='pfx/drive_c/users/steamuser/Saved Games'
+mkdir -p "$legacy/$save" "$second/$save" "$apps/common/title" "$base/cfg" "$w/state" "$w/frozen" "$w/fallback/files" "$w/snapshot/files"
+printf 'STALE-ROLLBACK\n' > "$legacy/$save/slot1"
+printf 'OTHER-TITLE\n' > "$second/$save/slot1"
+printf 'GAME-INSTALL\n' > "$apps/common/title/game.bin"
+truncate -s 64MiB "$w/state.img"
+mkfs.ext4 -q -F "$w/state.img"
+mount -t ext4 -o loop "$w/state.img" "$w/state"
+mounts+=("$w/state")
+active="$w/state/pilot/117"
+mkdir -p "$active/$save" "$active/pfx/drive_c/Program Files/Install"
+printf 'ACTIVE-PILOT\n' > "$active/$save/slot1"
+printf 'ACTIVE-REGISTRY\n' > "$active/pfx/user.reg"
+printf 'NOT-A-BACKUP-INPUT\n' > "$active/pfx/drive_c/Program Files/Install/game.bin"
+ln -s slot1 "$active/$save/slot-link"
+export FIXTURE_BASE="$base" FIXTURE_LEGACY="$legacy"
+export FIXTURE_ADAPTER="$root/scripts/restic-capture-files.py" FIXTURE_EXCLUDES="$root/services/data/restic/excludes"
+export FIXTURE_WORK="$w" FIXTURE_SAVE="$save"
+
+# Existing helper, deliberately unbound: demonstrate the silent stale baseline.
+python3 - <<'PY'
+import os, runpy
+from pathlib import Path
+adapter = runpy.run_path(os.environ['FIXTURE_ADAPTER'])
+paths, _ = adapter['wolf_paths'](Path(os.environ['FIXTURE_BASE']))
+root = Path(os.environ['FIXTURE_LEGACY'])
+save = root / os.environ['FIXTURE_SAVE'] / 'slot1'
+assert str(save.parent) in paths and save.read_text() == 'STALE-ROLLBACK\n'
+print('unmodified_backup_would_select_retained_prefix=yes')
+PY
+
+state_device=$(findmnt -n --mountpoint "$w/state" -o MAJ:MIN)
+verify_active() {
+  [[ $(findmnt -n --mountpoint "$legacy" -o FSROOT) == /pilot/117 && \
+      $(findmnt -n --mountpoint "$legacy" -o MAJ:MIN) == "$state_device" ]]
+}
+if verify_active; then exit 3; fi
+mkdir -p "$w/state/pilot/118"
+mount --bind "$w/state/pilot/118" "$legacy"
+mounts+=("$legacy")
+if verify_active; then exit 4; fi
+umount "$legacy"
+mount --bind "$active" "$legacy"
+mount -o remount,bind,ro "$legacy"
+verify_active
+printf 'binding_missing_or_wrong_source=refused\n'
+python3 - <<'PY'
+import json, os, runpy
+from pathlib import Path
+adapter = runpy.run_path(os.environ['FIXTURE_ADAPTER'])
+root = Path(os.environ['FIXTURE_LEGACY'])
+work = Path(os.environ['FIXTURE_WORK'])
+paths, links = adapter['wolf_paths'](Path(os.environ['FIXTURE_BASE']))
+selected = [Path(path).relative_to(root).as_posix() for path in paths if Path(path).is_relative_to(root)]
+save = os.environ['FIXTURE_SAVE']
+assert set(selected) == {'pfx/user.reg', save, save + '/slot1'}
+assert links[str(root / save / 'slot-link')]['resolved'] == str(root / save / 'slot1')
+(work / 'selection.json').write_text(json.dumps(selected))
+adapter['copy_paths'](paths, work / 'fallback/files', os.environ['FIXTURE_EXCLUDES'])
+assert (work / 'fallback/files' / root.relative_to('/') / save / 'slot1').read_text() == 'ACTIVE-PILOT\n'
+assert (work / 'fallback/files' / root.relative_to('/') / save / 'slot-link').is_symlink()
+print('existing_rsync_fallback_reads_active_prefix=verified')
+PY
+umount "$legacy"
+[[ $(< "$legacy/$save/slot1") == STALE-ROLLBACK ]]
+umount "$w/state"
+cp --sparse=always "$w/state.img" "$w/frozen.img"
+mount -t ext4 -o loop "$w/state.img" "$w/state"
+printf 'NEWER-LIVE\n' > "$active/$save/slot1"
+mount -t ext4 -o ro,noload,loop "$w/frozen.img" "$w/frozen"
+mounts+=("$w/frozen")
+
+# Mount only roots selected while idle; a selected internal link target under
+# an already-selected directory is covered by that directory's projection.
+mapfile -t selections < <(python3 -c 'import json,sys; paths=json.load(open(sys.argv[1])); print("\n".join(sorted(p for p in paths if not any(p.startswith(q+"/") for q in paths))))' "$w/selection.json")
+[[ ${#selections[@]} == 2 ]]
+for rel in "${selections[@]}"; do
+  src="$w/frozen/pilot/117/$rel"
+  dst="$w/snapshot/files$legacy/$rel"
+  mkdir -p "${dst%/*}"
+  if [[ -d $src ]]; then mkdir "$dst"; else : > "$dst"; fi
+  mount --bind "$src" "$dst"
+  mounts+=("$dst")
+  [[ $(findmnt -n --mountpoint "$dst" -o FSROOT) == "/pilot/117/$rel" && \
+      $(findmnt -n --mountpoint "$dst" -o OPTIONS) == ro,* ]]
+done
+export RESTIC_PASSWORD=synthetic-only RESTIC_FROM_PASSWORD=synthetic-only RESTIC_CACHE_DIR="$w/cache"
+for view in fallback snapshot; do
+  export RESTIC_REPOSITORY="$w/$view-repo"
+  "$restic" init >/dev/null
+  (cd "$w/$view" && "$restic" backup ./files >/dev/null)
+  if [[ $view == snapshot ]]; then
+    for rel in "${selections[@]}"; do umount "$w/snapshot/files$legacy/$rel"; done
+    umount "$w/frozen"
+    rm -- "$w/frozen.img"
+  fi
+  for replica in primary replica-a replica-b; do
+    if [[ $replica != primary ]]; then
+      export RESTIC_REPOSITORY="$w/$view-$replica"
+      "$restic" init --from-repo "$w/$view-repo" --copy-chunker-params >/dev/null
+      "$restic" copy --from-repo "$w/$view-repo" >/dev/null
+    fi
+    target="$w/restore-$view-$replica"
+    "$restic" restore latest --verify --target "$target" >/dev/null
+    p="$target/files$legacy"
+    [[ $(< "$p/$save/slot1") == ACTIVE-PILOT && $(< "$p/pfx/user.reg") == ACTIVE-REGISTRY ]]
+    [[ $(readlink "$p/$save/slot-link") == slot1 && $(< "$p/$save/slot-link") == ACTIVE-PILOT ]]
+    [[ ! -e "$p/pfx/drive_c/Program Files" && ! -e "$target/files$apps/common/title/game.bin" ]]
+    if [[ $view == fallback ]]; then
+      [[ $(< "$target/files$second/$save/slot1") == OTHER-TITLE ]]
+    else
+      [[ ! -e "$target/files$second" ]]
+    fi
+    printf 'restore_verified path=%s replica=%s\n' "$view" "$replica"
+  done
+done
+[[ $(< "$legacy/$save/slot1") == STALE-ROLLBACK && $(< "$active/$save/slot1") == NEWER-LIVE ]]
+printf 'active_source_backup_qualification=verified\n'

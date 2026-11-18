@@ -281,7 +281,7 @@ jobs:
       - name: Install native recovery system tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes age bzip2 curl jq mariadb-client rsync util-linux
+          sudo apt-get install --yes age bzip2 curl e2fsprogs jq mariadb-client rsync util-linux
 
       - name: Admit the pinned public Restic tool
         id: tool
@@ -299,6 +299,7 @@ jobs:
           work=$(mktemp -d)
           trap 'sudo rm -rf -- "$work"' EXIT
           sudo env TMPDIR="$work" RESTIC_NATIVE_TEST_DISPOSABLE=true scripts/test-restic-native-restore "$RESTIC"
+          sudo env WOLF_ACTIVE_BACKUP_TEST_DISPOSABLE=true scripts/test-wolf-active-backup "$RESTIC"
           RESTIC="$RESTIC" TMPDIR="$work" python scripts/test-simple-backups.py
           sudo env TMPDIR="$work" HOME_LAB_READONLY_WAL_TEST_DISPOSABLE=true \
             python3 scripts/test-simple-backups.py Files.test_online_capture_from_readonly_wal_mount_finishes_and_preserves_committed_data

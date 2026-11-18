@@ -714,9 +714,17 @@ candidate. Do not make the candidate the default compatibility tool.
 
 Run `python3 scripts/test-wolf-proton-launch.py` and
 `sudo env WOLF_PROTON_INSTALL_TEST_DISPOSABLE=true scripts/test-wolf-proton-install`
-on disposable Linux. Keep Wolf’s existing layout, idle guard and selected-save
-backup until Steam’s actual compatibility-tool selection, the affected title’s
-launch and reset behavior, and the candidate layout’s snapshot restores qualify.
+on disposable Linux. `sudo env WOLF_ACTIVE_BACKUP_TEST_DISPOSABLE=true scripts/test-wolf-active-backup <reviewed-restic>`
+qualifies the backup-side projection using deliberately different active, retained
+and newer live saves. It checks the current selector and rsync against a verified
+private active mount, and verifies selective frozen ext4 projections from three
+test repositories at the existing Wolf archive paths. It does not install those
+mounts or exercise live snapshot admission. Missing or incorrect active bindings
+must refuse the capture rather than silently read the retained prefix.
+
+Keep Wolf’s existing layout, idle guard and selected-save backup until Steam’s
+actual compatibility-tool selection, the affected title’s launch and reset
+behavior, and the candidate layout’s snapshot restores qualify.
 
 ### Wolf startup and memory containment
 
