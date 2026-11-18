@@ -148,9 +148,9 @@ Logical exports and native archives remain in `recovery-exports/`:
   generated attachments/fonts, trickplay or transcoding caches. The file layout
   also holds configuration/plugin files and online auxiliary SQLite exports.
 - `manifest.json`: format, policy/artifact/owner identities, capture timestamps,
-  database descriptors, Wolf symlink mappings, the exact ZFS and local source
-  receipts and the ZFS-backed paths. Follow the link mappings when
-  reconstructing original links; the helper never activates host links.
+  database descriptors, the exact ZFS and local source receipts and the ZFS-backed
+  paths. Older full-v2 manifests may also carry Wolf link mappings. Follow those
+  mappings for older restores; the helper never activates host links.
 
 Group selection filters ordinary file paths; native/SQL exports and the manifest
 are included as explicit recovery inputs, not automatically imported. A group is
@@ -159,13 +159,15 @@ The preparer does not unpack archives, connect databases or start containers.
 
 Coverage includes both Tachidesk download trees, karaoke database/configuration
 (not bulk karaoke media), Frigate exports (not rolling recordings/previews),
-both production ACME stores/private keys and selected Wolf saves/settings.
-Wolf selection covers Steam userdata, save-bearing Proton user directories and
-registry files, never whole Steam installations/prefixes. The native /home/retro launcher/icon links are mapped into their owning host
-profile. Wolf must have no sessions/lobbies or other running profile writers;
-backup refuses active gaming rather than killing/recreating ephemeral apps.
-Unknown external or broken link mappings fail closed pending inspection; no complete gaming coverage
-is claimed until the live selection and representative restores are qualified.
+both production ACME stores/private keys and Wolf settings, pairing data, ROMs,
+and selected EmulationStation and emulator state. The `wolf` recovery group
+restores ROMs at `/mnt/games/roms` and Wolf data at `/mnt/games/wolf` beneath
+private staging. The current policy excludes Steam/Proton data and game
+installations. Wolf stays online: emulator saves can change during capture and
+are not point-in-time. Verify a representative in-game save, memory card, and
+save state before relying on this path. A new emulator data root needs an explicit
+coverage review. Older backups may also contain formerly selected Steam/Proton
+state.
 
 Nextcloud data, Books and audiobooks, both Tachidesk libraries and Frigate exports
 retain their original archive paths when Restic reads them through temporary

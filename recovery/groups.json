@@ -138,6 +138,7 @@
         "wolf"
       ],
       "paths": [
+        "/mnt/games/roms",
         "/mnt/games/wolf"
       ]
     }

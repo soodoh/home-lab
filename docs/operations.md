@@ -956,13 +956,22 @@ exports would require separately approved privileged application credentials and
 qualified restores, not reuse of an unrelated administrator identity.
 
 After the online captures, the runner records one restart journal and stops the
-reviewed pause set together. It copies Wolf's selected saves, completes native
-SQL exports, flushes NFS and local state, and takes one snapshot per storage
-backend before restarting the writers. Restic reads the selected NFS and local
-ext4 trees from those snapshots; neither is bulk-copied to staging. Native
-exports, online companion files, Wolf saves, and capture metadata still use the
-private workspace. Interrupted captures retain their receipts for safe retry or
-inspection.
+reviewed pause set together. It completes native SQL exports, flushes NFS and
+local state, and takes one snapshot per storage backend before restarting the
+writers. Restic reads those snapshots and the selected live games directories
+through private read-only mounts at their archive paths, without copying those
+files into staging. Native exports, online companion files and capture metadata
+still use the private workspace. Interrupted captures retain their receipts for
+safe retry or inspection.
+
+Wolf stays running and gaming does not defer a backup. The explicit live paths
+cover Wolf settings and pairing data, ROMs, and the configured ES-DE, RetroArch,
+Dolphin, RPCS3 and xemu state. Steam installations, userdata and Proton prefixes
+are not captured; Steam/Rockstar saves depend on their own cloud services. The
+read-only view protects the live source against Restic writes, not against
+concurrent writes by emulators. Live emulator saves are best-effort, including on
+an upload retry; the ext4 and ZFS views still use their original receipts. Review
+backup scope when adding an emulator or changing its data directory.
 
 All recorded writers resume before Restic mounts or reads the snapshot. Nextcloud
 must also pass native `occ status`. Only the approved Nextcloud data, Books and
@@ -971,7 +980,7 @@ read-only at their existing archive paths, alongside the selected cold paths on
 the local snapshot. These roots are not counted toward staging capacity. Missing
 or unexpected sources fail closed. The shared pause can lengthen an individual
 application's outage even if total backup time falls. Compare `shutdown`,
-`final_copy_local` (Wolf), `sql_exports`, `zfs_snapshot`, `state_snapshot`,
+`final_copy_local`, `sql_exports`, `zfs_snapshot`, `state_snapshot`,
 `restart`, `interruption_shared`, `online_capture_total` and `restic_backup` on
 successive captures.
 
@@ -1006,25 +1015,23 @@ provider/in-place writers can still race. Token expiry, rotation and revocation
 remain external authorization risks that no backup can remove.
 
 Staging is `/mnt/games/home-lab-backup/capture`, below a root-only parent. Source
-mount/repository identities, idle Wolf/native writer checks, radio-backup freshness and a conservative
-native `du`/free-space check run before interruption. The local state source is
-pinned to its filesystem UUID, filesystem type and exact mountpoint, not a
-boot-assigned `/dev/sdX` name. Device renumbering is harmless; another filesystem,
-a missing mount or a fallback directory still refuses capture. Wolf availability is checked
-before staging is created, then rechecked at its capture window. Activity already
-present at preflight leaves no incomplete staging; activity beginning later still
-fails closed and retains incomplete capture material for inspection. Ready-stage
-upload retries do not require Wolf to be idle. The estimate budgets twice
+mount/repository identities, radio-backup freshness and a conservative native
+`du`/free-space check run before interruption. The local state source is pinned
+to its filesystem UUID, filesystem type and exact mountpoint, not a boot-assigned
+`/dev/sdX` name. Device renumbering is harmless; another filesystem, a missing
+mount or a fallback directory still refuses capture. The estimate budgets twice
 selected source usage plus a 20 GiB reserve. Qualify the actual database-export/snapshot/restart window and full captured-file
 restore before installation; do not silently drop Nextcloud files or select
 RAM-backed staging. The conservative space budget still includes user data for
 encrypted repository growth even though that data is no longer physically copied
 into staging.
 
-Ready staging and its exact snapshot receipt are reusable for failed Restic
-retries without another application stop/copy/restart. Retries republish only the
-same GUID-bound immutable source, never create a new point in time or substitute
-live files. A missing receipt/source or an owner/GUID mismatch refuses retry. Incomplete captures require inspection and are never reused.
+Ready staging and its exact snapshot receipts are reusable for failed Restic
+retries without another application stop/copy/restart. Snapshot-backed paths
+reuse the same immutable sources, never live substitutes; the explicitly live
+Wolf and ROM paths are read again. A missing receipt/source or an owner/GUID
+mismatch refuses retry. Incomplete captures require inspection and are never
+reused.
 Only an exit-0 backup whose immutable source identity still matches is marked
 complete. After the completed local snapshot is rediscovered, its temporary NFS
 mount/export and exact ZFS snapshot are removed before staging is deleted. A lost

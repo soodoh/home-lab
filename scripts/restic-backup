@@ -509,33 +509,6 @@ def verify_sources(policy):
             raise WorkflowError('source_mount_identity')
 
 
-def wolf_siblings(paths):
-    ids = run(['/usr/bin/docker', 'ps', '--quiet', '--no-trunc'])
-    require_success(ids, 'writer_inventory')
-    selected = []
-    for cid in ids.stdout.splitlines():
-        if not SNAPSHOT_ID.fullmatch(cid):
-            raise WorkflowError('writer_identity')
-        result = run(['/usr/bin/docker', 'inspect', '--format', '{{json .Mounts}}', cid])
-        require_success(result, 'writer_inventory')
-        mounts = json.loads(result.stdout)
-        if any(m.get('RW') and any(Path(m.get('Source', '/')).is_relative_to(p)
-               or Path(p).is_relative_to(m.get('Source', '/')) for p in paths) for m in mounts):
-            selected.append(cid)
-    return selected
-
-
-def verify_wolf_available(policy, adapter, step, declared):
-    if not set(step['services']) <= declared:
-        raise WorkflowError('capture_service_missing')
-    own = {service_container(policy, s) for s in step['services']}
-    if any(c not in own for c in wolf_siblings([step['wolf']])):
-        raise WorkflowError('wolf_active_writer')
-    for service in step['services']:
-        if service_running(policy, service):
-            adapter.wolf_idle(service_container(policy, service))
-
-
 def zfs_state(policy, stage):
     adapter = capture_adapter(policy)
     value = read_json(stage / 'zfs-source.json', {})
@@ -739,25 +712,19 @@ def cold_capture(policy, adapter, steps, stage, declared):
         if not snapshot:
             raise WorkflowError('state_snapshot_requires_shared_capture')
         snapshot_paths.update(map(str, adapter.state_snapshot_roots(policy)))
-    seed, local, dumps, wolves = [], [], [], []
+    seed, local, dumps = [], [], []
     for step in steps:
         for path in step['paths']:
             adapter.safe_source(path)
             if path not in snapshot_paths:
                 (seed if step.get('precopy') else local).append(path)
         dumps.extend(step.get('databases', []))
-        if step.get('wolf'):
-            wolves.append(step)
     excludes = rooted(policy['runner']['exclude_file_path'])
     baseline = None
     if seed:
         started = time.monotonic()
         baseline = adapter.retry(lambda: adapter.precopy(seed, stage / 'files', excludes))
         report_phase('precopy_local', started)
-    # This is the last session check before stopping; recheck for any orphaned
-    # profile writers once Wolf's launch authority is stopped.
-    for step in wolves:
-        verify_wolf_available(policy, adapter, step, declared)
     running = [s for s in services if service_running(policy, s)]
     if snapshot:
         if (stage / 'zfs-source.json').exists():
@@ -769,7 +736,6 @@ def cold_capture(policy, adapter, steps, stage, declared):
                'started_at': int(time.time()), 'owner': policy.get('_owner')}
     atomic_json(journal_path(policy), journal, 0o600)
     interrupted = time.monotonic()
-    links = {}
     try:
         if running:
             require_success(compose(policy, ['stop', '--timeout', '120', *running]), 'service_stop')
@@ -777,12 +743,6 @@ def cold_capture(policy, adapter, steps, stage, declared):
             raise WorkflowError('writer_not_stopped')
         report_phase('shutdown', interrupted)
         started = time.monotonic()
-        for step in wolves:
-            if wolf_siblings([step['wolf']]):
-                raise WorkflowError('wolf_active_writer')
-            paths, mappings = adapter.wolf_paths(step['wolf'])
-            local.extend(paths)
-            links.update(mappings)
         if seed:
             adapter.retry(lambda: adapter.finish_copy(seed, stage / 'files', excludes, baseline=baseline))
         if local:
@@ -817,7 +777,6 @@ def cold_capture(policy, adapter, steps, stage, declared):
         restart_recorded(policy, journal)
         report_phase('restart', started)
         report_phase('interruption_shared', interrupted)
-    return links
 
 
 def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
@@ -836,11 +795,6 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
     else:
         declared = declared_services(policy)
         try:
-            # Refuse ordinary gaming activity before leaving incomplete staging
-            # or interrupting unrelated applications. Recheck at Wolf's window.
-            for step in settings['cold']:
-                if step.get('wolf'):
-                    verify_wolf_available(policy, adapter, step, declared)
             adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
             if settings.get('zfs'):
                 adapter.zfs_verify_scope(policy)
@@ -910,7 +864,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             captures.append({'name': 'online', 'started_at': online_started,
                              'finished_at': datetime.now(timezone.utc).isoformat()})
             began = datetime.now(timezone.utc).isoformat()
-            links = cold_capture(policy, adapter, settings['cold'], stage, declared)
+            cold_capture(policy, adapter, settings['cold'], stage, declared)
             finished = datetime.now(timezone.utc).isoformat()
             captures.extend({'name': step['name'], 'started_at': began, 'finished_at': finished}
                             for step in settings['cold'])
@@ -921,7 +875,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             adapter.radio_check(stage / 'files', settings['radio_max_age_seconds'],
                                 snapshot_scratch=stage if settings.get('state_snapshot') else None)
             manifest = {'version': 2, 'capture': token, 'captured_at': captured_at, 'artifact': artifact_hash(policy),
-                        'owner': policy.get('_owner'), 'policy': policy_hash, 'links': links, 'captures': captures,
+                        'owner': policy.get('_owner'), 'policy': policy_hash, 'links': {}, 'captures': captures,
                         'databases': [d for s in settings['cold'] for d in s.get('databases', [])]}
             if settings.get('zfs'):
                 manifest['zfs_source'] = zfs_state(policy, stage)['record']
@@ -938,13 +892,16 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             state_ready(policy, adapter, stage, attachments)
         if settings.get('zfs'):
             zfs_ready(policy, adapter, stage)
+        if settings.get('live_games_paths'):
+            # Unlike the state snapshots, these are deliberately live on retries.
+            attachments.enter_context(adapter.live_games_mounted(policy, stage))
         captured_at = manifest['captured_at']
         args = ['backup', '--json', '--time', restic_backup_time(captured_at), '--tag', 'format=full-v2',
                 '--tag', 'cadence=daily', '--tag', 'capture=' + token,
                 '--tag', 'policy=' + policy_hash, '--tag', 'artifact=' + manifest['artifact']]
         if policy.get('_owner'):
             args.extend(['--tag', 'owner=' + policy['_owner']])
-        if settings.get('state_snapshot'):
+        if settings.get('state_snapshot') or settings.get('live_games_paths'):
             args.extend('--exclude=' + pattern for pattern in adapter.state_snapshot_exclusions(
                 stage, rooted(policy['runner']['exclude_file_path'])))
         args.append(str(stage))
@@ -971,8 +928,8 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                 raise WorkflowError('snapshot_replaced')
         if settings.get('state_snapshot'):
             state_request(policy, adapter, stage, 'state-inspect')
-            # Drop the local overlay and device before granting completion.
-            attachments.close()
+        # Drop the local overlay and all live binds before granting completion.
+        attachments.close()
         # Only verified exit-0 captures are eligible. Tagging changes the ID before
         # replication; a crash here leaves ineligible snapshots, never false success.
         # Copies hold shared source locks for up to their 12h service budget.

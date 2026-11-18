@@ -11,7 +11,6 @@ from contextlib import closing, contextmanager, nullcontext
 import fcntl
 import hashlib
 import json
-import http.client
 import ipaddress
 import os
 from pathlib import Path
@@ -966,95 +965,45 @@ def radio_check(files, max_age, *, snapshot_scratch=None):
         raise CaptureError('zha_backup_stale')
 
 
-def wolf_idle(container):
-    mounts = json.loads(command(['/usr/bin/docker', 'inspect', '--format', '{{json .Mounts}}', container]))
-    locations = [Path(m['Source']) / 'wolf.sock' for m in mounts if m.get('Destination') == '/run/user/wolf']
-    if len(locations) != 1 or not stat.S_ISSOCK(safe_source(locations[0]).stat().st_mode):
-        raise CaptureError('wolf_management_socket')
-    for kind in ('sessions', 'lobbies'):
-        with closing(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)) as stream:
-            stream.settimeout(10)
-            stream.connect(str(locations[0]))
-            with closing(http.client.HTTPConnection('localhost', timeout=10)) as connection:
-                connection.sock = stream
-                connection.request('GET', '/api/v1/' + kind)
-                try:
-                    response = connection.getresponse()
-                    body = json.loads(response.read(1024 * 1024))
-                except http.client.HTTPException:
-                    raise CaptureError('wolf_api_response') from None
-                if response.status != 200 or body.get('success') is not True or body.get(kind) != []:
-                    raise CaptureError('wolf_not_idle')
+def live_games_sources(policy):
+    games = Path('/mnt/games')
+    paths = policy['capture'].get('live_games_paths', [])
+    if not isinstance(paths, list) or any(not isinstance(p, str) or str(Path(p)) != p for p in paths):
+        raise CaptureError('live_games_scope')
+    roots = [Path(p) for p in paths]
+    if (len(set(roots)) != len(roots) or any(
+            not p.is_relative_to(games) or p == games or p.is_relative_to(games / 'restic')
+            or p.is_relative_to(games / 'home-lab-backup') or '..' in p.parts
+            or any(parent in roots for parent in p.parents) for p in roots)):
+        raise CaptureError('live_games_scope')
+    if roots:
+        device = safe_source(games).stat().st_dev
+        mounts = json.loads(command(['/usr/bin/findmnt', '--json', '--list', '--output', 'TARGET']))['filesystems']
+        for root in roots:
+            if (not safe_source(root).is_dir() or root.stat().st_dev != device
+                    or any((target := Path(row['target'])) != games and target.is_relative_to(games)
+                           and (target.is_relative_to(root) or root.is_relative_to(target)) for row in mounts)):
+                raise CaptureError('live_games_mount_identity')
+    return roots
 
 
-def wolf_paths(base):
-    """Selective host paths, not Steam installations or whole Proton prefixes.
-
-    Save-bearing Proton user folders and registry files are preserved. Unknown
-    symlinks resolve only inside the owned Wolf tree; external targets refuse.
-    """
-    base = safe_source(base)
-    paths = [base / 'cfg']
-    for profile in sorted((base / 'profile-data').glob('*/*')):
-        if not profile.is_dir() or profile.is_symlink():
-            raise CaptureError('wolf_profile_type')
-        for relative in ('.config', '.local/share', 'ES-DE', '.steam/steam/userdata'):
-            candidate = profile / relative
-            if candidate.exists() or candidate.is_symlink():
-                paths.append(candidate)
-        compat = profile / '.steam/steam/steamapps/compatdata'
-        for prefix in compat.glob('*/pfx'):
-            for relative in ('user.reg', 'userdef.reg', 'system.reg',
-                             'drive_c/users/steamuser/Documents', 'drive_c/users/steamuser/Saved Games',
-                             'drive_c/users/steamuser/AppData/Roaming', 'drive_c/users/steamuser/AppData/Local',
-                             'drive_c/users/steamuser/AppData/LocalLow'):
-                candidate = prefix / relative
-                if candidate.exists() or candidate.is_symlink():
-                    paths.append(candidate)
-    # rsync preserves links but does not capture their targets. Inspect resolved
-    # directories too, including targets discovered through other save links.
-    resolved = set()
-    scanned = set()
-    links = {}
-    pending = list(paths)
-    while pending:
-        path = pending.pop()
-        # Wolf mounts each owned profile at /home/retro in the app container.
-        # Absolute launcher/icon links must be translated, not mistaken for host
-        # /home links or ignored. Other external mappings remain unqualified.
-        try:
-            if path.is_symlink() and Path(os.readlink(path)).is_relative_to('/home/retro'):
-                relative = path.relative_to(base / 'profile-data')
-                profile = base / 'profile-data' / relative.parts[0] / relative.parts[1]
-                target = profile / Path(os.readlink(path)).relative_to('/home/retro')
-                actual = target.resolve(strict=True)
-                if actual.is_dir() and not any(actual.is_relative_to(p.resolve()) for p in paths if not p.is_symlink()):
-                    raise CaptureError('wolf_unqualified_directory_target')
-            else:
-                actual = path.resolve(strict=True)
-        except (OSError, RuntimeError):
-            raise CaptureError('wolf_broken_save_target') from None
-        if not actual.is_relative_to(base):
-            raise CaptureError('wolf_external_save_target')
-        resolved.add(str(actual))
-        if actual != path:
-            links[str(path)] = {'resolved': str(actual), 'target': os.readlink(path) if path.is_symlink() else str(actual)}
-        if actual.is_dir():
-            for current, dirs, names in os.walk(actual, followlinks=False):
-                current = Path(current)
-                if current in scanned:
-                    dirs[:] = []
-                    continue
-                scanned.add(current)
-                # Steam installations are bulk; explicit userdata/prefix paths
-                # above own saves. Keep this exclusion after resolving aliases.
-                if current.name == 'share' and current.parent.name == '.local':
-                    dirs[:] = [d for d in dirs if d != 'Steam']
-                for name in [*dirs, *names]:
-                    child = current / name
-                    if child.is_symlink():
-                        pending.append(child)
-    return sorted(resolved), links
+@contextmanager
+def live_games_mounted(policy, stage):
+    require_private_mounts()
+    mounted = []
+    try:
+        for source in live_games_sources(policy):
+            target = empty_snapshot_target(stage, source)
+            command(['/usr/bin/mount', '-n', '--bind', str(source), str(target)])
+            mounted.append(target)
+            command(['/usr/bin/mount', '-n', '-o', 'remount,bind,ro,nosuid,nodev,noexec', str(target)])
+            options = command(['/usr/bin/findmnt', '--noheadings', '--mountpoint', str(target),
+                               '--output', 'OPTIONS']).decode().strip().split(',')
+            if not {'ro', 'nosuid', 'nodev', 'noexec'} <= set(options) or not os.path.samestat(source.stat(), target.stat()):
+                raise CaptureError('live_games_mount_identity')
+        yield
+    finally:
+        state_snapshot_unmount(mounted)
 
 
 def capacity_check(policy):
@@ -1069,9 +1018,7 @@ def capacity_check(policy):
         snapshot_paths.update(map(str, state_snapshot_roots(policy)))
     for step in policy['capture']['cold']:
         paths.extend(path for path in step['paths'] if path not in snapshot_paths)
-        if step.get('wolf'):
-            selected, _ = wolf_paths(step['wolf'])
-            paths.extend(selected)
+    paths.extend(map(str, live_games_sources(policy)))
     # Native du does not follow links into bulk game installations. Conservative
     # bytes plus reserve must fit staging before any service is stopped.
     raw = command(['/usr/bin/du', '--summarize', '--total', '--apparent-size', '--block-size=1',

@@ -46,7 +46,8 @@ printf '%s\n' 'synthetic-unselected' >/srv/home-lab-state/unselected/value
 cat >"$work/recovery/groups.json" <<'JSON'
 {"version":1,"common_paths":["/srv/home-lab-state/common"],"groups":{
   "books":{"services":["book-app"],"paths":["/srv/home-lab-state/books","/mnt/storage/media/tachidesk","/mnt/storage/media/books"]},
-  "other":{"services":["other-app"],"paths":["/srv/home-lab-state/unselected","/mnt/storage/media/frigate/exports"]}
+  "other":{"services":["other-app"],"paths":["/srv/home-lab-state/unselected","/mnt/storage/media/frigate/exports"]},
+  "wolf":{"services":["wolf"],"paths":["/mnt/games/roms","/mnt/games/wolf"]}
 }}
 JSON
 policy_sha=$(printf 'synthetic-policy' | sha256sum | cut -d' ' -f1)
@@ -100,8 +101,52 @@ for root in tachidesk books frigate/exports; do
 done
 printf '%s\n' '{"version":2,"links":{},"zfs_paths":["/mnt/storage/media/tachidesk","/mnt/storage/media/books","/mnt/storage/media/frigate/exports"]}' >"$capture/manifest.json"
 printf '%s\n' 'synthetic-logical-export' >"$capture/databases/example.sql"
-restic backup "$capture" --tag cadence=daily --tag format=full-v2 \
-  --tag "policy=$policy_sha" --tag "artifact=$artifact_sha" >/dev/null 2>&1
+python3 - "$repo_root" "$capture" "policy=$policy_sha" "artifact=$artifact_sha" <<'PY'
+import json, pathlib, runpy, subprocess, sys
+repo, stage = map(pathlib.Path, sys.argv[1:3])
+adapter = runpy.run_path(str(repo / 'scripts/restic-capture-files.py'))
+policy = json.loads((repo / 'services/data/restic/policy.json').read_text())
+roots = list(map(pathlib.Path, policy['capture']['live_games_paths']))
+for root in roots:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'fixture').write_bytes(b'protected')
+profile = next(root.parent.parent for root in roots if root.name == 'retroarch')
+excluded = ['/mnt/games/wolf/cfg/backtrace.previous.dump',
+            str(profile / '.steam/steam/steamapps/common/game/install'),
+            str(profile / '.steam/steam/steamapps/compatdata/123/pfx/save'),
+            str(profile / '.config/retroarch/assets/test'),
+            str(profile / '.config/rpcs3/dev_hdd0/game/test')]
+for name in excluded:
+    path = pathlib.Path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+rom = pathlib.Path('/mnt/games/roms')
+projection = stage / 'files' / rom.relative_to('/')
+missing = '/mnt/games/synthetic-missing-source'
+policy['capture']['live_games_paths'].append(missing)
+try:
+    with adapter['live_games_mounted'](policy, stage):
+        raise AssertionError('missing source admitted')
+except adapter['CaptureError'] as exc:
+    assert str(exc) == 'source_missing'
+assert not projection.exists(), 'partial projection after preflight failure'
+policy['capture']['live_games_paths'].remove(missing)
+with adapter['live_games_mounted'](policy, stage):
+    assert projection.joinpath('fixture').samefile(rom / 'fixture'), 'must mount, not copy'
+    try:
+        (projection / 'blocked').touch()
+    except OSError:
+        pass
+    else:
+        raise AssertionError('live archive view writable')
+    (rom / 'fixture').write_bytes(b'new live bytes')
+    flags = ['--exclude=' + pattern for pattern in adapter['state_snapshot_exclusions'](
+        stage, repo / 'services/data/restic/excludes')]
+    subprocess.run(['restic', 'backup', str(stage), '--tag', 'cadence=daily', '--tag', 'format=full-v2',
+                    '--tag', sys.argv[3], '--tag', sys.argv[4], *flags], check=True, capture_output=True)
+assert not any(projection.iterdir()), 'temporary view still mounted or contains a copy'
+(rom / 'fixture').unlink()
+PY
 snapshot=$(restic snapshots --json --tag format=full-v2 | jq -er '.[0].id')
 for target in "${snapshot_targets[@]}"; do umount "$target"; done
 rm -rf -- "$work/snapshot"
@@ -138,6 +183,17 @@ for scope in books all; do
     printf 'frozen frigate/exports\n' | cmp - "$RECOVERY_TARGET/mnt/storage/media/frigate/exports/value"
   fi
 done
+export RECOVERY_TARGET=/srv/home-lab-recovery/restic-v2-wolf
+mkdir -m 0700 "$RECOVERY_TARGET"
+"$work/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target --recovery-group wolf >/dev/null
+printf 'new live bytes' | cmp - "$RECOVERY_TARGET/mnt/games/roms/fixture"
+profile="$RECOVERY_TARGET/mnt/games/wolf/profile-data/paul/WolfES-DE"
+for dir in ES-DE .config/retroarch .config/dolphin-emu .local/share/dolphin-emu .config/rpcs3 .local/share/xemu; do
+  printf 'protected' | cmp - "$profile/$dir/fixture"
+done
+[[ ! -e $profile/.steam && ! -e $profile/.config/retroarch/assets/test && ! -e $profile/.config/rpcs3/dev_hdd0/game/test ]]
+printf 'protected' | cmp - "$RECOVERY_TARGET/mnt/games/wolf/cfg/fixture"
+[[ ! -e $RECOVERY_TARGET/mnt/games/wolf/cfg/backtrace.previous.dump && ! -e $RECOVERY_TARGET/mnt/storage/media/books/value ]]
 # Reject unknown and conflicting formats before writing even a selective restore.
 restic tag --add format=future "$snapshot" >/dev/null 2>&1
 snapshot=$(restic snapshots --json --tag format=future | jq -er '.[0].id')
