@@ -71,6 +71,18 @@ def refuse_case_conflict(directory, name):
             raise Refusal('install_link_case_conflict')
 
 
+def open_storage(opened, compatdata, games):
+    if Path(compatdata).is_relative_to(games) or Path(games).is_relative_to(compatdata):
+        raise Refusal('overlapping_roots')
+    state, state_mount = mounted_root(opened, compatdata)
+    payload, payload_mount = mounted_root(opened, games)
+    if os.fstat(state).st_dev == os.fstat(payload).st_dev:
+        raise Refusal('storage_not_separate')
+    if os.fstatvfs(state).f_flag & os.ST_RDONLY or not (os.fstatvfs(payload).f_flag & os.ST_RDONLY):
+        raise Refusal('mount_projection_mode')
+    return state, state_mount, payload, payload_mount
+
+
 def prepare(compatdata, games, app_id, link, install):
     if not re.fullmatch(r'[1-9][0-9]{0,9}', app_id) or int(app_id) > 2**32 - 1:
         raise Refusal('invalid_app_id')
@@ -80,15 +92,8 @@ def prepare(compatdata, games, app_id, link, install):
         raise Refusal('link_outside_program_files')
     if any(part.endswith(('.', ' ')) or re.search(r'[?*|]', part) for part in link_parts):
         raise Refusal('invalid_windows_path')
-    if Path(compatdata).is_relative_to(games) or Path(games).is_relative_to(compatdata):
-        raise Refusal('overlapping_roots')
     with ExitStack() as opened:
-        state, state_mount = mounted_root(opened, compatdata)
-        payload, payload_mount = mounted_root(opened, games)
-        if os.fstat(state).st_dev == os.fstat(payload).st_dev:
-            raise Refusal('storage_not_separate')
-        if os.fstatvfs(state).f_flag & os.ST_RDONLY or not (os.fstatvfs(payload).f_flag & os.ST_RDONLY):
-            raise Refusal('mount_projection_mode')
+        state, state_mount, payload, payload_mount = open_storage(opened, compatdata, games)
         target = descend(opened, payload, install_parts, payload_mount)
         prefix = descend(opened, state, (app_id, 'pfx'), state_mount)
         for registry in ('system.reg', 'user.reg'):

@@ -699,13 +699,24 @@ existing link is success, missing mounts, conflicts and uninitialized prefixes
 are refusals. The caller must independently verify the mounts’ persistent host
 identities and refuse the title if the check fails.
 
-Run `sudo env WOLF_PROTON_INSTALL_TEST_DISPOSABLE=true scripts/test-wolf-proton-install`
-on disposable Linux to exercise missing mounts, replacement of an entire prefix,
-and install-link repair. This tool is not wired into Steam or deployed by
-Compose. A hook that runs before Proton can reset the prefix does not qualify.
-Keep Wolf’s existing layout, idle guard and selected-save backup until the
-actual launcher handoff and the candidate layout’s snapshot restores are
-verified.
+`scripts/wolf-proton-launch` is the isolated qualification launcher for one
+reviewed title and UMU-Proton 10.0-4. It admits only `waitforexitandrun` and the
+reviewed Steam app, prefix, and install bindings. For the exact vetted launcher
+bytes it inserts the synchronous check at `Session.run`, after prefix setup and
+the previous wineserver wait. It does not modify the vendor file or depend on an
+optional ProtonFixes callback (the unguarded `run` verb skips that callback).
+The launcher, helper and adjacent `wolf-proton-launch.json` belong on reviewed
+read-only storage; the caller must verify the **whole** Proton distribution.
+The policy keys are `proton`, `compatdata`, `games`, `app_id`, `link`, and
+`install`. This is not installed or selected by Steam or Compose. A title that
+needs another verb or upstream game-specific fixes is not qualified by this
+candidate. Do not make the candidate the default compatibility tool.
+
+Run `python3 scripts/test-wolf-proton-launch.py` and
+`sudo env WOLF_PROTON_INSTALL_TEST_DISPOSABLE=true scripts/test-wolf-proton-install`
+on disposable Linux. Keep Wolf’s existing layout, idle guard and selected-save
+backup until Steam’s actual compatibility-tool selection, the affected title’s
+launch and reset behavior, and the candidate layout’s snapshot restores qualify.
 
 ### Wolf startup and memory containment
 

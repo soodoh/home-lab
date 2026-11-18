@@ -1,0 +1,117 @@
+#!/usr/bin/env -S python3 -I
+"""Qualification launcher for one reviewed Wolf title and UMU-Proton build."""
+import fcntl
+import hashlib
+import json
+import os
+from contextlib import ExitStack
+from pathlib import Path
+import re
+import stat
+import sys
+
+
+UPSTREAM_SHA256 = 'da9bfb62b0326536c4dfdb2a145993d31e987cd46b8acf341ce05160b8775a25'
+# Exact anchor in the pinned UMU-Proton 10.0-4 launcher. waitforexitandrun
+# reaches Session.run after prefix setup and the previous wineserver wait.
+HANDOFF = b'    def run(self):\n'
+KEYS = {'proton', 'compatdata', 'games', 'app_id', 'link', 'install'}
+
+
+class Refusal(ValueError):
+    pass
+
+
+def readonly_bytes(path, limit):
+    if not path.is_absolute() or path.resolve(strict=True) != path:
+        raise Refusal('noncanonical_artifact')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        row = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(row.st_mode) or row.st_uid != 0 or row.st_mode & 0o022
+                or not (os.fstatvfs(stream.fileno()).f_flag & os.ST_RDONLY)
+                or not 0 < row.st_size <= limit):
+            raise Refusal('untrusted_artifact')
+        data = stream.read(limit + 1)
+        if not 0 < len(data) <= limit:
+            raise Refusal('untrusted_artifact')
+        return data
+
+
+def launch():
+    if sys.platform != 'linux' or os.geteuid() == 0 or not sys.flags.isolated:
+        raise Refusal('isolated_game_user_required')
+    if len(sys.argv) < 3 or sys.argv[1] != 'waitforexitandrun':
+        raise Refusal('unsupported_launch_verb')
+    if 'iscriptevaluator.exe' in sys.argv[2].lower():
+        raise Refusal('unsupported_install_step')
+    base = Path(__file__).absolute().parent
+    policy = json.loads(readonly_bytes(base / 'wolf-proton-launch.json', 16 * 1024))
+    if not isinstance(policy, dict) or policy.keys() != KEYS or not all(isinstance(v, str) and v for v in policy.values()):
+        raise Refusal('policy_schema')
+    args = tuple(policy[k] for k in ('compatdata', 'games', 'app_id', 'link', 'install'))
+    compatdata, games, app_id, _, install = args
+    if not re.fullmatch(r'[1-9][0-9]{0,9}', app_id) or int(app_id) > 2**32 - 1:
+        raise Refusal('invalid_app_id')
+    if (os.environ.get('SteamAppId') != app_id or os.environ.get('SteamGameId') != app_id
+            or os.environ.get('STEAM_COMPAT_DATA_PATH') != str(Path(compatdata) / app_id)
+            or os.environ.get('STEAM_COMPAT_INSTALL_PATH') != str(Path(games) / install)):
+        raise Refusal('unexpected_title_binding')
+    upstream = Path(policy['proton'])
+    source = readonly_bytes(upstream, 1024 * 1024)
+    if hashlib.sha256(source).hexdigest() != UPSTREAM_SHA256 or source.count(HANDOFF) != 1:
+        raise Refusal('unreviewed_proton_launcher')
+    if os.path.lexists(upstream.with_name('user_settings.py')):
+        raise Refusal('unreviewed_proton_settings')
+
+    helper_path = base / 'prepare-wolf-proton-install'
+    helper = {'__name__': '_wolf_prepare'}
+    exec(compile(readonly_bytes(helper_path, 64 * 1024), str(helper_path), 'exec'), helper)
+    with ExitStack() as opened:
+        state, state_mount, payload, payload_mount = helper['open_storage'](opened, compatdata, games)
+        # Hold the dedicated compatdata parent inode (one title in this pilot),
+        # outside the replaceable prefix and for the full lifetime of Proton.
+        try:
+            fcntl.flock(state, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Refusal('compatdata_busy') from None
+        helper['descend'](opened, payload, helper['relative'](install), payload_mount)
+        app = helper['descend'](opened, state, (app_id,), state_mount)
+        try:
+            os.stat('pfx', dir_fd=app, follow_symlinks=False)
+        except FileNotFoundError:
+            pass  # A fresh prefix is created by Proton, not this adapter.
+        else:
+            helper['descend'](opened, app, ('pfx',), state_mount)
+
+        def checked_handoff():
+            with ExitStack() as observed:
+                _, current_state, _, current_payload = helper['open_storage'](observed, compatdata, games)
+                if (current_state, current_payload) != (state_mount, payload_mount):
+                    raise Refusal('launch_mounts_changed')
+            helper['prepare'](*args)
+            print('wolf_proton_launch=handoff_verified', flush=True)
+
+        # Do not rely on an optional ProtonFixes callback (alternate verbs skip
+        # it, and it can swallow ordinary exceptions). Keep the vendor file
+        # unchanged and execute only the reviewed launcher with this one insert.
+        os.environ['PROTONFIXES_DISABLE'] = '1'
+        sys.argv[0] = str(upstream)
+        sys.path.insert(0, str(upstream.parent))
+        patched = source.replace(HANDOFF, HANDOFF + b'        _wolf_checked_handoff()\n', 1)
+        exec(compile(patched, str(upstream), 'exec'), {
+            '__name__': '__main__', '__file__': str(upstream), '_wolf_checked_handoff': checked_handoff,
+        })
+
+
+def main():
+    try:
+        launch()
+    except Refusal as exc:
+        sys.exit(f'wolf_proton_launch=refused reason={exc}')
+    except (OSError, ValueError, KeyError):
+        sys.exit('wolf_proton_launch=refused reason=layout_or_artifact')
+
+
+if __name__ == '__main__':
+    main()
