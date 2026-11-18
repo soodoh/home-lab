@@ -83,16 +83,16 @@ time during that run. Keep existing exports and scope. Keep Nextcloud web/cron
 and Shelfmark/Grimmory writers paused across the SQL exports and both snapshots;
 resume them before Restic reads. Remove other pauses or native exports only
 after restoring the live-captured app with its pinned image and verifying its
-files, database and startup. Wolf is on a different physical disk; keep its
-existing selected-save capture until those paths can be migrated and restored
-from snapshot-backed storage without moving game installations.
+files, database and startup. Wolf's separate games disk uses an explicit live
+capture of local emulator data and ROMs, without capturing Steam/Proton state.
+Before using that policy, qualify the live selection and restores against the
+installed emulator layout.
 
 Qualify native PostgreSQL/MariaDB imports, Jellyfin archive restoration and
-representative application/user files from the same full capture. Verify selected
-Wolf saves/settings (including per-game paths outside standard Proton user
-folders), resolved links and refusal during active game sessions. Do not expand
-coverage to entire Steam installations or all Proton prefixes to avoid mapping
-that boundary. Confirm both production ACME account keys in private staging.
+representative application/user files from the same full capture. Verify Wolf
+pairing settings, ROMs and representative emulator saves, memory cards and save
+states, including emulator paths outside the EmulationStation frontend. Confirm
+both production ACME account keys in private staging.
 
 Enable Z-Wave's native NVM schedule only through its separately approved restart
 interface, verify actual fresh NVM output, and qualify supported ZHA/Z-Wave

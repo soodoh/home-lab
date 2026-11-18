@@ -49,9 +49,13 @@
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/scrapers/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/screensavers/**
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/themes/**
+/mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share/dolphin-emu/Logs/**
+/mnt/games/wolf/profile-data/paul/WolfES-DE/.config/rpcs3/dev_hdd0/game/**
+/mnt/games/wolf/profile-data/paul/WolfES-DE/.config/rpcs3/dev_hdd0/disc/**
+/mnt/games/wolf/profile-data/paul/WolfES-DE/.config/rpcs3/dev_flash/**
+/mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share/xemu/**/xemu.log
 
 **/.steam/steam/steamapps/common/**
-# Skip Steam during recursive share copies, not explicitly selected userdata/prefix paths.
 **/.local/share/Steam
 **/AppData/Local/Temp/**
 **/AppData/Local/Microsoft/Windows/INetCache/**

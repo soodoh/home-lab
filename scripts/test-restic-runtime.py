@@ -471,17 +471,12 @@ class Runtime(unittest.TestCase):
     def test_reviewed_capture_plan_keeps_online_writers_and_stops_other_services_at_most_once(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
-                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto'}
+                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf'}
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
         running = set(declared)
         stops = []
         adapter = mock.Mock()
-        adapter.wolf_paths.return_value = (['/mnt/games/wolf/cfg'], {})
         adapter.retry.side_effect = lambda operation: operation()
-        def copy_local(paths, *_):
-            self.assertEqual(running, kept)
-            self.assertEqual(paths, ['/mnt/games/wolf/cfg'])
-        adapter.copy_paths.side_effect = copy_local
         adapter.database_dump.side_effect = lambda *_: self.assertEqual(running, kept)
         policy['_capture'] = 'b' * 32
         adapter.zfs_paths.side_effect = CAPTURE['zfs_paths']
@@ -512,7 +507,7 @@ class Runtime(unittest.TestCase):
             'durable_unlink': mock.Mock(), 'service_container': lambda _, s: s,
             'service_running': lambda _, s: s in running, 'service_healthy': lambda *_: True,
             'nextcloud_healthy': lambda *_: True,
-            'wolf_siblings': lambda _: [], 'compose': compose,
+            'compose': compose,
         }):
             cold(policy, adapter, policy['capture']['cold'], Path('/unused'), declared)
         self.assertEqual(running, declared)
@@ -520,7 +515,7 @@ class Runtime(unittest.TestCase):
         self.assertEqual(set(stops[0]), declared - kept)
         self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list],
                          ['create', 'state-create'])
-        adapter.copy_paths.assert_called_once()
+        adapter.copy_paths.assert_not_called()
         adapter.precopy.assert_not_called()
         adapter.finish_copy.assert_not_called()
 
@@ -589,43 +584,6 @@ class Runtime(unittest.TestCase):
                          [{'name': 'app', 'services': ['app'], 'paths': ['/data']}], Path('/unused'), {'app'})
                 self.assertEqual(restart.call_args.args[1]['running_services'], ['app'])
 
-    def test_busy_wolf_refuses_before_staging_or_interruption_and_can_retry_when_idle(self):
-        daily = RUNNER['daily_local']
-        for busy in ('session', 'writer'):
-            with self.subTest(busy=busy), tempfile.TemporaryDirectory() as directory:
-                policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-                stage = Path(directory).resolve() / 'capture'
-                policy['capture']['stage'] = str(stage)
-                declared = {s for step in policy['capture']['cold'] for s in step['services']}
-                adapter = mock.Mock()
-                adapter.CaptureError = CAPTURE['CaptureError']
-                adapter.zfs_inventory.return_value = []
-                adapter.wolf_idle.side_effect = CAPTURE['CaptureError']('wolf_not_idle') if busy == 'session' else None
-                adapter.fresh_stage.side_effect = lambda path, _: path.mkdir(mode=0o700) or path
-                siblings = mock.Mock(return_value=['wolf', 'game'] if busy == 'writer' else ['wolf'])
-                cold = mock.Mock(side_effect=RUNNER['WorkflowError']('capture_reached'))
-                with mock.patch.dict(daily.__globals__, {
-                    'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
-                    'capture_adapter': lambda _: adapter, 'rooted': Path,
-                    'declared_services': lambda _: declared, 'service_container': lambda _, s: s,
-                    'service_running': lambda *_: True, 'wolf_siblings': siblings, 'cold_capture': cold,
-                }):
-                    reason = 'wolf_not_idle' if busy == 'session' else 'wolf_active_writer'
-                    with self.assertRaisesRegex(RUNNER['WorkflowError'], reason):
-                        daily(policy, 'a' * 64)
-                    self.assertFalse(stage.exists())
-                    cold.assert_not_called()
-                    adapter.fresh_stage.assert_not_called()
-                    adapter.capacity_check.assert_not_called()
-                    adapter.zfs_inventory.assert_not_called()
-                    # Ordinary activity must not require manual staging cleanup.
-                    adapter.wolf_idle.side_effect = None
-                    siblings.return_value = ['wolf']
-                    with self.assertRaisesRegex(RUNNER['WorkflowError'], 'capture_reached'):
-                        daily(policy, 'a' * 64)
-                    self.assertTrue(stage.is_dir())
-                    cold.assert_called_once()
-
     def test_unready_stage_is_preserved_without_restarting_capture(self):
         daily = RUNNER['daily_local']
         with tempfile.TemporaryDirectory() as directory:
@@ -633,32 +591,17 @@ class Runtime(unittest.TestCase):
             stage.mkdir(mode=0o700)
             payload = stage / 'partial-copy'
             payload.write_bytes(b'synthetic interrupted capture')
-            declared, available, cold = mock.Mock(), mock.Mock(), mock.Mock()
+            declared, cold = mock.Mock(), mock.Mock()
             with mock.patch.dict(daily.__globals__, {
                 'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
                 'capture_adapter': lambda _: types.SimpleNamespace(CaptureError=CAPTURE['CaptureError']),
-                'rooted': Path, 'declared_services': declared, 'verify_wolf_available': available,
+                'rooted': Path, 'declared_services': declared,
                 'cold_capture': cold,
             }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'previous_capture_requires_inspection'):
                 daily({'capture': {'stage': str(stage)}}, 'a' * 64)
             self.assertEqual(payload.read_bytes(), b'synthetic interrupted capture')
             declared.assert_not_called()
-            available.assert_not_called()
             cold.assert_not_called()
-
-    def test_wolf_is_rechecked_immediately_before_interruption(self):
-        cold = RUNNER['cold_capture']
-        adapter = mock.Mock()
-        adapter.wolf_paths.return_value = ([], {})
-        adapter.wolf_idle.side_effect = CAPTURE['CaptureError']('wolf_not_idle')
-        journal, compose = mock.Mock(), mock.Mock()
-        with mock.patch.dict(cold.__globals__, {
-            'service_container': lambda _, s: s, 'service_running': lambda *_: True,
-            'wolf_siblings': lambda _: ['wolf'], 'atomic_json': journal, 'compose': compose,
-        }), self.assertRaisesRegex(CAPTURE['CaptureError'], 'wolf_not_idle'):
-            cold(self.pause_policy('wolf'), adapter, [{'services': ['wolf'], 'paths': [], 'wolf': '/wolf'}], Path('/unused'), {'wolf'})
-        journal.assert_not_called()
-        compose.assert_not_called()
 
     def test_ready_stage_retries_upload_without_another_stop_copy_or_export(self):
         daily = RUNNER['daily_local']
@@ -694,7 +637,6 @@ class Runtime(unittest.TestCase):
                 'inventory': mock.Mock(side_effect=[[], [{'id': 'd' * 64, 'tags': [
                     'capture=fixture', 'complete=full-v2', 'format=full-v2', 'cadence=daily']}]]),
                 'cold_capture': mock.Mock(side_effect=AssertionError('recapture')),
-                'verify_wolf_available': mock.Mock(side_effect=AssertionError('gaming must not block ready-stage upload')),
             }), mock.patch('builtins.print'):
                 daily({'capture': {'stage': str(stage)}}, 'a' * 64)
             self.assertEqual(events, ['backup', 'tag'])

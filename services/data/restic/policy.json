@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "62a6d6764d3a3bb8721c19018dc78b37034b81a802f36485bf1b3b1b31f760ae",
+    "sha256": "0f51e045bb1b48a53e934752452f7aefca70a258cdce3258a084b0fe1019f8ac",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -98,14 +98,13 @@
       "qbittorrent",
       "sabnzbd",
       "tachidesk",
-      "caro-tachidesk",
-      "wolf"
+      "caro-tachidesk"
     ],
     "databases": []
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "f07f460df752d11d328a57c7e4bae696e7b3ae3210a512237a9188b560fc9637",
+    "adapter_sha256": "c507c3bdd723379c8a760c17f734172d354002c11366cba7ec1fa10e9d1963eb",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -334,14 +333,6 @@
           "/srv/home-lab-state/caro-tachidesk-data",
           "/mnt/storage/media/caro-tachidesk"
         ]
-      },
-      {
-        "name": "wolf",
-        "services": [
-          "wolf"
-        ],
-        "paths": [],
-        "wolf": "/mnt/games/wolf"
       }
     ],
     "online": [
@@ -375,6 +366,16 @@
     "online_stores": [
       "/srv/home-lab-state/gluetun-data",
       "/srv/home-lab-state/ddns-updater-data"
+    ],
+    "live_games_paths": [
+      "/mnt/games/roms",
+      "/mnt/games/wolf/cfg",
+      "/mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE",
+      "/mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch",
+      "/mnt/games/wolf/profile-data/paul/WolfES-DE/.config/dolphin-emu",
+      "/mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share/dolphin-emu",
+      "/mnt/games/wolf/profile-data/paul/WolfES-DE/.config/rpcs3",
+      "/mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share/xemu"
     ],
     "live_files": [
       "/srv/home-lab-state/recyclarr-data/settings.yml",
