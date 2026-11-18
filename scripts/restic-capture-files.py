@@ -21,6 +21,7 @@ import sqlite3
 import socket
 import stat
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -910,7 +911,34 @@ def jellyfin(source, target):
     command(['/usr/bin/docker', 'exec', 'jellyfin', '/bin/rm', '--', '/config/data/backups/' + archive.name])
 
 
-def radio_check(files, max_age):
+@contextmanager
+def frozen_radio_copy(path, scratch):
+    # Even after a clean stop, SQLite's WAL header may need a new shared-memory
+    # index. Let SQLite recover only a small private copy of the frozen bytes.
+    # Never use `immutable=1` to bypass normal WAL/rollback recovery checks.
+    members = []
+    total = 0
+    for suffix in ('', '-wal', '-journal'):
+        source = path.with_name(path.name + suffix)
+        try:
+            info = source.lstat()
+        except FileNotFoundError:
+            if suffix:
+                continue
+            raise
+        if not stat.S_ISREG(info.st_mode):
+            raise CaptureError('zha_backup_source_type')
+        total += info.st_size
+        if total > 64 * 1024**2:
+            raise CaptureError('zha_backup_scratch_limit')
+        members.append(source)
+    with tempfile.TemporaryDirectory(prefix='.radio-check-', dir=scratch) as directory:
+        for source in members:
+            shutil.copyfile(safe_source(source), Path(directory) / source.name)
+        yield Path(directory) / path.name
+
+
+def radio_check(files, max_age, *, snapshot_scratch=None):
     """Validate native outputs without touching/resetting either radio."""
     now = time.time()
     nvm = Path(files) / 'srv/home-lab-state/zwave-data/backups/nvm'
@@ -918,16 +946,22 @@ def radio_check(files, max_age):
     if not candidates or not 0 <= now - max(p.stat().st_mtime for p in candidates) <= max_age:
         raise CaptureError('zwave_nvm_stale')
     path = Path(files) / 'srv/home-lab-state/hass-data/zigbee.db'
-    with closing(sqlite3.connect('file:' + str(path) + '?mode=ro', uri=True)) as db:
-        names = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        import re
-        tables = [n for n in names if re.fullmatch(r'network_backups_v[0-9]+', n)]
-        if not tables:
-            raise CaptureError('zha_backup_missing')
-        table = max(tables, key=lambda n: int(n.rsplit('v', 1)[1]))
-        from datetime import datetime
-        timestamps = [datetime.fromisoformat(json.loads(r[0])['backup_time']).timestamp()
-                      for r in db.execute('SELECT backup_json FROM ' + table)]
+    selected = frozen_radio_copy(path, snapshot_scratch) if snapshot_scratch is not None else nullcontext(path)
+    mode = 'rw' if snapshot_scratch is not None else 'ro'
+    try:
+        with selected as source, closing(sqlite3.connect(source.as_uri() + '?mode=' + mode, uri=True)) as db:
+            names = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+            tables = [n for n in names if re.fullmatch(r'network_backups_v[0-9]+', n)]
+            if not tables:
+                raise CaptureError('zha_backup_missing')
+            table = max(tables, key=lambda n: int(n.rsplit('v', 1)[1]))
+            from datetime import datetime
+            timestamps = [datetime.fromisoformat(json.loads(r[0])['backup_time']).timestamp()
+                          for r in db.execute('SELECT backup_json FROM ' + table)]
+    except CaptureError:
+        raise
+    except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
+        raise CaptureError('zha_backup_invalid') from None
     if not timestamps or not 0 <= now - max(timestamps) <= max_age:
         raise CaptureError('zha_backup_stale')
 
