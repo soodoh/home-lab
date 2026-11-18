@@ -36,7 +36,7 @@ locals {
       {
         src = [local.tags.docker_host]
         dst = [local.tags.proxmox]
-        ip  = ["tcp:2444", "tcp:8006"]
+        ip  = ["tcp:2444", "tcp:2445", "tcp:8006"]
       },
     ]
 
@@ -79,6 +79,7 @@ locals {
         proto = "tcp"
         accept = [
           "${local.tags.proxmox}:2444",
+          "${local.tags.proxmox}:2445",
           "${local.tags.proxmox}:8006",
         ]
         deny = [

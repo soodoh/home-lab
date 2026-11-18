@@ -106,6 +106,12 @@
         from_json).capture.adapter_sha256
     quiet: true
 
+- name: Converge the native read-only snapshot client when declared
+  ansible.builtin.include_tasks: state-client.yml
+  when: >-
+    (lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/policy.json') |
+    from_json).capture.state_snapshot is defined
+
 - name: Install reviewed Restic policy
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../services/data/restic/policy.json"

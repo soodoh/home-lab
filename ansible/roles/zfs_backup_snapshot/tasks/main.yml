@@ -167,6 +167,10 @@
     label: '{{ item.item }}'
   when: not item.stat.exists
 
+- name: Converge the on-demand state block export under the same storage owner
+  ansible.builtin.import_tasks: state.yml
+  when: zfs_backup_snapshot_state is defined
+
 - name: Install the fixed-command snapshot adapter
   ansible.builtin.copy:
     src: '{{ playbook_dir }}/../../scripts/zfs-backup-snapshot'
@@ -179,7 +183,8 @@
   ansible.builtin.copy:
     content: >-
       {{ {'dataset_guid': zfs_backup_snapshot_dataset_guid,
-          'allow_degraded_capture': zfs_backup_snapshot_allow_degraded_capture | default(false)} | to_nice_json }}
+          'allow_degraded_capture': zfs_backup_snapshot_allow_degraded_capture | default(false)} |
+          combine({'state': zfs_backup_snapshot_state} if zfs_backup_snapshot_state is defined else {}) | to_nice_json }}
 
     dest: /etc/home-lab/zfs-backup-snapshot.json
     owner: root
@@ -224,7 +229,7 @@
 - name: Enable only the snapshot RPC listener without any login or forwarding service
   ansible.builtin.systemd_service:
     name: home-lab-zfs-backup-snapshot.socket
-    daemon_reload: '{{ zfs_backup_snapshot_units.changed }}'
+    daemon_reload: '{{ zfs_backup_snapshot_units.changed or zfs_backup_snapshot_state_units.changed | default(false) }}'
     enabled: true
     state: '{{ "restarted" if zfs_backup_snapshot_units.changed else "started" }}'
   when: not ansible_check_mode

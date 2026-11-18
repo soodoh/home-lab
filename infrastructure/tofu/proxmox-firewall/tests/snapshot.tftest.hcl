@@ -11,18 +11,18 @@ run "snapshot_rpc_has_only_the_backup_peer_host_rule" {
   assert {
     condition = length([
       for rule in proxmox_virtual_environment_firewall_rules.cluster[0].rule : rule
-      if rule.dport == "2444"
-    ]) == 1
-    error_message = "Snapshot RPC needs exactly one explicit host firewall rule."
+      if contains(["2444", "2445"], rule.dport)
+    ]) == 2
+    error_message = "The snapshot control and read-only data ports each need one host firewall rule."
   }
 
   assert {
     condition = alltrue([
       for rule in proxmox_virtual_environment_firewall_rules.cluster[0].rule :
       rule.action == "ACCEPT" && rule.type == "in" && rule.proto == "tcp" && rule.source == "100.116.163.42/32"
-      if rule.dport == "2444"
+      if contains(["2444", "2445"], rule.dport)
     ])
-    error_message = "Do not expose root snapshot RPC to the LAN, the whole tailnet, UDP or any non-backup peer."
+    error_message = "Do not expose snapshot control or data to the LAN, the whole tailnet, UDP or any non-backup peer."
   }
 
   assert {

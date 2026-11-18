@@ -6,6 +6,10 @@
 zfs_backup_snapshot_allow_degraded_capture: true
 zfs_backup_snapshot_dataset_guid: '8756195246383642806'
 zfs_backup_snapshot_tailscale_ipv4: '100.113.54.34'
+zfs_backup_snapshot_state:
+  origin_uuid: 'FrFxM0-Vwz5-5Kdr-Q6XX-2j4e-qifT-uBbE9o'
+  pool_uuid: 'F4qY5S-3MKM-JnIj-DN62-Cwcn-a9fF-k1zLCp'
+  bytes: 137438953472
 proxmox_observe_required_services:
   - ssh.service
   - tailscaled.service

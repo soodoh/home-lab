@@ -1,0 +1,51 @@
+---
+- name: Observe the pinned state origin and pool before installing block authority
+  ansible.builtin.command:
+    argv: [/usr/sbin/lvs, --reportformat, json, -o, 'lv_name,lv_uuid,pool_lv', pve]
+  changed_when: false
+  check_mode: false
+  register: zfs_backup_snapshot_state_lvs
+
+- name: Refuse an unknown state origin, pool or retained state snapshot
+  ansible.builtin.assert:
+    that:
+      - lvs | selectattr('lv_name', 'equalto', 'vm-100-disk-1') | selectattr('pool_lv', 'equalto', 'data') |
+        selectattr('lv_uuid', 'equalto', zfs_backup_snapshot_state.origin_uuid) | list | length == 1
+      - lvs | selectattr('lv_name', 'equalto', 'data') |
+        selectattr('lv_uuid', 'equalto', zfs_backup_snapshot_state.pool_uuid) | list | length == 1
+      - lvs | selectattr('lv_name', 'match', '^home-lab-state-') | list | length == 0
+    quiet: true
+  vars:
+    lvs: "{{ (zfs_backup_snapshot_state_lvs.stdout | from_json).report[0].lv }}"
+
+- name: Check that the block export port has no retained or foreign listener
+  ansible.builtin.command:
+    argv: [/usr/bin/ss, '-H', '-lnt', sport, '=', ':2445']
+  changed_when: false
+  check_mode: false
+  register: zfs_backup_snapshot_state_listener
+
+- name: Require an unused block export port before convergence
+  ansible.builtin.assert:
+    that: zfs_backup_snapshot_state_listener.stdout == ''
+    quiet: true
+
+- name: Install fixed-origin state snapshot authority
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../../scripts/state-backup-snapshot.py'
+    dest: /usr/local/libexec/home-lab/state-backup-snapshot.py
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install an on-demand read-only NBD socket and service without activating them
+  ansible.builtin.template:
+    src: '{{ item }}.j2'
+    dest: '/etc/systemd/system/{{ item }}'
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - home-lab-state-snapshot@.socket
+    - home-lab-state-snapshot@.service
+  register: zfs_backup_snapshot_state_units

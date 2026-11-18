@@ -1,0 +1,18 @@
+[Unit]
+Description=Serve one immutable state volume snapshot %i
+BindsTo=home-lab-state-snapshot@%i.socket
+After=home-lab-state-snapshot@%i.socket
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/qemu-nbd --format=raw --read-only --persistent --export-name=%i /dev/pve/home-lab-state-%i
+DynamicUser=yes
+SupplementaryGroups=disk
+DevicePolicy=closed
+DeviceAllow=/dev/pve/home-lab-state-%i r
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+RuntimeMaxSec=12h

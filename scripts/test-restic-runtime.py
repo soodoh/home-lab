@@ -395,6 +395,10 @@ class Runtime(unittest.TestCase):
             accepted = subprocess.run(argv, capture_output=True, timeout=5)
             self.assertEqual(accepted.returncode, 0)
 
+    def pause_policy(self, *services, owner=None):
+        return {'capture': {}, 'stop_groups': {'applications': list(services), 'databases': []},
+                'runner': {'exclude_file_path': '/excluded'}, '_owner': owner}
+
     def test_stop_copy_restart_has_no_repository_phase_and_preserves_inactive_services(self):
         cold = RUNNER['cold_capture']
         events = []
@@ -402,7 +406,7 @@ class Runtime(unittest.TestCase):
         adapter.copy_paths.side_effect = lambda *_: events.append('copy')
         adapter.retry.side_effect = lambda action: action()
         adapter.database_dump.side_effect = lambda *_: events.append('dump')
-        policy = {'runner': {'exclude_file_path': '/excluded'}, '_owner': 'a' * 64}
+        policy = self.pause_policy('app', 'inactive', owner='a' * 64)
         recorded = mock.Mock()
         step = {'name': 'example', 'services': ['app', 'inactive'], 'paths': ['/protected'],
                 'databases': [{'engine': 'postgres', 'name': 'db.dump'}]}
@@ -417,7 +421,7 @@ class Runtime(unittest.TestCase):
             'compose': compose, 'restart_recorded': lambda *_: events.append('restart'),
             'restic_result': mock.Mock(side_effect=AssertionError('upload during cold window')),
         }):
-            cold(policy, adapter, step, Path('/unused'), {'app', 'inactive'})
+            cold(policy, adapter, [step], Path('/unused'), {'app', 'inactive'})
         self.assertEqual(events, [['stop', '--timeout', '120', 'app'], 'copy', 'dump', 'restart'])
         self.assertEqual(recorded.call_args.args[1]['owner'], policy['_owner'])
 
@@ -427,23 +431,34 @@ class Runtime(unittest.TestCase):
                 'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto'}
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
         running = set(declared)
-        stopped = []
+        stops = []
         adapter = mock.Mock()
-        adapter.wolf_paths.return_value = ([], {})
+        adapter.wolf_paths.return_value = (['/mnt/games/wolf/cfg'], {})
         adapter.retry.side_effect = lambda operation: operation()
-        adapter.copy_paths.side_effect = lambda *_, **__: self.assertTrue(kept <= running)
+        def copy_local(paths, *_):
+            self.assertEqual(running, kept)
+            self.assertEqual(paths, ['/mnt/games/wolf/cfg'])
+        adapter.copy_paths.side_effect = copy_local
+        adapter.database_dump.side_effect = lambda *_: self.assertEqual(running, kept)
         policy['_capture'] = 'b' * 32
-        adapter.ZFS_DATA_PATH = CAPTURE['ZFS_DATA_PATH']
+        adapter.zfs_paths.side_effect = CAPTURE['zfs_paths']
+        adapter.state_snapshot_roots.side_effect = CAPTURE['state_snapshot_roots']
+        adapter.state_snapshot_record.side_effect = CAPTURE['state_snapshot_record']
         adapter.zfs_spec.return_value = policy['capture']['zfs']
         adapter.zfs_record.side_effect = CAPTURE['zfs_record']
-        adapter.zfs_call.return_value = {
-            'capture': policy['_capture'], 'owner': hashlib.sha256(policy['_capture'].encode()).hexdigest(),
-            'guid': '123', 'created': 1, 'dataset_guid': policy['capture']['zfs']['dataset_guid'],
-        }
+        scope = {'capture': policy['_capture'], 'owner': hashlib.sha256(policy['_capture'].encode()).hexdigest()}
+        def snapshots(_spec, request):
+            self.assertEqual(running, kept)
+            if request['action'] == 'state-create':
+                return {**scope, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff', 'created': 1,
+                        'bytes': policy['capture']['state_snapshot']['bytes']}
+            self.assertEqual(request['action'], 'create')
+            return {**scope, 'guid': '123', 'created': 1, 'dataset_guid': policy['capture']['zfs']['dataset_guid']}
+        adapter.zfs_call.side_effect = snapshots
         def compose(_policy, args):
             if args[0] == 'stop':
                 self.assertTrue(kept.isdisjoint(args[3:]))
-                stopped.extend(args[3:])
+                stops.append(args[3:])
                 running.difference_update(args[3:])
             else:
                 running.update(args[1:])
@@ -456,10 +471,15 @@ class Runtime(unittest.TestCase):
             'nextcloud_healthy': lambda *_: True,
             'wolf_siblings': lambda _: [], 'compose': compose,
         }):
-            for step in policy['capture']['cold']:
-                cold(policy, adapter, step, Path('/unused'), declared)
-                self.assertEqual(running, declared)
-        self.assertEqual(len(stopped), len(set(stopped)), 'VPN clients must not be stopped a second time')
+            cold(policy, adapter, policy['capture']['cold'], Path('/unused'), declared)
+        self.assertEqual(running, declared)
+        self.assertEqual(stops, [policy['stop_groups']['applications']])
+        self.assertEqual(set(stops[0]), declared - kept)
+        self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list],
+                         ['create', 'state-create'])
+        adapter.copy_paths.assert_called_once()
+        adapter.precopy.assert_not_called()
+        adapter.finish_copy.assert_not_called()
 
     def test_failed_precopy_never_interrupts_a_writer_or_publishes_a_journal(self):
         cold = RUNNER['cold_capture']
@@ -469,8 +489,8 @@ class Runtime(unittest.TestCase):
         journal, compose = mock.Mock(), mock.Mock()
         with mock.patch.dict(cold.__globals__, {'rooted': Path, 'atomic_json': journal, 'compose': compose}), \
                 self.assertRaisesRegex(CAPTURE['CaptureError'], 'copy_failed'):
-            cold({'runner': {'exclude_file_path': '/excluded'}}, adapter,
-                 {'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}, Path('/stage'), {'app'})
+            cold(self.pause_policy('app'), adapter,
+                 [{'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}], Path('/stage'), {'app'})
         journal.assert_not_called()
         compose.assert_not_called()
 
@@ -502,8 +522,8 @@ class Runtime(unittest.TestCase):
             'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
             'service_running': lambda _, s: s in running, 'compose': compose, 'restart_recorded': restart,
         }):
-            cold({'runner': {'exclude_file_path': '/excluded'}}, adapter,
-                 {'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}, Path('/stage'), {'app'})
+            cold(self.pause_policy('app'), adapter,
+                 [{'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}], Path('/stage'), {'app'})
         self.assertEqual(events, ['precopy', 'stop', 'final-sync', 'restart'])
         self.assertEqual(running, {'app'})
 
@@ -522,8 +542,8 @@ class Runtime(unittest.TestCase):
                     'compose': mock.Mock(return_value=OK if phase == 'copy' else subprocess.CompletedProcess([], 1, '', '')),
                     'restart_recorded': restart,
                 }), self.assertRaises((RUNNER['WorkflowError'], CAPTURE['CaptureError'])):
-                    cold({'runner': {'exclude_file_path': '/unused'}}, adapter,
-                         {'name': 'app', 'services': ['app'], 'paths': ['/data']}, Path('/unused'), {'app'})
+                    cold(self.pause_policy('app'), adapter,
+                         [{'name': 'app', 'services': ['app'], 'paths': ['/data']}], Path('/unused'), {'app'})
                 self.assertEqual(restart.call_args.args[1]['running_services'], ['app'])
 
     def test_busy_wolf_refuses_before_staging_or_interruption_and_can_retry_when_idle(self):
@@ -593,7 +613,7 @@ class Runtime(unittest.TestCase):
             'service_container': lambda _, s: s, 'service_running': lambda *_: True,
             'wolf_siblings': lambda _: ['wolf'], 'atomic_json': journal, 'compose': compose,
         }), self.assertRaisesRegex(CAPTURE['CaptureError'], 'wolf_not_idle'):
-            cold({}, adapter, {'services': ['wolf'], 'paths': [], 'wolf': '/wolf'}, Path('/unused'), {'wolf'})
+            cold(self.pause_policy('wolf'), adapter, [{'services': ['wolf'], 'paths': [], 'wolf': '/wolf'}], Path('/unused'), {'wolf'})
         journal.assert_not_called()
         compose.assert_not_called()
 
@@ -1099,6 +1119,18 @@ g['main']()
         }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'journal_schema'):
             recover({'stop_groups': {'applications': ['app'], 'databases': []}})
         restart.assert_not_called()
+
+    def test_shared_restart_failure_does_not_strand_other_recorded_writers(self):
+        restart = RUNNER['restart_recorded']
+        policy = self.pause_policy('client', 'provider', 'inactive')
+        compose = mock.Mock(side_effect=[subprocess.CompletedProcess([], 1, '', ''), OK])
+        unlink = mock.Mock()
+        with mock.patch.dict(restart.__globals__, {'compose': compose, 'durable_unlink': unlink}), \
+                self.assertRaisesRegex(RUNNER['WorkflowError'], 'service_restart'):
+            restart(policy, {'running_services': ['client', 'provider']})
+        self.assertEqual(compose.call_args_list, [mock.call(policy, ['start', 'provider']),
+                                                  mock.call(policy, ['start', 'client'])])
+        unlink.assert_not_called()
 
     def test_namespace_health_failure_retains_journal(self):
         restart = RUNNER['restart_recorded']

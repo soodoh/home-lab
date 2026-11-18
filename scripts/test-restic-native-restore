@@ -13,9 +13,13 @@ if [[ $# == 1 ]]; then
 fi
 [[ $(readlink /proc/self/ns/mnt) != "$2" ]] || exit 64
 work=$(mktemp -d "${TMPDIR:-/tmp}/restic-native-test.XXXXXXXX")
+snapshot_targets=()
 cleanup() {
   status=$?
   trap - EXIT
+  for target in "${snapshot_targets[@]}"; do
+    if mountpoint -q "$target"; then umount "$target"; fi
+  done
   mountpoint -q /srv && umount /srv
   mountpoint -q /mnt && umount /mnt
   rm -rf -- "$work"
@@ -41,8 +45,8 @@ printf '%s\n' 'synthetic-selected-book' >/srv/home-lab-state/books/value
 printf '%s\n' 'synthetic-unselected' >/srv/home-lab-state/unselected/value
 cat >"$work/recovery/groups.json" <<'JSON'
 {"version":1,"common_paths":["/srv/home-lab-state/common"],"groups":{
-  "books":{"services":["book-app"],"paths":["/srv/home-lab-state/books"]},
-  "other":{"services":["other-app"],"paths":["/srv/home-lab-state/unselected"]}
+  "books":{"services":["book-app"],"paths":["/srv/home-lab-state/books","/mnt/storage/media/tachidesk","/mnt/storage/media/books"]},
+  "other":{"services":["other-app"],"paths":["/srv/home-lab-state/unselected","/mnt/storage/media/frigate/exports"]}
 }}
 JSON
 policy_sha=$(printf 'synthetic-policy' | sha256sum | cut -d' ' -f1)
@@ -78,11 +82,29 @@ capture=/mnt/games/home-lab-backup/capture
 mkdir -p "$capture/files/srv/home-lab-state" "$capture/native" "$capture/databases"
 cp -a /srv/home-lab-state/{common,books,unselected} "$capture/files/srv/home-lab-state/"
 ln -s ../common/value "$capture/files/srv/home-lab-state/books/link"
-printf '%s\n' '{"version":2,"links":{}}' >"$capture/manifest.json"
+# Simulate three immutable views from one source snapshot at the archive paths.
+# The broker tests cover NFS identity; here read-only bind mounts prove that
+# real Restic includes separately mounted roots and can restore without them.
+for root in tachidesk books frigate/exports; do
+  live="/mnt/storage/media/$root"
+  frozen="$work/snapshot/$root"
+  target="$capture/files$live"
+  mkdir -p "$live" "$frozen" "$target"
+  printf 'frozen %s\n' "$root" >"$live/value"
+  cp -a "$live/value" "$frozen/"
+  rm -- "$live/value"
+  printf 'new %s\n' "$root" >"$live/new"
+  snapshot_targets+=("$target")
+  mount --bind "$frozen" "$target"
+  mount -o remount,bind,ro "$target"
+done
+printf '%s\n' '{"version":2,"links":{},"zfs_paths":["/mnt/storage/media/tachidesk","/mnt/storage/media/books","/mnt/storage/media/frigate/exports"]}' >"$capture/manifest.json"
 printf '%s\n' 'synthetic-logical-export' >"$capture/databases/example.sql"
 restic backup "$capture" --tag cadence=daily --tag format=full-v2 \
   --tag "policy=$policy_sha" --tag "artifact=$artifact_sha" >/dev/null 2>&1
 snapshot=$(restic snapshots --json --tag format=full-v2 | jq -er '.[0].id')
+for target in "${snapshot_targets[@]}"; do umount "$target"; done
+rm -rf -- "$work/snapshot"
 export RECOVERY_TARGET=/srv/home-lab-recovery/restic-incomplete
 mkdir -m 0700 "$RECOVERY_TARGET"
 if "$work/bin/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target --all >"$work/refused.log" 2>&1; then
@@ -105,8 +127,15 @@ for scope in books all; do
   jq -e '.symlinks["/srv/home-lab-state/books/link"] == "../common/value"' \
     "$RECOVERY_TARGET/recovery-exports/manifest.json" >/dev/null
   [[ ! -e $RECOVERY_TARGET/mnt/games/home-lab-backup/capture ]]
+  for root in tachidesk books; do
+    printf 'frozen %s\n' "$root" | cmp - "$RECOVERY_TARGET/mnt/storage/media/$root/value"
+    [[ ! -e $RECOVERY_TARGET/mnt/storage/media/$root/new ]]
+  done
   if [[ $scope == books ]]; then
     [[ ! -e $RECOVERY_TARGET/srv/home-lab-state/unselected ]]
+    [[ ! -e $RECOVERY_TARGET/mnt/storage/media/frigate/exports ]]
+  else
+    printf 'frozen frigate/exports\n' | cmp - "$RECOVERY_TARGET/mnt/storage/media/frigate/exports/value"
   fi
 done
 # Reject unknown and conflicting formats before writing even a selective restore.
