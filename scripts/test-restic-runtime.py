@@ -611,6 +611,44 @@ class Runtime(unittest.TestCase):
             compose.assert_not_called()
             self.assertFalse(stage.exists())
 
+    def test_snapshot_pilot_does_not_copy_the_active_prefix_and_binds_selection_to_capture(self):
+        cold = RUNNER['cold_capture']
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        step = next(s for s in policy['capture']['cold'] if s['name'] == 'wolf')
+        policy['capture']['cold'] = [step]
+        policy['stop_groups']['applications'] = ['wolf']
+        policy['_capture'] = 'b' * 32
+        step['wolf_pilot'] = {'profile': ['test', 'Steam'], 'app_id': '117', 'snapshot': True}
+        legacy = Path('/mnt/games/wolf/profile-data/test/Steam/.steam/steam/steamapps/compatdata/117')
+        active = Path('/srv/home-lab-state/wolf-pilot/compatdata/117')
+        plan = {'capture': policy['_capture'], 'legacy': str(legacy), 'members': ['user.reg']}
+        adapter = mock.Mock(WOLF_SNAPSHOT_RECEIPT=CAPTURE['WOLF_SNAPSHOT_RECEIPT'])
+        adapter.wolf_snapshot_step.side_effect = CAPTURE['wolf_snapshot_step']
+        adapter.state_snapshot_roots.return_value = []
+        adapter.zfs_paths.return_value = []
+        adapter.verify_wolf_pilot.return_value = (legacy, active)
+        adapter.wolf_paths.return_value = (['/mnt/games/wolf/cfg', str(legacy / 'pfx/user.reg')], {})
+        adapter.wolf_snapshot_selection.return_value = (['/mnt/games/wolf/cfg'], plan)
+        adapter.retry.side_effect = lambda operation: operation()
+        journal, restart = mock.Mock(), mock.Mock()
+        stage = Path('/unused')
+        def snapshots(_spec, request):
+            if request['action'] == 'state-create':
+                journal.assert_any_call(stage / adapter.WOLF_SNAPSHOT_RECEIPT, plan, 0o600)
+            return {}
+        adapter.zfs_call.side_effect = snapshots
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused-journal'), 'atomic_json': journal,
+            'service_container': lambda _, s: s, 'compose': mock.Mock(return_value=OK),
+            'service_running': mock.Mock(side_effect=[True, True, False]), 'wolf_siblings': lambda _: [],
+            'restart_recorded': restart,
+        }):
+            cold(policy, adapter, [step], stage, {'wolf'})
+        adapter.copy_paths.assert_called_once_with(['/mnt/games/wolf/cfg'], stage / 'files', mock.ANY, exclude=(str(legacy),))
+        adapter.wolf_snapshot_selection.assert_called_once_with(legacy, adapter.wolf_paths.return_value[0], {}, policy['_capture'])
+        self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list], ['create', 'state-create'])
+        restart.assert_called_once()
+
     def test_active_wolf_pilot_is_rechecked_after_stop_and_copy(self):
         cold = RUNNER['cold_capture']
         legacy = Path('/mnt/games/wolf/profile-data/test/Steam/.steam/steam/steamapps/compatdata/117')

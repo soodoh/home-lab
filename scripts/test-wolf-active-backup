@@ -117,7 +117,11 @@ selected = [Path(path).relative_to(root).as_posix() for path in paths if Path(pa
 save = os.environ['FIXTURE_SAVE']
 assert set(selected) == {'pfx/user.reg', save, save + '/slot1'}
 assert links[str(root / save / 'slot-link')]['resolved'] == str(root / save / 'slot1')
-(work / 'selection.json').write_text(json.dumps(selected))
+copy, plan = adapter['wolf_snapshot_selection'](root, paths, links, 'a' * 32)
+assert not any(Path(path).is_relative_to(root) for path in copy)
+receipt = work / 'snapshot' / adapter['WOLF_SNAPSHOT_RECEIPT']
+receipt.write_text(json.dumps(plan))
+receipt.chmod(0o600)
 adapter['copy_paths'](paths, work / 'fallback/files', os.environ['FIXTURE_EXCLUDES'])
 assert (work / 'fallback/files' / root.relative_to('/') / save / 'slot1').read_text() == 'ACTIVE-PILOT\n'
 assert (work / 'fallback/files' / root.relative_to('/') / save / 'slot-link').is_symlink()
@@ -129,30 +133,61 @@ umount "$w/state"
 cp --sparse=always "$w/state.img" "$w/frozen.img"
 mount -t ext4 -o loop "$w/state.img" "$w/state"
 printf 'NEWER-LIVE\n' > "$active/$save/slot1"
-mount -t ext4 -o ro,noload,loop "$w/frozen.img" "$w/frozen"
+mount -t ext4 -o ro,noload,nosuid,nodev,noexec,loop "$w/frozen.img" "$w/frozen"
 mounts+=("$w/frozen")
 
-# Mount only roots selected while idle; a selected internal link target under
-# an already-selected directory is covered by that directory's projection.
-mapfile -t selections < <(python3 -c 'import json,sys; paths=json.load(open(sys.argv[1])); print("\n".join(sorted(p for p in paths if not any(p.startswith(q+"/") for q in paths))))' "$w/selection.json")
-[[ ${#selections[@]} == 2 ]]
-for rel in "${selections[@]}"; do
-  src="$w/frozen/wolf-pilot/compatdata/117/$rel"
-  dst="$w/snapshot/files$legacy/$rel"
-  mkdir -p "${dst%/*}"
-  if [[ -d $src ]]; then mkdir "$dst"; else : > "$dst"; fi
-  mount --bind "$src" "$dst"
-  mounts+=("$dst")
-  [[ $(findmnt -n --mountpoint "$dst" -o FSROOT) == "/wolf-pilot/compatdata/117/$rel" && \
-      $(findmnt -n --mountpoint "$dst" -o OPTIONS) == ro,* ]]
-done
+# Exercise the real production projection, including receipt mismatch and
+# reattachment using the same receipt after the live prefix has changed.
+python3 - <<'PY'
+import json, os, runpy
+from pathlib import Path
+adapter = runpy.run_path(os.environ['FIXTURE_ADAPTER'])
+work = Path(os.environ['FIXTURE_WORK'])
+mount = adapter['wolf_snapshot_mount']
+mount.__globals__['STATE_BASE'] = work / 'state'
+root, stage = work / 'frozen', work / 'snapshot'
+dev = root.stat().st_dev
+args = (root, stage, f'{os.major(dev)}:{os.minor(dev)}', 'a' * 32)
+step = {'wolf': os.environ['FIXTURE_BASE'], 'wolf_pilot': {'profile': ['fake', 'Steam'], 'app_id': '117', 'snapshot': True}}
+policy = {'capture': {'cold': [step], 'state_snapshot': True, 'zfs': True}}
+receipt = stage / adapter['WOLF_SNAPSHOT_RECEIPT']
+plan = json.loads(receipt.read_text())
+receipt.unlink()
+try:
+    mount(policy, *args)
+except adapter['CaptureError'] as exc:
+    assert str(exc) == 'wolf_pilot_snapshot_receipt', str(exc)
+else:
+    raise AssertionError('missing receipt admitted')
+for bad, reason in [({**plan, 'capture': 'b' * 32}, 'wolf_pilot_snapshot_receipt'),
+                    ({**plan, 'members': ['user.reg', 'system.reg']}, 'wolf_pilot_snapshot_selection_mismatch')]:
+    receipt.write_text(json.dumps(bad))
+    receipt.chmod(0o600)
+    try:
+        mount(policy, *args)
+    except adapter['CaptureError'] as exc:
+        assert str(exc) == reason, str(exc)
+    else:
+        raise AssertionError('bad receipt admitted')
+receipt.write_text(json.dumps(plan))
+first = mount(policy, *args)
+assert len(first) == 2
+adapter['state_snapshot_unmount'](first)
+second = mount(policy, *args)
+assert second == first
+(work / 'mounts.json').write_text(json.dumps(list(map(str, second))))
+print('snapshot_receipt_and_reattachment=verified')
+PY
+mapfile -t projections < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))))' "$w/mounts.json")
+[[ ${#projections[@]} == 2 ]]
+mounts+=("${projections[@]}")
 export RESTIC_PASSWORD=synthetic-only RESTIC_FROM_PASSWORD=synthetic-only RESTIC_CACHE_DIR="$w/cache"
 for view in fallback snapshot; do
   export RESTIC_REPOSITORY="$w/$view-repo"
   "$restic" init >/dev/null
   (cd "$w/$view" && "$restic" backup ./files >/dev/null)
   if [[ $view == snapshot ]]; then
-    for rel in "${selections[@]}"; do umount "$w/snapshot/files$legacy/$rel"; done
+    for path in "${projections[@]}"; do umount "$path"; done
     umount "$w/frozen"
     rm -- "$w/frozen.img"
   fi

@@ -749,6 +749,8 @@ def cold_capture(policy, adapter, steps, stage, declared):
             raise WorkflowError('state_snapshot_requires_shared_capture')
         snapshot_paths.update(map(str, adapter.state_snapshot_roots(policy)))
     seed, local, dumps, wolves = [], [], [], []
+    pilot_step = adapter.wolf_snapshot_step(policy) if any('wolf_pilot' in step for step in steps) else None
+    pilot_plan = None
     for step in steps:
         for path in step['paths']:
             adapter.safe_source(path)
@@ -793,6 +795,8 @@ def cold_capture(policy, adapter, steps, stage, declared):
             paths, mappings = adapter.wolf_paths(step['wolf'])
             if legacy is not None and str(legacy / 'pfx/user.reg') not in paths:
                 raise WorkflowError('wolf_pilot_selection')
+            if step is pilot_step:
+                paths, pilot_plan = adapter.wolf_snapshot_selection(legacy, paths, mappings, policy['_capture'])
             local.extend(paths)
             links.update(mappings)
         if seed:
@@ -804,7 +808,10 @@ def cold_capture(policy, adapter, steps, stage, declared):
                         paths, _ = wolf_capture_source(policy, adapter, step)
                         if wolf_siblings(paths):
                             raise WorkflowError('wolf_active_writer')
-                adapter.copy_paths(local, stage / 'files', excludes)
+                if pilot_plan is None:
+                    adapter.copy_paths(local, stage / 'files', excludes)
+                else:
+                    adapter.copy_paths(local, stage / 'files', excludes, exclude=(pilot_plan['legacy'],))
                 for step in wolves:
                     if 'wolf_pilot' in step:
                         paths, _ = wolf_capture_source(policy, adapter, step)
@@ -830,6 +837,11 @@ def cold_capture(policy, adapter, steps, stage, declared):
             report_phase('zfs_snapshot', started)
             if state_snapshot:
                 started = time.monotonic()
+                if pilot_plan is not None:
+                    writer_paths, legacy = wolf_capture_source(policy, adapter, pilot_step)
+                    if str(legacy) != pilot_plan['legacy'] or wolf_siblings(writer_paths):
+                        raise WorkflowError('wolf_pilot_snapshot_changed')
+                    atomic_json(stage / adapter.WOLF_SNAPSHOT_RECEIPT, pilot_plan, 0o600)
                 adapter.command(['/usr/bin/sync', '--file-system', '/srv/home-lab-state'])
                 response = adapter.zfs_call(spec, {'action': 'state-create', 'capture': state['capture'],
                                                   'owner': state['owner']})
@@ -867,6 +879,8 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                     raise WorkflowError('wolf_pilot_scope')
                 if step.get('wolf'):
                     verify_wolf_available(policy, adapter, step, declared)
+            if any('wolf_pilot' in step for step in settings['cold']):
+                adapter.wolf_snapshot_step(policy)
             adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
             if settings.get('zfs'):
                 adapter.zfs_verify_scope(policy)

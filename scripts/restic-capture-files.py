@@ -372,19 +372,29 @@ def archive_path(stage, path):
     return Path(stage) / 'files' / path.relative_to('/')
 
 
-def empty_snapshot_target(stage, path):
+def empty_snapshot_target(stage, path, *, regular=False):
     target = archive_path(stage, path)
-    parent = safe_source(Path(stage) / 'files')
-    for part in target.relative_to(parent).parts:
+    base = safe_source(Path(stage) / 'files')
+    parent = base
+    for part in (target.parent if regular else target).relative_to(base).parts:
         parent = parent / part
         if parent.is_symlink():
             raise CaptureError('snapshot_target_type')
         parent.mkdir(mode=0o700, exist_ok=True)
+    if regular:
+        if not target.exists() and not target.is_symlink():
+            with target.open('xb'):
+                pass
+        row = safe_source(target).lstat()
+        if not stat.S_ISREG(row.st_mode) or row.st_nlink != 1:
+            raise CaptureError('snapshot_target_type')
+        if row.st_size:
+            raise CaptureError('snapshot_target_not_empty')
     result = subprocess.run(['/usr/bin/mountpoint', '--quiet', '--', str(target)],
                             stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
     if result.returncode != 32:
         raise CaptureError('snapshot_target_mount')
-    if any(target.iterdir()):
+    if not regular and any(target.iterdir()):
         raise CaptureError('snapshot_target_not_empty')
     return target
 
@@ -501,7 +511,7 @@ def verify_state_snapshot_mount(target, device_number, relative):
         raise CaptureError('state_snapshot_mount_identity')
 
 
-def state_snapshot_mount(policy, device, snapshot_root, stage):
+def state_snapshot_mount(policy, device, snapshot_root, stage, *, capture=None):
     """Project cold trees from a verified snapshot partition without copying.
 
     The caller must own a private mount namespace and a read-only block
@@ -548,6 +558,7 @@ def state_snapshot_mount(policy, device, snapshot_root, stage):
             command(['/usr/bin/mount', '-n', '--bind', str(source), str(target)])
             mounted.append(target)
             verify_state_snapshot_mount(target, device_number, Path('/') / relative)
+        mounted.extend(wolf_snapshot_mount(policy, root, stage, device_number, capture))
         return tuple(mounted)
     except BaseException:
         state_snapshot_unmount(mounted)
@@ -683,7 +694,7 @@ def state_snapshot_attached(policy, record, stage):
         partition_device = scratch / 'partition'
         os.mknod(partition_device, stat.S_IFBLK | 0o600, os.makedev(major, minor))
         replay_snapshot_journal(str(partition_device))
-        mounts = state_snapshot_mount(policy, partition_device, root, stage)
+        mounts = state_snapshot_mount(policy, partition_device, root, stage, capture=record['capture'])
         yield mounts, partition_device
     finally:
         # Failure to unmount/detach is an inspection gate, never permission
@@ -987,25 +998,41 @@ def wolf_idle(container):
                     raise CaptureError('wolf_not_idle')
 
 
-def verify_wolf_pilot(policy, step):
-    """Admit exactly one native read-only view over a retained legacy prefix."""
-    require_private_mounts()
+WOLF_PREFIX_ROOTS = ('user.reg', 'userdef.reg', 'system.reg',
+                     'drive_c/users/steamuser/Documents', 'drive_c/users/steamuser/Saved Games',
+                     'drive_c/users/steamuser/AppData/Roaming', 'drive_c/users/steamuser/AppData/Local',
+                     'drive_c/users/steamuser/AppData/LocalLow')
+WOLF_SNAPSHOT_RECEIPT = 'wolf-pilot-source.json'
+
+
+def wolf_pilot_binding(step):
     spec = step['wolf_pilot']
-    if (not isinstance(spec, dict) or set(spec) != {'profile', 'app_id'}
+    if (not isinstance(spec, dict) or set(spec) - {'profile', 'app_id', 'snapshot'}
+            or not {'profile', 'app_id'} <= spec.keys()
+            or ('snapshot' in spec and spec['snapshot'] is not True)
             or not isinstance(spec['profile'], list) or len(spec['profile']) != 2
             or any(not isinstance(part, str) or part in {'.', '..'}
                    or not re.fullmatch(r'[A-Za-z0-9._-]{1,64}', part) for part in spec['profile'])
             or not isinstance(spec['app_id'], str) or not re.fullmatch(r'[1-9][0-9]{0,9}', spec['app_id'])
             or int(spec['app_id']) > 2**32 - 1):
         raise CaptureError('wolf_pilot_scope')
-    app_id = spec['app_id']
+    profile = Path(step['wolf']) / 'profile-data' / Path(*spec['profile'])
+    if not profile.is_absolute() or '..' in profile.parts:
+        raise CaptureError('wolf_pilot_scope')
+    legacy = tuple(profile / store / 'steamapps/compatdata' / spec['app_id']
+                   for store in ('.steam/steam', '.local/share/Steam'))
+    return legacy, STATE_BASE / 'wolf-pilot/compatdata' / spec['app_id']
+
+
+def verify_wolf_pilot(policy, step):
+    """Admit exactly one native read-only view over a retained legacy prefix."""
+    require_private_mounts()
+    choices, active = wolf_pilot_binding(step)
     try:
-        profile = safe_source(Path(step['wolf']) / 'profile-data' / Path(*spec['profile']))
-        parents = (profile / '.steam/steam/steamapps/compatdata').resolve(strict=True)
-        if not parents.is_relative_to(profile) or parents.parts[-2:] != ('steamapps', 'compatdata'):
+        legacy = safe_source(choices[0].resolve(strict=True))
+        if legacy not in choices:
             raise CaptureError('wolf_pilot_scope')
-        legacy = safe_source(parents / app_id)
-        active = safe_source(STATE_BASE / 'wolf-pilot/compatdata' / app_id)
+        active = safe_source(active)
         if not legacy.is_dir() or not active.is_dir():
             raise CaptureError('wolf_pilot_scope')
         identities = [m['identity'] for m in policy['capture']['mounts'] if m['path'] == str(STATE_BASE)]
@@ -1039,6 +1066,104 @@ def verify_wolf_pilot(policy, step):
     return legacy, active
 
 
+def wolf_snapshot_step(policy):
+    steps = [s for s in policy['capture']['cold'] if isinstance(s.get('wolf_pilot'), dict)
+             and s['wolf_pilot'].get('snapshot') is True]
+    if len(steps) > 1 or (steps and (not steps[0].get('wolf') or not policy['capture'].get('state_snapshot')
+                                    or not policy['capture'].get('zfs'))):
+        raise CaptureError('wolf_pilot_snapshot_scope')
+    return steps[0] if steps else None
+
+
+def wolf_snapshot_members(prefix):
+    """Only the exact registry files and user directories already selected for Wolf."""
+    members = []
+    for relative in WOLF_PREFIX_ROOTS:
+        path = prefix / 'pfx' / relative
+        try:
+            row = path.lstat()
+        except FileNotFoundError:
+            continue
+        regular = '/' not in relative
+        if not (stat.S_ISREG(row.st_mode) if regular else stat.S_ISDIR(row.st_mode)):
+            raise CaptureError('wolf_pilot_snapshot_member_type')
+        if relative == 'user.reg' and not row.st_size:
+            raise CaptureError('wolf_pilot_snapshot_members_missing')
+        safe_source(path)
+        members.append(relative)
+    if 'user.reg' not in members:
+        raise CaptureError('wolf_pilot_snapshot_members_missing')
+    return members
+
+
+def wolf_snapshot_selection(legacy, paths, mappings, capture):
+    members = wolf_snapshot_members(legacy)
+    roots = [legacy / 'pfx' / relative for relative in members]
+    copied = []
+    for value in paths:
+        path = Path(value)
+        if path.is_relative_to(legacy):
+            if not any(path.is_relative_to(root) for root in roots):
+                raise CaptureError('wolf_pilot_snapshot_unqualified_target')
+        elif (any(root.is_relative_to(path) for root in roots)
+              and not (path == legacy.parents[3] and path.name == 'share' and path.parent.name == '.local')):
+            raise CaptureError('wolf_pilot_snapshot_overlapping_copy')
+        else:
+            copied.append(value)
+    if not set(map(str, roots)) <= set(paths):
+        raise CaptureError('wolf_pilot_snapshot_selection')
+    for original, value in mappings.items():
+        link = Path(original)
+        # Resolve only ancestors: the final name can be a link whose target is
+        # deliberately outside the pilot and therefore not qualified.
+        location = link.parent.resolve() / link.name
+        if location.is_relative_to(legacy) != Path(value['resolved']).is_relative_to(legacy):
+            raise CaptureError('wolf_pilot_snapshot_cross_link')
+    return copied, {'capture': capture, 'legacy': str(legacy), 'members': members}
+
+
+def wolf_snapshot_mount(policy, root, stage, device_number, capture):
+    step = wolf_snapshot_step(policy)
+    if step is None:
+        return ()
+    require_private_mounts()
+    choices, active = wolf_pilot_binding(step)
+    try:
+        receipt = safe_source(Path(stage) / WOLF_SNAPSHOT_RECEIPT)
+        row = receipt.lstat()
+        if (not stat.S_ISREG(row.st_mode) or row.st_uid != os.geteuid() or row.st_nlink != 1
+                or stat.S_IMODE(row.st_mode) != 0o600 or not 0 < row.st_size <= 4096):
+            raise CaptureError('wolf_pilot_snapshot_receipt')
+        plan = json.loads(receipt.read_text())
+        if (not isinstance(plan, dict) or set(plan) != {'capture', 'legacy', 'members'}
+                or not re.fullmatch(r'[0-9a-f]{32}', capture or '') or plan['capture'] != capture
+                or not isinstance(plan['legacy'], str) or str(Path(plan['legacy'])) != plan['legacy']
+                or Path(plan['legacy']) not in choices):
+            raise CaptureError('wolf_pilot_snapshot_receipt')
+    except (OSError, ValueError, TypeError):
+        raise CaptureError('wolf_pilot_snapshot_receipt') from None
+    relative = active.relative_to(STATE_BASE)
+    prefix = safe_source(root / relative)
+    members = wolf_snapshot_members(prefix)
+    if plan['members'] != members:
+        raise CaptureError('wolf_pilot_snapshot_selection_mismatch')
+    legacy = Path(plan['legacy'])
+    mounted = []
+    try:
+        for member in members:
+            source = prefix / 'pfx' / member
+            if source.stat().st_dev != root.stat().st_dev:
+                raise CaptureError('wolf_pilot_snapshot_source')
+            target = empty_snapshot_target(stage, legacy / 'pfx' / member, regular='/' not in member)
+            command(['/usr/bin/mount', '-n', '--bind', str(source), str(target)])
+            mounted.append(target)
+            verify_state_snapshot_mount(target, device_number, Path('/') / relative / 'pfx' / member)
+        return tuple(mounted)
+    except BaseException:
+        state_snapshot_unmount(mounted)
+        raise
+
+
 def wolf_paths(base):
     """Selective host paths, not Steam installations or whole Proton prefixes.
 
@@ -1056,10 +1181,7 @@ def wolf_paths(base):
                 paths.append(candidate)
         compat = profile / '.steam/steam/steamapps/compatdata'
         for prefix in compat.glob('*/pfx'):
-            for relative in ('user.reg', 'userdef.reg', 'system.reg',
-                             'drive_c/users/steamuser/Documents', 'drive_c/users/steamuser/Saved Games',
-                             'drive_c/users/steamuser/AppData/Roaming', 'drive_c/users/steamuser/AppData/Local',
-                             'drive_c/users/steamuser/AppData/LocalLow'):
+            for relative in WOLF_PREFIX_ROOTS:
                 candidate = prefix / relative
                 if candidate.exists() or candidate.is_symlink():
                     paths.append(candidate)
