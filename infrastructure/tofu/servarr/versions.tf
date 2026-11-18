@@ -4,7 +4,7 @@ terraform {
   required_providers {
     sonarr = {
       source  = "registry.terraform.io/devopsarr/sonarr"
-      version = "= 3.5.0"
+      version = "3.6.0"
     }
     radarr = {
       source  = "registry.terraform.io/devopsarr/radarr"
