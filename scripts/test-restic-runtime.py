@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import runpy
 import signal
+import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -35,6 +37,47 @@ class Runtime(unittest.TestCase):
         self.assertEqual(CAPTURE['zfs_spec'](policy), policy['capture']['zfs'])
         for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
             self.assertNotIn(service, policy['stop_groups']['applications'])
+
+    def test_frozen_radio_check_reads_wal_without_requiring_snapshot_sidecar_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory).resolve()
+            state = work / 'files/srv/home-lab-state'
+            nvm = state / 'zwave-data/backups/nvm'
+            nvm.mkdir(parents=True)
+            (nvm / 'NVM_synthetic').write_bytes(b'fixture')
+            scratch = work / 'scratch'
+            scratch.mkdir()
+            db_dir = state / 'hass-data'
+            db_dir.mkdir()
+            original = work / 'zigbee.db'
+            with contextlib.closing(sqlite3.connect(original)) as writer:
+                writer.execute('PRAGMA journal_mode=WAL')
+                writer.execute('PRAGMA wal_autocheckpoint=0')
+                writer.execute('CREATE TABLE network_backups_v1(backup_json)')
+                from datetime import datetime, timezone
+                record = json.dumps({'backup_time': datetime.now(timezone.utc).isoformat()})
+                writer.execute('INSERT INTO network_backups_v1 VALUES (?)', (record,))
+                writer.commit()
+                database = db_dir / original.name
+                wal = database.with_name(database.name + '-wal')
+                shutil.copyfile(original, database)
+                shutil.copyfile(original.with_name(original.name + '-wal'), wal)
+                original_bytes = {p.name: p.read_bytes() for p in db_dir.iterdir()}
+                db_dir.chmod(0o500)
+                try:
+                    CAPTURE['radio_check'](work / 'files', 60, snapshot_scratch=scratch)
+                    self.assertEqual({p.name: p.read_bytes() for p in db_dir.iterdir()}, original_bytes)
+                    self.assertEqual(list(scratch.iterdir()), [])
+                finally:
+                    db_dir.chmod(0o700)
+                # Home Assistant's clean stop leaves a WAL-mode header but no WAL
+                # or shared-memory file on the frozen filesystem.
+                writer.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            shutil.copyfile(original, database)
+            wal.unlink()
+            CAPTURE['radio_check'](work / 'files', 60, snapshot_scratch=scratch)
+            self.assertEqual(list(db_dir.iterdir()), [database])
+            self.assertEqual(list(scratch.iterdir()), [])
 
     def test_state_source_survives_device_renumbering_but_not_identity_or_mount_loss(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())

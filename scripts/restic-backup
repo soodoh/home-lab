@@ -918,7 +918,8 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             # see. This happens after all previously running writers have resumed.
             if settings.get('state_snapshot'):
                 state_ready(policy, adapter, stage, attachments)
-            adapter.radio_check(stage / 'files', settings['radio_max_age_seconds'])
+            adapter.radio_check(stage / 'files', settings['radio_max_age_seconds'],
+                                snapshot_scratch=stage if settings.get('state_snapshot') else None)
             manifest = {'version': 2, 'capture': token, 'captured_at': captured_at, 'artifact': artifact_hash(policy),
                         'owner': policy.get('_owner'), 'policy': policy_hash, 'links': links, 'captures': captures,
                         'databases': [d for s in settings['cold'] for d in s.get('databases', [])]}
