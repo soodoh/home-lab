@@ -658,7 +658,9 @@ def state_snapshot_attached(policy, record, stage):
         # Mark attempt before attaching: failed or interrupted ioctl delivery
         # must retain scratch if the dedicated device still has an active peer.
         attached = True
-        result = subprocess.run(['/usr/sbin/nbd-client', '-L', '-t', '15', '-u', str(endpoint), STATE_NBD],
+        # Use netlink for a synchronous attachment. Legacy -L can return
+        # before the background client has made the device readable.
+        result = subprocess.run(['/usr/sbin/nbd-client', '-t', '15', '-u', str(endpoint), STATE_NBD],
                                 stdin=subprocess.DEVNULL, capture_output=True, timeout=30, check=False)
         if result.returncode:
             raise CaptureError('state_snapshot_attach_failed')
