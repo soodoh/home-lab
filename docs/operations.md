@@ -686,6 +686,27 @@ before retrying. Do not delete host-local artifacts merely because a controller
 session ended. [Recovery](../recovery/README.md) currently supports private
 staging, not production activation.
 
+### Qualify Wolf Proton install links
+
+For a title that expects its installation under `C:\Program Files`,
+`scripts/prepare-wolf-proton-install` can recreate one reviewed link to the
+installation on `/mnt/games`. Run it as the game user **after** Proton has
+initialized the prefix and **before** it hands off to the title, under the
+caller’s per-title exclusion. Pass the writable `compatdata` parent mount,
+the separate read-only installation mount visible to Proton, the reviewed app
+ID and the two relative paths. It never replaces an existing object; an exact
+existing link is success, missing mounts, conflicts and uninitialized prefixes
+are refusals. The caller must independently verify the mounts’ persistent host
+identities and refuse the title if the check fails.
+
+Run `sudo env WOLF_PROTON_INSTALL_TEST_DISPOSABLE=true scripts/test-wolf-proton-install`
+on disposable Linux to exercise missing mounts, replacement of an entire prefix,
+and install-link repair. This tool is not wired into Steam or deployed by
+Compose. A hook that runs before Proton can reset the prefix does not qualify.
+Keep Wolf’s existing layout, idle guard and selected-save backup until the
+actual launcher handoff and the candidate layout’s snapshot restores are
+verified.
+
 ### Wolf startup and memory containment
 
 `services/gaming.yml` caps the Wolf streaming container at 4 GiB RAM with no

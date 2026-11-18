@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Repair one reviewed install link in an initialized Proton prefix on Linux.
+
+Run as the game user, after prefix setup and before launching the title. The
+caller owns per-title exclusion through this handoff; this is not a Steam hook.
+"""
+import argparse
+from contextlib import ExitStack
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import sys
+
+
+class Refusal(ValueError):
+    pass
+
+
+DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def relative(value):
+    path = PurePosixPath(value)
+    if (path.is_absolute() or not path.parts or str(path) != value or len(path.parts) > 16
+            or any(part == '..' or re.search(r'[\x00-\x1f\x7f\\:<>"]', part) for part in path.parts)):
+        raise Refusal('invalid_relative_path')
+    return path.parts
+
+
+def mount_id(fd):
+    with open(f'/proc/self/fdinfo/{fd}', encoding='ascii') as info:
+        for line in info:
+            if line.startswith('mnt_id:'):
+                return int(line.split()[1])
+    raise Refusal('mount_identity_unavailable')
+
+
+def open_directory(stack, part, parent=None):
+    fd = os.open(part, DIRECTORY, dir_fd=parent)
+    stack.callback(os.close, fd)
+    return fd
+
+
+def descend(stack, root, parts, expected_mount):
+    fd = root
+    for part in parts:
+        fd = open_directory(stack, part, fd)
+        if mount_id(fd) != expected_mount:
+            raise Refusal('unexpected_nested_mount')
+    return fd
+
+
+def mounted_root(stack, raw):
+    if not raw.startswith('/') or raw.startswith('//'):
+        raise Refusal('invalid_mount_path')
+    parts = relative(raw[1:])
+    fd = open_directory(stack, '/')
+    for part in parts[:-1]:
+        fd = open_directory(stack, part, fd)
+    root = open_directory(stack, parts[-1], fd)
+    root_mount = mount_id(root)
+    if root_mount == mount_id(fd):
+        raise Refusal('mount_missing')
+    return root, root_mount
+
+
+def refuse_case_conflict(directory, name):
+    with os.scandir(directory) as entries:
+        if any(entry.name != name and entry.name.casefold() == name.casefold() for entry in entries):
+            raise Refusal('install_link_case_conflict')
+
+
+def prepare(compatdata, games, app_id, link, install):
+    if not re.fullmatch(r'[1-9][0-9]{0,9}', app_id) or int(app_id) > 2**32 - 1:
+        raise Refusal('invalid_app_id')
+    link_parts = relative(link)
+    install_parts = relative(install)
+    if len(link_parts) < 2 or link_parts[0] not in {'Program Files', 'Program Files (x86)'}:
+        raise Refusal('link_outside_program_files')
+    if any(part.endswith(('.', ' ')) or re.search(r'[?*|]', part) for part in link_parts):
+        raise Refusal('invalid_windows_path')
+    if Path(compatdata).is_relative_to(games) or Path(games).is_relative_to(compatdata):
+        raise Refusal('overlapping_roots')
+    with ExitStack() as opened:
+        state, state_mount = mounted_root(opened, compatdata)
+        payload, payload_mount = mounted_root(opened, games)
+        if os.fstat(state).st_dev == os.fstat(payload).st_dev:
+            raise Refusal('storage_not_separate')
+        if os.fstatvfs(state).f_flag & os.ST_RDONLY or not (os.fstatvfs(payload).f_flag & os.ST_RDONLY):
+            raise Refusal('mount_projection_mode')
+        target = descend(opened, payload, install_parts, payload_mount)
+        prefix = descend(opened, state, (app_id, 'pfx'), state_mount)
+        for registry in ('system.reg', 'user.reg'):
+            row = os.stat(registry, dir_fd=prefix, follow_symlinks=False)
+            if not stat.S_ISREG(row.st_mode) or not row.st_size or row.st_dev != os.fstat(state).st_dev:
+                raise Refusal('prefix_not_initialized')
+        parents = (app_id, 'pfx', 'drive_c', *link_parts[:-1])
+        where = descend(opened, state, parents, state_mount)
+        name = link_parts[-1]
+        destination = str(Path(games).joinpath(*install_parts))
+        refuse_case_conflict(where, name)
+        # Creation is atomic; never unlink or replace an existing entry. An
+        # independently created correct link is safe to observe on a retry.
+        try:
+            os.symlink(destination, name, dir_fd=where)
+        except FileExistsError:
+            pass
+        try:
+            if os.readlink(name, dir_fd=where) != destination:
+                raise Refusal('install_link_conflict')
+        except OSError:
+            raise Refusal('install_link_conflict') from None
+        with ExitStack() as observed:
+            current_state, current_state_mount = mounted_root(observed, compatdata)
+            current_payload, current_payload_mount = mounted_root(observed, games)
+            current_where = descend(observed, current_state, parents, state_mount)
+            refuse_case_conflict(current_where, name)
+            if (current_state_mount != state_mount or current_payload_mount != payload_mount
+                    or not os.path.samestat(os.fstat(where), os.fstat(current_where))
+                    or not os.path.samestat(os.fstat(target), os.fstat(descend(observed, current_payload, install_parts, payload_mount)))
+                    or os.readlink(name, dir_fd=where) != destination):
+                raise Refusal('launch_projection_changed')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--compatdata', required=True, help='writable parent mount for reviewed Proton prefixes')
+    parser.add_argument('--games', required=True, help='read-only installation mount visible to Proton')
+    parser.add_argument('--app-id', required=True)
+    parser.add_argument('--link', required=True, help='reviewed path relative to the Windows drive_c directory')
+    parser.add_argument('--install', required=True, help='reviewed directory relative to the installation mount')
+    args = parser.parse_args()
+    if sys.platform != 'linux':
+        parser.exit(1, 'wolf_proton_install=refused requires_linux\n')
+    try:
+        prepare(args.compatdata, args.games, args.app_id, args.link, args.install)
+    except Refusal as exc:
+        parser.exit(1, f'wolf_proton_install=refused reason={exc}\n')
+    except (OSError, ValueError):
+        # Do not echo private title paths, filenames, or host mount identities.
+        parser.exit(1, 'wolf_proton_install=refused reason=missing_or_conflicting_layout\n')
+    print('wolf_proton_install=verified')
+
+
+if __name__ == '__main__':
+    main()

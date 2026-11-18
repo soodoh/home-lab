@@ -342,6 +342,9 @@ jobs:
           # Fixture helpers intentionally omit action-only environment variables.
           tofu_wrapper: false
 
+      - name: Test Linux Proton install-link repair
+        run: sudo env WOLF_PROTON_INSTALL_TEST_DISPOSABLE=true scripts/test-wolf-proton-install
+
       - name: Test native Wolf security behavior
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Native mount and filesystem fixture. Never run this on a managed host.
+set -euo pipefail
+umask 077
+[[ ${WOLF_PROTON_INSTALL_TEST_DISPOSABLE:-} == true && $EUID == 0 && $(uname -s) == Linux && ! -e /etc/home-lab ]]
+root=$(cd "$(dirname "$0")" && pwd -P)
+if [[ ${1:-} != private ]]; then
+  exec unshare --mount --propagation private -- bash "$0" private
+fi
+[[ $(readlink /proc/self/ns/mnt) != "$(readlink /proc/1/ns/mnt)" ]]
+work=$(mktemp -d /tmp/wolf-proton-install-fixture.XXXXXXXX)
+cleanup() {
+  rc=$?
+  trap - EXIT
+  for path in "$work/compatdata" "$work/games"; do
+    if mountpoint -q "$path"; then umount --recursive "$path" || exit 2; fi
+  done
+  rm -rf -- "$work"
+  exit "$rc"
+}
+trap cleanup EXIT
+chmod 0755 "$work"
+install -m 0755 "$root/prepare-wolf-proton-install" "$work/prepare-wolf-proton-install"
+mkdir -m 0755 "$work/compatdata" "$work/games" "$work/media"
+mkdir -m 0755 "$work/media/title" "$work/media/other"
+printf 'game stays here\n' > "$work/media/title/install-marker"
+chmod 0644 "$work/media/title/install-marker"
+install_link='Program Files/WolfFixture'
+run_check() {
+  setpriv --reuid=65534 --regid=65534 --clear-groups python3 "$work/prepare-wolf-proton-install" \
+    --compatdata "$work/compatdata" --games "$work/games" --app-id 117 --link "$install_link" --install "${1:-title}"
+}
+refuses() {
+  local output
+  if output=$(run_check "$@" 2>&1); then
+    printf 'unexpected launcher admission\n' >&2
+    exit 1
+  fi
+  [[ $output == wolf_proton_install=refused* && $output != *"$work"* ]]
+}
+refuses
+mount -t tmpfs -o size=8m,mode=0755,nodev,nosuid tmpfs "$work/compatdata"
+mount --bind "$work/media" "$work/games"
+refuses # A writable installation mount is not an admitted projection.
+mount -o remount,bind,ro "$work/games"
+prefix="$work/compatdata/117/pfx"
+init_prefix() {
+  mkdir -p "$prefix/drive_c/Program Files"
+  printf 'synthetic registry\n' > "$prefix/system.reg"
+  printf 'synthetic registry\n' > "$prefix/user.reg"
+  chown -R 65534:65534 "$work/compatdata/117"
+  chmod 0755 "$work/compatdata/117" "$prefix" "$prefix/drive_c" "$prefix/drive_c/Program Files"
+}
+refuses # Never invent a prefix before Proton has initialized it.
+init_prefix
+alias="$prefix/drive_c/$install_link"
+refuses missing
+refuses ../media/title
+ln -s "$work/media/other" "$alias"
+refuses
+[[ $(readlink "$alias") == "$work/media/other" ]]
+unlink "$alias"
+printf 'unowned entry\n' > "$alias"
+refuses
+[[ $(< "$alias") == 'unowned entry' ]]
+rm -- "$alias"
+printf 'case-folded conflict\n' > "${alias%/*}/wolffixture"
+refuses
+[[ ! -e $alias ]]
+rm -- "${alias%/*}/wolffixture"
+ln -s title "$work/media/title-alias"
+refuses title-alias
+ln -s system.reg "$prefix/user.reg-link"
+mv -- "$prefix/user.reg" "$prefix/user.reg-saved"
+mv -- "$prefix/user.reg-link" "$prefix/user.reg"
+refuses
+unlink "$prefix/user.reg"
+mv -- "$prefix/user.reg-saved" "$prefix/user.reg"
+mv -- "$prefix/drive_c/Program Files" "$prefix/drive_c/real-program-files"
+ln -s real-program-files "$prefix/drive_c/Program Files"
+refuses
+unlink "$prefix/drive_c/Program Files"
+mv -- "$prefix/drive_c/real-program-files" "$prefix/drive_c/Program Files"
+run_check
+run_check
+[[ $(readlink "$alias") == "$work/games/title" && $(< "$alias/install-marker") == 'game stays here' ]]
+mv -T "$work/compatdata/117" "$work/compatdata/117-replaced"
+refuses
+init_prefix
+run_check
+[[ $(< "$alias/install-marker") == 'game stays here' && ! -e "$prefix/install-marker" ]]
+umount "$work/games"
+refuses
+printf 'wolf_proton_install_test=verified prefix_recreation idempotence conflicts mount_failures game_stays_on_games\n'
