@@ -987,6 +987,58 @@ def wolf_idle(container):
                     raise CaptureError('wolf_not_idle')
 
 
+def verify_wolf_pilot(policy, step):
+    """Admit exactly one native read-only view over a retained legacy prefix."""
+    require_private_mounts()
+    spec = step['wolf_pilot']
+    if (not isinstance(spec, dict) or set(spec) != {'profile', 'app_id'}
+            or not isinstance(spec['profile'], list) or len(spec['profile']) != 2
+            or any(not isinstance(part, str) or part in {'.', '..'}
+                   or not re.fullmatch(r'[A-Za-z0-9._-]{1,64}', part) for part in spec['profile'])
+            or not isinstance(spec['app_id'], str) or not re.fullmatch(r'[1-9][0-9]{0,9}', spec['app_id'])
+            or int(spec['app_id']) > 2**32 - 1):
+        raise CaptureError('wolf_pilot_scope')
+    app_id = spec['app_id']
+    try:
+        profile = safe_source(Path(step['wolf']) / 'profile-data' / Path(*spec['profile']))
+        parents = (profile / '.steam/steam/steamapps/compatdata').resolve(strict=True)
+        if not parents.is_relative_to(profile) or parents.parts[-2:] != ('steamapps', 'compatdata'):
+            raise CaptureError('wolf_pilot_scope')
+        legacy = safe_source(parents / app_id)
+        active = safe_source(STATE_BASE / 'wolf-pilot/compatdata' / app_id)
+        if not legacy.is_dir() or not active.is_dir():
+            raise CaptureError('wolf_pilot_scope')
+        identities = [m['identity'] for m in policy['capture']['mounts'] if m['path'] == str(STATE_BASE)]
+        if len(identities) != 1 or identities[0].get('fstype') != 'ext4' or not identities[0].get('uuid'):
+            raise CaptureError('wolf_pilot_state_identity')
+        raw = command(['/usr/bin/findmnt', '--list', '--json', '--output', 'TARGET,FSROOT,FSTYPE,UUID,OPTIONS'])
+        mounts = json.loads(raw)['filesystems']
+        base_rows = [m for m in mounts if m['target'] == str(STATE_BASE)]
+        legacy_rows = [m for m in mounts if m['target'] == str(legacy)]
+        uuid = identities[0]['uuid']
+        if (len(base_rows) != 1 or base_rows[0]['fsroot'] != '/' or base_rows[0]['uuid'] != uuid
+                or base_rows[0]['fstype'] != 'ext4'):
+            raise CaptureError('wolf_pilot_state_identity')
+        if (len(legacy_rows) != 1 or legacy_rows[0]['fsroot'] != '/' + str(active.relative_to(STATE_BASE))
+                or legacy_rows[0]['uuid'] != uuid or legacy_rows[0]['fstype'] != 'ext4'
+                or 'ro' not in legacy_rows[0]['options'].split(',')
+                or not os.path.samestat(legacy.stat(), active.stat())):
+            raise CaptureError('wolf_pilot_mount_identity')
+        if any((target := Path(m['target'])).is_relative_to(active)
+               or (target != legacy and target.is_relative_to(legacy))
+               or (target != STATE_BASE and target.is_relative_to(STATE_BASE) and active.is_relative_to(target))
+               for m in mounts):
+            raise CaptureError('wolf_pilot_nested_mount')
+        registry = safe_source(legacy / 'pfx/user.reg').lstat()
+        if not stat.S_ISREG(registry.st_mode) or not registry.st_size:
+            raise CaptureError('wolf_pilot_prefix_missing')
+    except CaptureError:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        raise CaptureError('wolf_pilot_mount_identity') from None
+    return legacy, active
+
+
 def wolf_paths(base):
     """Selective host paths, not Steam installations or whole Proton prefixes.
 

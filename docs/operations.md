@@ -719,8 +719,14 @@ qualifies the backup-side projection using deliberately different active, retain
 and newer live saves. It checks the current selector and rsync against a verified
 private active mount, and verifies selective frozen ext4 projections from three
 test repositories at the existing Wolf archive paths. It does not install those
-mounts or exercise live snapshot admission. Missing or incorrect active bindings
-must refuse the capture rather than silently read the retained prefix.
+mounts or exercise live snapshot admission. The opt-in `wolf_pilot` setting on
+Wolf’s cold-capture step accepts only a reviewed `profile` pair and `app_id`.
+It requires a read-only bind of the exact `/srv/home-lab-state/wolf-pilot/compatdata/<app-id>`
+app directory at its legacy archive path inside the backup mount namespace. The
+runner rejects missing, wrong-filesystem, writable, or nested bindings; it checks
+both writer locations and rechecks the mount across the selected-save copy. The
+policy does not enable this setting or install a mount. The opt-in protects the
+fallback copy only; snapshot projection remains a separate deployment gate.
 
 Keep Wolf’s existing layout, idle guard and selected-save backup until Steam’s
 actual compatibility-tool selection, the affected title’s launch and reset

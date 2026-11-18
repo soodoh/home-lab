@@ -525,11 +525,20 @@ def wolf_siblings(paths):
     return selected
 
 
+def wolf_capture_source(policy, adapter, step):
+    paths = [step['wolf']]
+    if 'wolf_pilot' not in step:
+        return paths, None
+    legacy, active = adapter.verify_wolf_pilot(policy, step)
+    return [*paths, str(active.parent.parent)], legacy
+
+
 def verify_wolf_available(policy, adapter, step, declared):
     if not set(step['services']) <= declared:
         raise WorkflowError('capture_service_missing')
+    paths, _ = wolf_capture_source(policy, adapter, step)
     own = {service_container(policy, s) for s in step['services']}
-    if any(c not in own for c in wolf_siblings([step['wolf']])):
+    if any(c not in own for c in wolf_siblings(paths)):
         raise WorkflowError('wolf_active_writer')
     for service in step['services']:
         if service_running(policy, service):
@@ -778,15 +787,30 @@ def cold_capture(policy, adapter, steps, stage, declared):
         report_phase('shutdown', interrupted)
         started = time.monotonic()
         for step in wolves:
-            if wolf_siblings([step['wolf']]):
+            writer_paths, legacy = wolf_capture_source(policy, adapter, step)
+            if wolf_siblings(writer_paths):
                 raise WorkflowError('wolf_active_writer')
             paths, mappings = adapter.wolf_paths(step['wolf'])
+            if legacy is not None and str(legacy / 'pfx/user.reg') not in paths:
+                raise WorkflowError('wolf_pilot_selection')
             local.extend(paths)
             links.update(mappings)
         if seed:
             adapter.retry(lambda: adapter.finish_copy(seed, stage / 'files', excludes, baseline=baseline))
         if local:
-            adapter.retry(lambda: adapter.copy_paths(local, stage / 'files', excludes))
+            def copy_selected():
+                for step in wolves:
+                    if 'wolf_pilot' in step:
+                        paths, _ = wolf_capture_source(policy, adapter, step)
+                        if wolf_siblings(paths):
+                            raise WorkflowError('wolf_active_writer')
+                adapter.copy_paths(local, stage / 'files', excludes)
+                for step in wolves:
+                    if 'wolf_pilot' in step:
+                        paths, _ = wolf_capture_source(policy, adapter, step)
+                        if wolf_siblings(paths):
+                            raise WorkflowError('wolf_active_writer')
+            adapter.retry(copy_selected)
         report_phase('final_copy_local', started)
         started = time.monotonic()
         for dump in dumps:
@@ -839,6 +863,8 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             # Refuse ordinary gaming activity before leaving incomplete staging
             # or interrupting unrelated applications. Recheck at Wolf's window.
             for step in settings['cold']:
+                if 'wolf_pilot' in step and not step.get('wolf'):
+                    raise WorkflowError('wolf_pilot_scope')
                 if step.get('wolf'):
                     verify_wolf_available(policy, adapter, step, declared)
             adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])

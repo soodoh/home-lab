@@ -589,6 +589,60 @@ class Runtime(unittest.TestCase):
                          [{'name': 'app', 'services': ['app'], 'paths': ['/data']}], Path('/unused'), {'app'})
                 self.assertEqual(restart.call_args.args[1]['running_services'], ['app'])
 
+    def test_pilot_mount_failure_refuses_before_staging_or_service_stop(self):
+        daily = RUNNER['daily_local']
+        with tempfile.TemporaryDirectory() as directory:
+            policy = self.pause_policy('wolf')
+            step = {'name': 'wolf', 'wolf': '/mnt/games/wolf', 'services': ['wolf'], 'paths': [], 'wolf_pilot': {}}
+            stage = Path(directory).resolve() / 'capture'
+            policy['capture'].update(stage=str(stage), cold=[step])
+            adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+            adapter.verify_wolf_pilot.side_effect = CAPTURE['CaptureError']('wolf_pilot_mount_identity')
+            compose = mock.Mock()
+            with mock.patch.dict(daily.__globals__, {
+                'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
+                'capture_adapter': lambda _: adapter, 'rooted': Path, 'declared_services': lambda _: {'wolf'},
+                'compose': compose,
+            }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'wolf_pilot_mount_identity'):
+                daily(policy, 'a' * 64)
+            adapter.verify_wolf_pilot.assert_called_once_with(policy, step)
+            adapter.fresh_stage.assert_not_called()
+            adapter.wolf_paths.assert_not_called()
+            compose.assert_not_called()
+            self.assertFalse(stage.exists())
+
+    def test_active_wolf_pilot_is_rechecked_after_stop_and_copy(self):
+        cold = RUNNER['cold_capture']
+        legacy = Path('/mnt/games/wolf/profile-data/test/Steam/.steam/steam/steamapps/compatdata/117')
+        active = Path('/srv/home-lab-state/wolf-pilot/compatdata/117')
+        step = {'name': 'wolf', 'wolf': '/mnt/games/wolf', 'services': ['wolf'], 'paths': [], 'wolf_pilot': {}}
+        for fail_on in (None, 2, 3, 4):
+            with self.subTest(fail_on=fail_on):
+                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+                adapter.retry.side_effect = lambda operation: operation()
+                effects = [(legacy, active)] * 4
+                if fail_on is not None:
+                    effects[fail_on - 1] = CAPTURE['CaptureError']('wolf_pilot_mount_identity')
+                adapter.verify_wolf_pilot.side_effect = effects
+                adapter.wolf_paths.return_value = ([str(legacy / 'pfx/user.reg')], {})
+                siblings, restart = mock.Mock(return_value=[]), mock.Mock()
+                with mock.patch.dict(cold.__globals__, {
+                    'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
+                    'service_container': lambda _, s: s, 'compose': mock.Mock(return_value=OK),
+                    'service_running': mock.Mock(side_effect=[True, True, False]),
+                    'wolf_siblings': siblings, 'restart_recorded': restart,
+                }):
+                    if fail_on is None:
+                        cold(self.pause_policy('wolf'), adapter, [step], Path('/unused'), {'wolf'})
+                    else:
+                        with self.assertRaisesRegex(CAPTURE['CaptureError'], 'wolf_pilot_mount_identity'):
+                            cold(self.pause_policy('wolf'), adapter, [step], Path('/unused'), {'wolf'})
+                self.assertEqual(adapter.verify_wolf_pilot.call_count, fail_on or 4)
+                self.assertEqual(adapter.copy_paths.call_count, int(fail_on in (None, 4)))
+                for call in siblings.call_args_list:
+                    self.assertEqual(call.args[0], [step['wolf'], str(active.parent.parent)])
+                restart.assert_called_once()
+
     def test_busy_wolf_refuses_before_staging_or_interruption_and_can_retry_when_idle(self):
         daily = RUNNER['daily_local']
         for busy in ('session', 'writer'):

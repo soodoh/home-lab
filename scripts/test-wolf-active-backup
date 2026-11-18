@@ -40,7 +40,7 @@ truncate -s 64MiB "$w/state.img"
 mkfs.ext4 -q -F "$w/state.img"
 mount -t ext4 -o loop "$w/state.img" "$w/state"
 mounts+=("$w/state")
-active="$w/state/pilot/117"
+active="$w/state/wolf-pilot/compatdata/117"
 mkdir -p "$active/$save" "$active/pfx/drive_c/Program Files/Install"
 printf 'ACTIVE-PILOT\n' > "$active/$save/slot1"
 printf 'ACTIVE-REGISTRY\n' > "$active/pfx/user.reg"
@@ -62,21 +62,50 @@ assert str(save.parent) in paths and save.read_text() == 'STALE-ROLLBACK\n'
 print('unmodified_backup_would_select_retained_prefix=yes')
 PY
 
-state_device=$(findmnt -n --mountpoint "$w/state" -o MAJ:MIN)
+FIXTURE_UUID=$(findmnt -n --mountpoint "$w/state" -o UUID)
+export FIXTURE_UUID
+[[ $FIXTURE_UUID =~ ^[0-9a-f-]{36}$ ]]
 verify_active() {
-  [[ $(findmnt -n --mountpoint "$legacy" -o FSROOT) == /pilot/117 && \
-      $(findmnt -n --mountpoint "$legacy" -o MAJ:MIN) == "$state_device" ]]
+  python3 - "$1" <<'PY'
+import os, runpy, sys
+from pathlib import Path
+adapter = runpy.run_path(os.environ['FIXTURE_ADAPTER'])
+state = Path(os.environ['FIXTURE_WORK']) / 'state'
+verify = adapter['verify_wolf_pilot']
+verify.__globals__['STATE_BASE'] = state
+policy = {'capture': {'mounts': [{'path': str(state), 'identity': {'fstype': 'ext4', 'uuid': os.environ['FIXTURE_UUID']}}]}}
+step = {'wolf': os.environ['FIXTURE_BASE'], 'wolf_pilot': {'profile': ['fake', 'Steam'], 'app_id': '117'}}
+expected = sys.argv[1]
+if expected == 'wrong-uuid':
+    policy['capture']['mounts'][0]['identity']['uuid'] = '00000000-0000-0000-0000-000000000000'
+    expected = 'wolf_pilot_state_identity'
+try:
+    actual = verify(policy, step)
+except adapter['CaptureError'] as exc:
+    assert str(exc) == expected, str(exc)
+else:
+    assert expected == 'admitted', 'unexpectedly admitted an invalid binding'
+    assert actual == (Path(os.environ['FIXTURE_LEGACY']), state / 'wolf-pilot/compatdata/117')
+PY
 }
-if verify_active; then exit 3; fi
-mkdir -p "$w/state/pilot/118"
-mount --bind "$w/state/pilot/118" "$legacy"
+verify_active wolf_pilot_mount_identity
+mkdir -p "$w/state/wolf-pilot/compatdata/118"
+mount --bind "$w/state/wolf-pilot/compatdata/118" "$legacy"
 mounts+=("$legacy")
-if verify_active; then exit 4; fi
+mount -o remount,bind,ro "$legacy"
+verify_active wolf_pilot_mount_identity
 umount "$legacy"
 mount --bind "$active" "$legacy"
+verify_active wolf_pilot_mount_identity
 mount -o remount,bind,ro "$legacy"
-verify_active
-printf 'binding_missing_or_wrong_source=refused\n'
+verify_active wrong-uuid
+verify_active admitted
+mount --bind "$active/$save" "$legacy/$save"
+mounts+=("$legacy/$save")
+verify_active wolf_pilot_nested_mount
+umount "$legacy/$save"
+verify_active admitted
+printf 'binding_missing_writable_wrong_source_or_nested=refused\n'
 python3 - <<'PY'
 import json, os, runpy
 from pathlib import Path
@@ -108,13 +137,13 @@ mounts+=("$w/frozen")
 mapfile -t selections < <(python3 -c 'import json,sys; paths=json.load(open(sys.argv[1])); print("\n".join(sorted(p for p in paths if not any(p.startswith(q+"/") for q in paths))))' "$w/selection.json")
 [[ ${#selections[@]} == 2 ]]
 for rel in "${selections[@]}"; do
-  src="$w/frozen/pilot/117/$rel"
+  src="$w/frozen/wolf-pilot/compatdata/117/$rel"
   dst="$w/snapshot/files$legacy/$rel"
   mkdir -p "${dst%/*}"
   if [[ -d $src ]]; then mkdir "$dst"; else : > "$dst"; fi
   mount --bind "$src" "$dst"
   mounts+=("$dst")
-  [[ $(findmnt -n --mountpoint "$dst" -o FSROOT) == "/pilot/117/$rel" && \
+  [[ $(findmnt -n --mountpoint "$dst" -o FSROOT) == "/wolf-pilot/compatdata/117/$rel" && \
       $(findmnt -n --mountpoint "$dst" -o OPTIONS) == ro,* ]]
 done
 export RESTIC_PASSWORD=synthetic-only RESTIC_FROM_PASSWORD=synthetic-only RESTIC_CACHE_DIR="$w/cache"
