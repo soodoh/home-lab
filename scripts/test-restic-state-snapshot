@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# Native LVM-thin/NBD/Restic qualification. Disposable Linux VM only.
+set -euo pipefail
+umask 077
+[[ $EUID == 0 && $(uname -s) == Linux && ! -e /etc/home-lab && $# == 1 ]] || exit 64
+[[ ${HOME_LAB_STATE_SNAPSHOT_TEST_DISPOSABLE:-false} == true ]] || exit 64
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+restic=$(realpath -- "$1")
+if [[ ${HOME_LAB_STATE_SNAPSHOT_TEST_NAMESPACE:-} != "$(readlink /proc/self/ns/mnt)" ]]; then
+  parent=$(readlink /proc/self/ns/mnt)
+  # The namespace's shell, not this parent, expands the arguments.
+  # shellcheck disable=SC2016
+  exec unshare --mount --net --propagation private -- bash -ec '
+    ns=$(readlink /proc/self/ns/mnt)
+    [[ $ns != "$1" ]]
+    ip link set lo up
+    export HOME_LAB_STATE_SNAPSHOT_TEST_NAMESPACE=$ns
+    exec "$2" "$3"
+  ' -- "$parent" "$0" "$restic"
+fi
+[[ $(readlink /proc/self/ns/mnt) != "$(readlink /proc/1/ns/mnt)" ]]
+# The fixture requires native dm-thin, dm-snapshot and NBD support already loaded.
+# NBD devices are shared with the VM kernel even in a private net namespace.
+nbd=/dev/nbd15
+[[ -b $nbd && ! -e /sys/class/block/nbd15/pid && $(< /sys/class/block/nbd15/size) == 0 ]]
+work=$(mktemp -d "${TMPDIR:-/tmp}/home-lab-state-snapshot-fixture.XXXXXXXX")
+vg=home_lab_fixture_${work##*.}
+loop='' partition='' created='' server='' writer=''
+cleanup() {
+  rc=$?
+  trap - EXIT
+  set +e
+  failed=0
+  if [[ -n $writer ]]; then kill "$writer" 2>/dev/null; wait "$writer" 2>/dev/null; fi
+  if [[ -e $work/state-attachment || $(< /sys/class/block/nbd15/size) != 0 ]]; then failed=1; fi
+  if [[ -n $server ]]; then kill "$server" 2>/dev/null; wait "$server" 2>/dev/null; fi
+  if mountpoint -q "$work/live"; then umount "$work/live" || failed=1; fi
+  if [[ -n $partition ]]; then losetup -d "$partition" || failed=1; fi
+  if [[ -n $created && $failed == 0 ]]; then vgremove --yes --devices "$loop" "$vg" || failed=1; fi
+  if [[ -n $loop && $failed == 0 ]]; then losetup -d "$loop" || failed=1; fi
+  if [[ $failed != 0 ]]; then
+    printf 'fixture_cleanup_requires_inspection=%s\n' "$work" >&2
+    exit 1
+  fi
+  rm -rf -- "$work"
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+export LVM_SYSTEM_DIR="$work/lvm"
+mkdir "$LVM_SYSTEM_DIR" "$work/live"
+printf '%s\n' 'activation { udev_sync=0 udev_rules=0 }' > "$LVM_SYSTEM_DIR/lvm.conf"
+truncate -s 1GiB "$work/synthetic-pv"
+loop=$(losetup --find --show "$work/synthetic-pv")
+vgcreate --devices "$loop" "$vg" "$loop"
+created=yes
+lvcreate --devices "$loop" -L 768m -T "$vg/pool"
+lvcreate --devices "$loop" -V 512m -T "$vg/pool" -n state
+origin=/dev/mapper/${vg}-state
+export FIXTURE_PARTUUID=808d97aa-4b49-44b4-aec0-ea4d74a71b72
+printf 'label: gpt\nstart=2048, size=900000, type=linux, uuid=%s\n' "$FIXTURE_PARTUUID" |
+  sfdisk --no-reread --no-tell-kernel "$origin"
+partition=$(losetup --find --show --offset 1048576 --sizelimit 460800000 "$origin")
+mkfs.ext4 -q "$partition"
+mount -t ext4 "$partition" "$work/live"
+mkdir "$work/live/app" "$work/live/uncaptured" "$work/capture"
+mkdir "$work/capture/files" "$work/capture/databases"
+printf 'old attachment\n' > "$work/live/app/attachment"
+printf 'excluded\n' > "$work/live/app/transient"
+printf 'unselected\n' > "$work/live/uncaptured/value"
+printf 'export\n' > "$work/capture/databases/synthetic.sql"
+python3 - "$work" <<'PY' &
+import pathlib, sqlite3, sys, time
+root = pathlib.Path(sys.argv[1])
+with sqlite3.connect(root / 'live/app/database.sqlite3') as db:
+    db.execute('pragma journal_mode=wal')
+    db.execute('pragma wal_autocheckpoint=0')
+    db.execute('create table records (value)')
+    db.execute("insert into records values ('durable')")
+    db.commit()
+    db.execute("insert into records values ('uncommitted')")
+    (root / 'wal-ready').touch()
+    time.sleep(60)
+PY
+writer=$!
+for _ in {1..100}; do [[ ! -f $work/wal-ready ]] || break; sleep .1; done
+[[ -s $work/live/app/database.sqlite3-wal && -f $work/wal-ready ]]
+# The ext4 filesystem remains mounted and the WAL writer is still open. The
+# private overlay, not the remote immutable snapshot, gets ext4 journal replay.
+sync --file-system "$work/live"
+lvcreate --devices "$loop" --snapshot --permission r -n captured "$vg/state"
+lvchange --activate y --ignoreactivationskip --devices "$loop" "$vg/captured"
+rm -- "$work/live/app/attachment"
+printf 'live addition\n' > "$work/live/app/new"
+snap=/dev/mapper/${vg}-captured
+[[ $(blockdev --getro "$snap") == 1 ]]
+export FIXTURE_CAPTURE=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+systemd-socket-activate --listen=127.0.0.1:2445 /usr/bin/qemu-nbd --format=raw --read-only \
+  --persistent --export-name="$FIXTURE_CAPTURE" "$snap" &
+server=$!
+for _ in {1..50}; do
+  if qemu-nbd --list --bind 127.0.0.1 --port 2445 2>/dev/null | grep -q "$FIXTURE_CAPTURE"; then break; fi
+  sleep .1
+done
+export FIXTURE_STATE_UUID
+FIXTURE_STATE_UUID=$(blkid -p -s UUID -o value "$partition")
+export RESTIC_REPOSITORY="$work/repo" RESTIC_PASSWORD=synthetic-fixture-only
+"$restic" init
+python3 - "$root" "$work" "$restic" <<'PY'
+import os, pathlib, runpy, subprocess, sys
+root, work = map(pathlib.Path, sys.argv[1:3])
+restic = sys.argv[3]
+adapter = runpy.run_path(str(root / 'scripts/restic-capture-files.py'))
+identity = {'fstype': 'ext4', 'uuid': os.environ['FIXTURE_STATE_UUID']}
+policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/app', '/mnt/storage/media/books']}],
+                      'mounts': [{'path': '/srv/home-lab-state', 'identity': identity}],
+                      'state_snapshot': {'bytes': 512 * 1024**2, 'offset': 1048576,
+                                         'partition_bytes': 460800000,
+                                         'partition_uuid': os.environ['FIXTURE_PARTUUID']}}}
+attach = adapter['state_snapshot_attached']
+# Keep native attachment mechanics, but direct the transport to private loopback.
+attach.__wrapped__.__globals__['zfs_spec'] = lambda _: {'broker_ipv4': '127.0.0.1'}
+record = {'capture': os.environ['FIXTURE_CAPTURE']}
+stage = work / 'capture'
+app = stage / 'files/srv/home-lab-state/app'
+excludes = work / 'excludes'
+excludes.write_text('/srv/home-lab-state/app/transient\n')
+for defect in ('foreign_uuid', 'existing_staged_file'):
+    if defect == 'foreign_uuid':
+        identity['uuid'] = '00000000-0000-0000-0000-000000000000'
+    else:
+        identity['uuid'] = os.environ['FIXTURE_STATE_UUID']
+        app.mkdir(parents=True)
+        (app / 'conflict').touch()
+    try:
+        with attach(policy, record, stage):
+            raise AssertionError(f'{defect} accepted')
+    except adapter['CaptureError'] as exc:
+        assert str(exc) == {'foreign_uuid': 'state_snapshot_filesystem_identity',
+                            'existing_staged_file': 'snapshot_target_not_empty'}[defect]
+    assert adapter['state_device_idle']() and not (work / 'state-attachment').exists()
+(app / 'conflict').unlink()
+try:
+    with attach(policy, record, stage):
+        raise InterruptedError('synthetic cancellation during backup')
+except InterruptedError:
+    assert adapter['state_device_idle']() and not (work / 'state-attachment').exists()
+else:
+    raise AssertionError('cancellation was swallowed')
+with attach(policy, record, stage):
+    assert (app / 'attachment').read_text() == 'old attachment\n' and not (app / 'new').exists()
+    assert not (app.parent / 'uncaptured').exists()
+    try:
+        (app / 'refuse-write').touch()
+    except OSError:
+        pass
+    else:
+        raise AssertionError('snapshot view permitted writes')
+    flags = ['--exclude=' + value for value in adapter['state_snapshot_exclusions'](stage, excludes)]
+    subprocess.run([restic, 'backup', str(stage), *flags], check=True)
+assert not any(app.iterdir())
+assert adapter['state_device_idle']() and not (work / 'state-attachment').exists()
+PY
+kill "$server"
+wait "$server" || :
+server=
+lvremove --yes --devices "$loop" "$vg/captured"
+for destination in local replica-a replica-b; do
+  if [[ $destination != local ]]; then
+    export RESTIC_REPOSITORY="$work/$destination" RESTIC_FROM_PASSWORD=synthetic-fixture-only
+    "$restic" init --from-repo "$work/repo" --copy-chunker-params
+    "$restic" copy --from-repo "$work/repo"
+  fi
+  "$restic" restore latest --verify --target "$work/restored-$destination"
+done
+python3 - "$work" <<'PY'
+import pathlib, sqlite3, sys
+work = pathlib.Path(sys.argv[1])
+for destination in ('local', 'replica-a', 'replica-b'):
+    restored = work / ('restored-' + destination) / work.relative_to('/') / 'capture/files/srv/home-lab-state/app'
+    assert (restored / 'attachment').read_text() == 'old attachment\n'
+    assert not (restored / 'new').exists() and not (restored / 'transient').exists()
+    assert not (restored.parent / 'uncaptured').exists()
+    assert (restored / 'database.sqlite3-wal').stat().st_size > 0
+    with sqlite3.connect(restored / 'database.sqlite3') as db:
+        assert db.execute('pragma integrity_check').fetchall() == [('ok',)]
+        assert db.execute('select value from records').fetchall() == [('durable',)]
+print('native_state_snapshot=verified restic_bytes sqlite_wal_and_exclusion two_replicas')
+PY

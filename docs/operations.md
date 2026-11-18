@@ -923,8 +923,9 @@ verification and Compose validation for related configuration changes.
 
 The complete recovery set is defined by
 [`policy.json`](../services/data/restic/policy.json). There is one local capture,
-not application generations or mixed-age admission. Captures are sequential,
-not globally atomic; the format manifest records group capture times.
+not application generations or mixed-age admission. Online captures have their
+own times; the remaining writers share a capture window and one ZFS snapshot.
+The manifest records those windows, not a globally atomic recovery point.
 
 Native PostgreSQL/MariaDB exports run while coupled application writers are
 paused. Vaultwarden and OpenFit stay online: native SQLite backups capture
@@ -954,25 +955,28 @@ Home Assistant and Omada retain their short consistent stopped captures; native
 exports would require separately approved privileged application credentials and
 qualified restores, not reuse of an unrelated administrator identity.
 
-Nextcloud's local configuration and native SQL export are captured while its web
-and cron writers are stopped. The storage host then snapshots the existing
-`storage/docker` ZFS dataset; writers resume and native `occ status` must pass
-before the long file read. A temporary read-only export exposes only that
-snapshot's Nextcloud subtree to the fixed Docker-host NFS client. Restic reads it
-through a private NFS mount at the original staged path: no full user-data staging
-copy or restore-layout change. Other coupled state is fully materialized in private
-disk-backed staging; each service/dependency group stays stopped through its final
-synchronization and database export, then resumes before repository work. Books and both Tachidesks first pre-copy their selected trees while
-writers are online. After writer exclusion, inode/ctime changes invalidate seeded
-files even when their size and mtime were preserved; native rsync reconciles the
-final delta, deletions and metadata. Seeds are never completed recovery inputs.
-Failed pre-copy never stops a writer, and interrupted staging still requires
-inspection rather than reuse. Separate `precopy_*` and `interruption_*` phase
-metrics distinguish online copying from the actual stop/restart/health window;
-phase messages are flushed immediately instead of appearing only at process exit.
+After the online captures, the runner records one restart journal and stops the
+reviewed pause set together. It copies Wolf's selected saves, completes native
+SQL exports, flushes NFS and local state, and takes one snapshot per storage
+backend before restarting the writers. Restic reads the selected NFS and local
+ext4 trees from those snapshots; neither is bulk-copied to staging. Native
+exports, online companion files, Wolf saves, and capture metadata still use the
+private workspace. Interrupted captures retain their receipts for safe retry or
+inspection.
 
-Previously stopped services stay stopped. Restart/health checks finish **before** unrelated
-groups, Restic scanning or replication. Gluetun's namespace clients resume only
+All recorded writers resume before Restic mounts or reads the snapshot. Nextcloud
+must also pass native `occ status`. Only the approved Nextcloud data, Books and
+audiobooks, both Tachidesk libraries and Frigate export subtrees are mounted
+read-only at their existing archive paths, alongside the selected cold paths on
+the local snapshot. These roots are not counted toward staging capacity. Missing
+or unexpected sources fail closed. The shared pause can lengthen an individual
+application's outage even if total backup time falls. Compare `shutdown`,
+`final_copy_local` (Wolf), `sql_exports`, `zfs_snapshot`, `state_snapshot`,
+`restart`, `interruption_shared`, `online_capture_total` and `restic_backup` on
+successive captures.
+
+Previously stopped services stay stopped. Restart/health checks finish
+**before** Restic scanning or replication. Gluetun's namespace clients resume only
 after VPN health when recovering a previously recorded interruption. The normal
 capture no longer restarts the VPN. Nextcloud cron uses a reaping init and `SIGTERM`,
 not the image's Apache `SIGWINCH`. OpenFit uses a reaping init and a small
@@ -1087,7 +1091,7 @@ check the fence and load policy under the shared gate. After complete convergenc
 the fence is removed and the timer restored. Interrupted tool updates retain their
 fence and production owner for host inspection. Never force-unlock a repository.
 
-### ZFS snapshot authority and expiry
+### Snapshot authority and expiry
 
 `configure-zfs-backup-snapshots.yml --check` previews the storage-host capability;
 apply requires `zfs_backup_snapshot_apply_confirmed=true`. It installs a native
@@ -1095,9 +1099,9 @@ systemd socket listener on the pinned Proxmox Tailscale IPv4, TCP **2444**, boun
 also to **tailscale0**. Binding to an IP alone is not an interface boundary.
 Each accepted connection executes one fixed root-owned worker with bounded JSON
 input, response, time and connection counts. No login account, sudo grant, shell,
-SFTP, proxy or forwarding service is added. The worker permits fixed
-`storage/docker` snapshot operations only: no arbitrary dataset, path,
-recursive/forced destroy, rollback or release of foreign holds. Convergence
+SFTP, proxy or forwarding service is added. The worker permits only the fixed `storage/docker` dataset and the pinned local
+state LV, not arbitrary datasets, volumes, paths, forced removal, rollback, or
+release of foreign holds. Convergence
 refuses pending snapshots, changed peer addresses and foreign/broader listeners;
 failures retain the exact host owner. Installation does not create snapshots or
 change tailnet policy.
@@ -1115,9 +1119,10 @@ exits zero. A live graph check is not a substitute for later attended boot
 qualification; do not reboot a recovering pool just to qualify socket ordering.
 
 Separately review/apply the scoped tailnet plan, then configure the Docker backup
-runtime. Only the Docker-host tag receives TCP 2444; its Proxmox SSH access remains
-denied. The separately owned Proxmox cluster firewall must also admit TCP 2444
-from the pinned Docker-host Tailscale IPv4 `/32`, preserving default-deny input.
+runtime. Only the Docker-host tag receives TCP 2444 (control) and TCP 2445
+(read-only NBD data); its Proxmox SSH access remains denied. The separately owned
+Proxmox cluster firewall must admit both ports only from the pinned Docker-host
+Tailscale IPv4 `/32`, preserving default-deny input.
 Review its separate saved plan and retain independent console access; do not
 replace the firewall policy with an untracked host command. WireGuard supplies transport authentication/encryption; the policy pins
 the peer IPv4 directly, without DNS discovery, keys or passwords. The worker uses
@@ -1125,15 +1130,32 @@ the host mount namespace so ZFS automount/NFS publication survives a connection'
 exit; do not add filesystem-namespace sandboxing without qualifying that lifecycle.
 Qualify the real socket's interface binding, allowed/denied peers and full NFS
 lifecycle before activation; a mocked manager or policy plan is not proof.
-The adapter pins the native dataset GUID and shares only the named snapshot's
-`media/nextcloud/data` subtree, read-only with subtree checking, to
-`192.168.0.100`. It never enables `crossmnt`, changes permanent exports or exposes
-the whole snapshot. Peer/client-IP replacement requires reviewed source changes.
-New snapshots require an ONLINE pool by default. The root-controlled
+The adapter pins the native dataset GUID and shares only the approved subtrees
+of one snapshot, each read-only with subtree checking, to `192.168.0.100`. It
+never enables `crossmnt`, changes permanent exports or exposes the whole snapshot.
+The Docker runner checks the broker's exact scope before stopping writers. Install
+the separately reviewed storage broker first, with no outstanding backup snapshots,
+then install the Docker backup runtime. Before admitting the expanded path, verify
+all real NFS mounts, writer recovery, a complete capture with replicas, and a
+selective restore that includes the newly mounted roots. Peer/client-IP replacement
+requires reviewed source changes.
+
+The storage broker checks the local thin pool and verifies the origin, owner,
+and exact LV ID. It opens the socket on demand for one read-only capture. The
+Docker runner checks the partition table and ext4 UUID. On the Docker host,
+ext4 journal replay is limited to a disposable 1 GiB copy-on-write overlay;
+the remote snapshot and the live filesystem remain untouched. No filesystem
+freeze is issued. Unknown holders, a missing receipt, or an interrupted detach
+leave the capture for inspection. Do not remove `/mnt/games/home-lab-backup/state-attachment`
+or reuse `/dev/nbd15` until the exact snapshot, mapping, readers, and writer
+recovery have been verified. Clean captures detach before publication and release
+both snapshots after Restic marks the capture complete.
+
+New ZFS snapshots require an ONLINE pool by default. The root-controlled
 `zfs_backup_snapshot_allow_degraded_capture` option explicitly permits DEGRADED
 backup-first capture; it does not report the pool as healthy. In both modes the
 pool must be writable and report no known data errors. Failed observations,
-FAULTED/UNAVAIL/SUSPENDED states, nested Nextcloud mounts and less than 20 GiB
+FAULTED/UNAVAIL/SUSPENDED states, overmounted or nested source roots and less than 20 GiB
 available on the source dataset still refuse creation. The worker rechecks these
 conditions at creation; callers cannot request their own exception. Existing
 owned sources remain available for safe recovery/cleanup if admission later fails.

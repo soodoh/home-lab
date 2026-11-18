@@ -63,6 +63,30 @@ native mounted-source capture, lost acknowledgements, ready-source retry,
 completion cleanup and 72-hour abandonment on disposable infrastructure before
 installing the scheduled path; mock ZFS tests alone do not qualify it.
 
+### Read local state from snapshots
+
+The application-state ext4 filesystem is inside a dedicated Proxmox LVM-thin
+volume. The runner uses the fixed-origin storage broker and projects only
+reviewed cold paths at their existing archive paths. Native ext4 journal replay
+writes to a bounded disposable overlay, not to the exported read-only volume.
+The disposable Linux fixture `scripts/test-restic-state-snapshot <reviewed-restic-binary>`
+requires `HOME_LAB_STATE_SNAPSHOT_TEST_DISPOSABLE=true`, native LVM-thin and NBD
+support, and an unused `/dev/nbd15`. It verifies cancellation, selected file and
+SQLite WAL restores from the original and two replicas after removing the source.
+The fixture never runs against a managed host or contacts actual replicas.
+
+Before rolling out the scheduled runner, qualify the allowed and denied peers
+for real control/data listeners and NFS exports, exact receipt and partition
+readback, interrupted cleanup, and a complete capture and restore from the live
+local, NFS and Proton repositories. Measure per-service downtime and total capture
+time during that run. Keep existing exports and scope. Keep Nextcloud web/cron
+and Shelfmark/Grimmory writers paused across the SQL exports and both snapshots;
+resume them before Restic reads. Remove other pauses or native exports only
+after restoring the live-captured app with its pinned image and verifying its
+files, database and startup. Wolf is on a different physical disk; keep its
+existing selected-save capture until those paths can be migrated and restored
+from snapshot-backed storage without moving game installations.
+
 Qualify native PostgreSQL/MariaDB imports, Jellyfin archive restoration and
 representative application/user files from the same full capture. Verify selected
 Wolf saves/settings (including per-game paths outside standard Proton user

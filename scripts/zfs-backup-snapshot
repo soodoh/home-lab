@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import signal
 import stat
@@ -30,6 +31,10 @@ CONFIG = Path('/etc/home-lab/zfs-backup-snapshot.json')
 LOCK = Path('/run/lock/home-lab-zfs-backup-snapshot.lock')
 PROPERTY = 'org.home-lab:'
 CLIENT = '192.168.0.100'
+ROOT = Path('/storage/docker')
+NEXTCLOUD = 'media/nextcloud/data'
+EXPORTS = (NEXTCLOUD, 'media/books', 'media/audiobooks', 'media/tachidesk',
+           'media/caro-tachidesk', 'media/frigate/exports')
 
 
 class Refusal(ValueError):
@@ -69,7 +74,7 @@ def pool_status(*, allow_degraded=False):
 
 def source_is_current():
     result = subprocess.run(['/usr/bin/findmnt', '--json', '--nofsroot', '--submounts', '--target',
-                             '/storage/docker/media/nextcloud/data', '--output', 'TARGET,SOURCE,FSTYPE'],
+                             str(ROOT), '--output', 'TARGET,SOURCE,FSTYPE'],
                             stdin=subprocess.DEVNULL, capture_output=True, text=True,
                             timeout=20, check=False,
                             env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
@@ -79,10 +84,11 @@ def source_is_current():
                 rows[0]['target'] != '/storage/docker' or rows[0]['fstype'] != 'zfs'):
             return False
         pending = list(rows[0].get('children', []))
-        root = Path('/storage/docker/media/nextcloud/data')
+        roots = [ROOT / path for path in EXPORTS]
         while pending:
             child = pending.pop()
-            if Path(child['target']).is_relative_to(root):
+            target = Path(child['target'])
+            if any(target.is_relative_to(root) or root.is_relative_to(target) for root in roots):
                 return False
             pending.extend(child.get('children', []))
         return True
@@ -99,14 +105,14 @@ def exportfs(*args):
     return result.stdout
 
 
-def export_path(capture):
-    return '/storage/docker/.zfs/snapshot/' + PREFIX + capture + '/media/nextcloud/data'
+def export_path(capture, root=NEXTCLOUD):
+    return str(ROOT / '.zfs/snapshot' / (PREFIX + capture) / root)
 
 
-def export_fsid(capture):
-    # A caller cannot choose an existing live export's fsid (or the special zero
-    # fsid) by submitting that UUID as its capture identifier.
-    raw = hashlib.sha256(('urn:home-lab:zfs-snapshot:' + capture).encode('ascii')).digest()[:16]
+def export_fsid(capture, root=NEXTCLOUD):
+    # Preserve Nextcloud's existing fsid derivation; other subtrees get their own.
+    suffix = '' if root == NEXTCLOUD else ':' + root
+    raw = hashlib.sha256(('urn:home-lab:zfs-snapshot:' + capture + suffix).encode('ascii')).digest()[:16]
     return str(uuid.UUID(bytes=raw, version=4))
 
 
@@ -121,8 +127,8 @@ def export_table():
         return stream.read()
 
 
-def export_present(capture):
-    path = export_path(capture)
+def export_present(capture, root=NEXTCLOUD):
+    path = export_path(capture, root)
     records = []
     for line in export_table().splitlines():
         fields = shlex.split(line)
@@ -133,48 +139,51 @@ def export_present(capture):
     if len(records) != 1 or not records[0].startswith(CLIENT + '(') or not records[0].endswith(')'):
         raise Refusal('unfamiliar_snapshot_export')
     options = set(records[0][len(CLIENT) + 1:-1].split(','))
-    required = {'ro', 'sync', 'subtree_check', 'no_root_squash', 'secure', 'sec=sys', 'fsid=' + export_fsid(capture)}
+    required = {'ro', 'sync', 'subtree_check', 'no_root_squash', 'secure', 'sec=sys', 'fsid=' + export_fsid(capture, root)}
     if not required <= options or options & {'rw', 'async', 'no_subtree_check', 'insecure', 'crossmnt', 'nohide'}:
         raise Refusal('unfamiliar_snapshot_export')
     return True
 
 
-def ensure_export(capture):
-    path = Path(export_path(capture))
+def ensure_export(capture, root):
+    path = Path(export_path(capture, root))
     # Trigger the native snapshot automount and reject application-controlled
     # aliases before sharing a subtree. Never export the whole shared snapshot.
     for parent in (*reversed(path.parents), path):
         if parent.is_symlink() or not parent.is_dir():
             raise Refusal('snapshot_export_type')
-    if not any((path / marker).is_file() and not (path / marker).is_symlink()
-               for marker in ('.ncdata', '.ocdata')):
+    if root == NEXTCLOUD and not any((path / marker).is_file() and not (path / marker).is_symlink()
+                                    for marker in ('.ncdata', '.ocdata')):
         raise Refusal('snapshot_data_marker_missing')
-    if not export_present(capture):
-        options = 'ro,sync,subtree_check,no_root_squash,secure,sec=sys,fsid=' + export_fsid(capture)
+    if not export_present(capture, root):
+        options = 'ro,sync,subtree_check,no_root_squash,secure,sec=sys,fsid=' + export_fsid(capture, root)
         exportfs('-i', '-o', options, CLIENT + ':' + str(path))
-    if not export_present(capture):
+    if not export_present(capture, root):
         raise Refusal('snapshot_export_missing')
 
 
-def withdraw_export(capture):
-    if export_present(capture):
-        exportfs('-u', CLIENT + ':' + export_path(capture))
-    if export_present(capture):
+def withdraw_exports(capture):
+    # Inspect all before modifying any, even after a partial publication.
+    published = [root for root in EXPORTS if export_present(capture, root)]
+    for root in published:
+        exportfs('-u', CLIENT + ':' + export_path(capture, root))
+    if any(export_present(capture, root) for root in EXPORTS):
         raise Refusal('snapshot_export_retained')
 
 
 def validate_request(request):
-    if not isinstance(request, dict) or request.get('action') not in {'create', 'inspect', 'ready', 'complete', 'abandon', 'list'}:
+    if not isinstance(request, dict) or request.get('action') not in {'create', 'inspect', 'ready', 'complete', 'abandon', 'list', 'scope'}:
         raise Refusal('request_shape')
     action = request['action']
-    expected = {'action'} if action == 'list' else {'action', 'capture', 'owner'}
+    inventory = action in {'list', 'scope'}
+    expected = {'action'} if inventory else {'action', 'capture', 'owner'}
     if action in {'ready', 'complete', 'abandon'}:
         expected |= {'guid'}
     if action == 'complete':
         expected |= {'backup'}
     if set(request) != expected:
         raise Refusal('request_fields')
-    if action != 'list':
+    if not inventory:
         if not isinstance(request['capture'], str) or not re.fullmatch('[0-9a-f]{32}', request['capture']):
             raise Refusal('capture_identity')
         if not isinstance(request['owner'], str) or not re.fullmatch('[0-9a-f]{64}', request['owner']):
@@ -208,6 +217,10 @@ def execute(request, dataset_guid, *, now=None, allow_degraded=False):
         raise Refusal('dataset_identity')
     if zfs('get', '-H', '-p', '-o', 'value', 'guid', DATASET) != str(dataset_guid):
         raise Refusal('dataset_replaced')
+    if action == 'scope':
+        if not source_is_current():
+            raise Refusal('source_mount_changed')
+        return {'paths': list(EXPORTS)}
     names = zfs('list', '-H', '-r', '-d', '1', '-t', 'snapshot', '-o', 'name', DATASET).splitlines()
     if action == 'list':
         return {'snapshots': [inspect(name, dataset_guid) for name in names
@@ -217,7 +230,7 @@ def execute(request, dataset_guid, *, now=None, allow_degraded=False):
     if name not in names:
         if action != 'create':
             if action in {'complete', 'abandon'}:
-                withdraw_export(request['capture'])
+                withdraw_exports(request['capture'])
                 return {'deleted': True, 'already_absent': True}
             raise Refusal('snapshot_missing')
         if any(other.startswith(DATASET + '@' + PREFIX) for other in names):
@@ -241,11 +254,12 @@ def execute(request, dataset_guid, *, now=None, allow_degraded=False):
             raise Refusal('snapshot_not_expired')
         # Intentionally no -r, -R, -f, -d, rollback, clone, hold release or dataset
         # destruction. A busy snapshot must refuse, never be forcibly unmounted.
-        withdraw_export(request['capture'])
+        withdraw_exports(request['capture'])
         zfs('destroy', name)
         return {'deleted': True, 'already_absent': False}
-    if action in {'create', 'ready'}:
-        ensure_export(request['capture'])
+    if action == 'ready':
+        for root in EXPORTS:
+            ensure_export(request['capture'], root)
     return record
 
 
@@ -292,15 +306,23 @@ def main():
                 metadata.st_uid != 0 or metadata.st_mode & 0o777 != 0o600):
             raise Refusal('configuration_metadata')
         config = json.loads(CONFIG.read_text())
-        if (set(config) != {'dataset_guid', 'allow_degraded_capture'} or
+        if (set(config) not in ({'dataset_guid', 'allow_degraded_capture'},
+                                {'dataset_guid', 'allow_degraded_capture', 'state'}) or
                 type(config['allow_degraded_capture']) is not bool):
             raise Refusal('configuration_shape')
         request = read_request(sys.stdin.buffer)
         # Installation publishes its owner then crosses this same gate. Do not
         # start an operation if an updater arrived during request reception.
         storage_unowned()
-        print(json.dumps(execute(request, config['dataset_guid'],
-                                 allow_degraded=config['allow_degraded_capture']), sort_keys=True))
+        if (isinstance(request, dict) and isinstance(request.get('action'), str) and
+                request['action'].startswith('state-')):
+            if 'state' not in config:
+                raise Refusal('state_snapshot_not_configured')
+            engine = runpy.run_path(str(Path(__file__).with_name('state-backup-snapshot.py')))
+            response = engine['execute'](request, config['state'])
+        else:
+            response = execute(request, config['dataset_guid'], allow_degraded=config['allow_degraded_capture'])
+        print(json.dumps(response, sort_keys=True))
 
 
 if __name__ == '__main__':

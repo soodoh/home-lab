@@ -1,0 +1,31 @@
+---
+- name: Install the native snapshot attachment and journal tools
+  ansible.builtin.apt:
+    name: [qemu-utils, nbd-client, fdisk, e2fsprogs, dmsetup]
+    state: present
+
+- name: Load native NBD support on future boots
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/home-lab-restic.conf
+    content: "nbd\n"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Load NBD without attaching or starting a backup
+  ansible.builtin.command:
+    argv: [/usr/sbin/modprobe, nbd]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Inspect the fixed empty attachment slot
+  ansible.builtin.stat:
+    path: /dev/nbd15
+  register: restic_backup_nbd_slot
+  when: not ansible_check_mode
+
+- name: Refuse absent or foreign device types instead of claiming another slot
+  ansible.builtin.assert:
+    that: restic_backup_nbd_slot.stat.isblk | default(false)
+    quiet: true
+  when: not ansible_check_mode

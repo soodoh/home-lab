@@ -7,7 +7,7 @@ installed-controller inputs, not candidate application source.
 """
 from __future__ import annotations
 
-from contextlib import closing, nullcontext
+from contextlib import closing, contextmanager, nullcontext
 import fcntl
 import hashlib
 import json
@@ -269,7 +269,9 @@ def online_tree(paths, target, excludes, *, sqlite_paths, json_roots=(), ephemer
                 raise CaptureError('online_json_invalid') from None
 
 
-ZFS_DATA_PATH = '/mnt/storage/media/nextcloud/data'
+ZFS_BASE = Path('/mnt/storage')
+ZFS_DATA_PATHS = ('media/nextcloud/data', 'media/books', 'media/audiobooks',
+                  'media/tachidesk', 'media/caro-tachidesk', 'media/frigate/exports')
 ZFS_PREFIX = 'home-lab-nextcloud-'
 ZFS_EXPIRY = 72 * 3600
 ZFS_BROKER_PORT = 2444
@@ -349,59 +351,367 @@ def zfs_inventory(spec, require_admissible=False):
     return records
 
 
-def zfs_mount(spec, record, stage):
-    """Expose only Nextcloud at its original archive path in a private namespace."""
-    record = zfs_record(spec, record)
-    if os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino:
-        raise CaptureError('private_mount_namespace_required')
-    # The parent export does not expose snapshot filesystems. The restricted
-    # storage-host adapter publishes only this immutable Nextcloud subtree.
-    source = '192.168.0.123:/storage/docker/.zfs/snapshot/' + ZFS_PREFIX + record['capture'] + '/media/nextcloud/data'
-    target = Path(stage) / 'files' / ZFS_DATA_PATH.lstrip('/')
-    # Parent creation must never traverse an archive/source-controlled link.
-    parent = Path(stage) / 'files'
-    safe_source(parent)
-    for part in Path(ZFS_DATA_PATH).parts[1:]:
+def zfs_paths():
+    return [str(ZFS_BASE / root) for root in ZFS_DATA_PATHS]
+
+
+def zfs_verify_scope(policy):
+    declared = [path for step in policy['capture']['cold'] for path in step['paths']
+                if Path(path).is_relative_to(ZFS_BASE)]
+    if sorted(declared) != sorted(zfs_paths()):
+        raise CaptureError('snapshot_policy_scope')
+    if zfs_call(zfs_spec(policy), {'action': 'scope'}) != {'paths': list(ZFS_DATA_PATHS)}:
+        raise CaptureError('snapshot_broker_scope')
+
+
+def archive_path(stage, path):
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts or path == Path('/'):
+        raise CaptureError('snapshot_path')
+    return Path(stage) / 'files' / path.relative_to('/')
+
+
+def empty_snapshot_target(stage, path):
+    target = archive_path(stage, path)
+    parent = safe_source(Path(stage) / 'files')
+    for part in target.relative_to(parent).parts:
         parent = parent / part
         if parent.is_symlink():
             raise CaptureError('snapshot_target_type')
         parent.mkdir(mode=0o700, exist_ok=True)
-        safe_source(parent)
+    result = subprocess.run(['/usr/bin/mountpoint', '--quiet', '--', str(target)],
+                            stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
+    if result.returncode != 32:
+        raise CaptureError('snapshot_target_mount')
     if any(target.iterdir()):
         raise CaptureError('snapshot_target_not_empty')
-    command(['/usr/bin/mount', '-n', '-t', 'nfs4', '-o',
-             'ro,vers=4.2,proto=tcp,nosuid,nodev,noexec', source, str(target)])
-    raw = command(['/usr/bin/findmnt', '--json', '--nofsroot', '--mountpoint', str(target), '--output', 'SOURCE,FSTYPE,OPTIONS'])
+    return target
+
+
+def snapshot_mounts(stage):
+    return [archive_path(stage, path) for path in zfs_paths()]
+
+
+def snapshot_source(token, root):
+    return '192.168.0.123:/storage/docker/.zfs/snapshot/' + ZFS_PREFIX + token + '/' + root
+
+
+def require_private_mounts():
+    if os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino:
+        raise CaptureError('private_mount_namespace_required')
+
+
+def verify_snapshot_mount(target, source, *, readonly=True):
+    raw = command(['/usr/bin/findmnt', '--json', '--nofsroot', '--mountpoint', str(target),
+                   '--output', 'SOURCE,FSTYPE,OPTIONS'])
     entries = json.loads(raw).get('filesystems', [])
-    if (len(entries) != 1 or entries[0]['source'] != source or entries[0]['fstype'] != 'nfs4' or
-            'ro' not in entries[0]['options'].split(',')):
+    if len(entries) != 1 or entries[0]['source'] != source or entries[0]['fstype'] != 'nfs4':
+        raise CaptureError('unknown_snapshot_mount')
+    if readonly and 'ro' not in entries[0]['options'].split(','):
         raise CaptureError('snapshot_mount_not_readonly')
 
 
+def zfs_mount(spec, record, stage):
+    """Mount only the approved roots from one immutable source."""
+    token = zfs_record(spec, record)['capture']
+    require_private_mounts()
+    for root, path in zip(ZFS_DATA_PATHS, zfs_paths()):
+        target = empty_snapshot_target(stage, path)
+        source = snapshot_source(token, root)
+        command(['/usr/bin/mount', '-n', '-t', 'nfs4', '-o',
+                 'ro,vers=4.2,proto=tcp,nosuid,nodev,noexec', source, str(target)])
+        verify_snapshot_mount(target, source)
+
+
+def zfs_verify_mounts(record, stage):
+    for root, target in zip(ZFS_DATA_PATHS, snapshot_mounts(stage)):
+        verify_snapshot_mount(target, snapshot_source(record['capture'], root))
+
+
 def zfs_unmount(stage):
-    target = Path(stage) / 'files' / ZFS_DATA_PATH.lstrip('/')
-    if target.is_symlink():
-        raise CaptureError('snapshot_target_type')
-    if not target.exists():
+    mounted = []
+    for root, target in zip(ZFS_DATA_PATHS, snapshot_mounts(stage)):
+        if target.is_symlink():
+            raise CaptureError('snapshot_target_type')
+        if not target.exists():
+            continue
+        safe_source(target)
+        result = subprocess.run(['/usr/bin/mountpoint', '--quiet', '--', str(target)],
+                                stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
+        if result.returncode == 0:
+            mounted.append((root, target))
+        elif result.returncode != 32:
+            # util-linux mountpoint returns 32 for an ordinary non-mount path.
+            raise CaptureError('snapshot_unmount_inspection')
+    if not mounted:
         return
-    result = subprocess.run(['/usr/bin/mountpoint', '--quiet', '--', str(target)],
-                            stdin=subprocess.DEVNULL, capture_output=True, timeout=20, check=False)
-    if result.returncode == 0:
-        if os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino:
-            raise CaptureError('private_mount_namespace_required')
-        state_path = safe_source(Path(stage) / 'zfs-source.json')
-        token = json.loads(state_path.read_text())['capture']
-        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{32}', token):
-            raise CaptureError('snapshot_identity')
-        raw = command(['/usr/bin/findmnt', '--json', '--nofsroot', '--mountpoint', str(target), '--output', 'SOURCE,FSTYPE'])
-        entries = json.loads(raw).get('filesystems', [])
-        expected = '192.168.0.123:/storage/docker/.zfs/snapshot/' + ZFS_PREFIX + token + '/media/nextcloud/data'
-        if len(entries) != 1 or entries[0]['source'] != expected or entries[0]['fstype'] != 'nfs4':
-            raise CaptureError('unknown_snapshot_mount')
+    require_private_mounts()
+    state_path = safe_source(Path(stage) / 'zfs-source.json')
+    token = json.loads(state_path.read_text())['capture']
+    if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{32}', token):
+        raise CaptureError('snapshot_identity')
+    for root, target in mounted:
+        verify_snapshot_mount(target, snapshot_source(token, root), readonly=False)
+    for _, target in reversed(mounted):
         command(['/usr/bin/umount', '--', str(target)])
-    elif result.returncode != 32:
-        # util-linux mountpoint returns 32 for an ordinary non-mount path.
-        raise CaptureError('snapshot_unmount_inspection')
+
+
+STATE_BASE = Path('/srv/home-lab-state')
+
+
+def state_snapshot_roots(policy):
+    """Use exactly the cold paths declared beneath the state volume.
+
+    In particular, do not bind the whole volume into the archive: it contains
+    excluded database datadirs and already-captured online recovery artifacts.
+    """
+    paths = [Path(path) for step in policy['capture']['cold'] for path in step['paths']
+             if Path(path).is_relative_to(STATE_BASE)]
+    if (not paths or len(set(paths)) != len(paths) or
+            any(path == STATE_BASE or '..' in path.parts or
+                any(parent in paths for parent in path.parents) for path in paths)):
+        raise CaptureError('state_snapshot_scope')
+    return paths
+
+
+def state_snapshot_exclusions(stage, policy_file):
+    # Restic sees the archive paths rather than the originals seen by rsync.
+    # The reviewed list uses only anchored paths and recursive glob patterns.
+    result = []
+    for line in Path(policy_file).read_text().splitlines():
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('/'):
+            result.append(str(archive_path(stage, line)))
+        elif line.startswith('**/'):
+            result.append(line)
+        else:
+            raise CaptureError('snapshot_exclude_shape')
+    return result
+
+
+def verify_state_snapshot_mount(target, device_number, relative):
+    raw = command(['/usr/bin/findmnt', '--json', '--mountpoint', str(target),
+                   '--output', 'FSTYPE,OPTIONS,MAJ:MIN,FSROOT'])
+    entries = json.loads(raw).get('filesystems', [])
+    if (len(entries) != 1 or entries[0]['fstype'] != 'ext4' or
+            entries[0]['maj:min'] != device_number or entries[0]['fsroot'] != str(relative) or
+            not {'ro', 'nosuid', 'nodev', 'noexec'} <= set(entries[0]['options'].split(','))):
+        raise CaptureError('state_snapshot_mount_identity')
+
+
+def state_snapshot_mount(policy, device, snapshot_root, stage):
+    """Project cold trees from a verified snapshot partition without copying.
+
+    The caller must own a private mount namespace and a read-only block
+    attachment already verified against the storage producer's capture receipt.
+    This function does not attach, freeze, or take a storage-host snapshot.
+    The caller must unmount all projections before releasing the block source.
+    """
+    paths = state_snapshot_roots(policy)
+    require_private_mounts()
+    device = safe_source(device)
+    metadata = device.stat()
+    if not stat.S_ISBLK(metadata.st_mode):
+        raise CaptureError('state_snapshot_device')
+    device_number = f'{os.major(metadata.st_rdev)}:{os.minor(metadata.st_rdev)}'
+    if command(['/usr/sbin/blockdev', '--getro', str(device)]).strip() != b'1':
+        raise CaptureError('state_snapshot_device_writable')
+    # The UUID binds the filesystem to policy, not the snapshot to the capture:
+    # a snapshot deliberately inherits the origin's UUID. The attacher checks
+    # snapshot ownership and identity independently before this step.
+    identities = [mount['identity'] for mount in policy['capture']['mounts'] if mount['path'] == str(STATE_BASE)]
+    properties = command(['/usr/sbin/tune2fs', '-l', str(device)]).decode()
+    fields = dict(line.split(':', 1) for line in properties.splitlines() if ':' in line)
+    if (len(identities) != 1 or identities[0].get('fstype') != 'ext4' or
+            fields.get('Filesystem UUID', '').strip() != identities[0].get('uuid')):
+        raise CaptureError('state_snapshot_filesystem_identity')
+    if (not fields.get('Filesystem features', '').split() or fields.get('Filesystem state', '').strip() != 'clean'
+            or 'needs_recovery' in fields['Filesystem features'].split()):
+        raise CaptureError('state_snapshot_requires_recovery')
+    root = safe_source(snapshot_root)
+    if any(root.iterdir()) or root.is_relative_to(stage):
+        raise CaptureError('state_snapshot_root_not_private')
+    targets = [empty_snapshot_target(stage, path) for path in paths]
+    mounted = []
+    try:
+        command(['/usr/bin/mount', '-n', '-t', 'ext4', '-o',
+                 'ro,noload,nosuid,nodev,noexec', str(device), str(root)])
+        mounted.append(root)
+        verify_state_snapshot_mount(root, device_number, Path('/'))
+        for path, target in zip(paths, targets):
+            relative = path.relative_to(STATE_BASE)
+            source = safe_source(root / relative)
+            if not source.is_dir() or source.stat().st_dev != root.stat().st_dev:
+                raise CaptureError('state_snapshot_path')
+            command(['/usr/bin/mount', '-n', '--bind', str(source), str(target)])
+            mounted.append(target)
+            verify_state_snapshot_mount(target, device_number, Path('/') / relative)
+        return tuple(mounted)
+    except BaseException:
+        state_snapshot_unmount(mounted)
+        raise
+
+
+def state_snapshot_unmount(mounts):
+    for target in reversed(mounts):
+        command(['/usr/bin/umount', '--', str(target)])
+
+
+STATE_NBD_PORT = 2445
+STATE_NBD = '/dev/nbd15'
+STATE_MAPPING = 'home-lab-restic-state'
+STATE_LV_ID = r'[A-Za-z0-9]{6}(?:-[A-Za-z0-9]{4}){5}-[A-Za-z0-9]{6}'
+
+
+def state_snapshot_record(policy, value, capture, owner):
+    if (not isinstance(value, dict) or set(value) != {'capture', 'owner', 'id', 'created', 'bytes'} or
+            value['capture'] != capture or value['owner'] != owner or
+            not re.fullmatch(STATE_LV_ID, str(value['id'])) or
+            type(value['created']) is not int or value['created'] <= 0 or
+            type(value['bytes']) is not int or value['bytes'] != policy['capture']['state_snapshot']['bytes']):
+        raise CaptureError('state_snapshot_record')
+    return value
+
+
+def state_device_idle():
+    sysfs = Path('/sys/class/block') / Path(STATE_NBD).name
+    # An ambiguous previous attach is not ours to disconnect. Admit only an
+    # unused, dedicated device with no holders, not an arbitrary kernel NBD.
+    return (stat.S_ISBLK(Path(STATE_NBD).stat().st_mode) and not (sysfs / 'pid').exists() and
+            (sysfs / 'size').read_text().strip() == '0' and not any((sysfs / 'holders').iterdir()))
+
+
+def state_snapshot_preflight(policy, stage):
+    require_private_mounts()
+    state_snapshot_roots(policy)
+    for name in ('qemu-nbd', 'nbd-client', 'sfdisk', 'e2fsck', 'dmsetup', 'prlimit', 'tune2fs'):
+        if shutil.which(name, path='/usr/sbin:/usr/bin:/sbin:/bin') is None:
+            raise CaptureError('state_snapshot_tools')
+    if not state_device_idle() or state_attachment_path(stage).exists():
+        raise CaptureError('state_snapshot_attachment_requires_inspection')
+    result = zfs_call(zfs_spec(policy), {'action': 'state-list'})
+    if result != {'snapshots': [], 'admissible': True}:
+        raise CaptureError('state_snapshot_not_admissible')
+
+
+def state_attachment_path(stage):
+    return Path(stage).parent / 'state-attachment'
+
+
+def state_partition(policy):
+    geometry = policy['capture']['state_snapshot']
+    table = json.loads(command(['/usr/sbin/sfdisk', '--json', STATE_NBD]))['partitiontable']
+    partitions = table['partitions']
+    sector = table['sectorsize']
+    if (not isinstance(sector, int) or sector != 512 or table['label'] != 'gpt' or len(partitions) != 1 or
+            int(command(['/usr/sbin/blockdev', '--getsize64', STATE_NBD])) != geometry['bytes']):
+        raise CaptureError('state_snapshot_partition_table')
+    partition = partitions[0]
+    offset, size = partition['start'] * sector, partition['size'] * sector
+    if (partition['uuid'].lower() != geometry['partition_uuid'] or offset != geometry['offset'] or
+            size != geometry['partition_bytes'] or offset <= 0 or size <= 0 or offset + size > geometry['bytes']):
+        raise CaptureError('state_snapshot_partition_identity')
+    return offset, size
+
+
+def replay_snapshot_journal(device):
+    # -E journal_only must never target the live disk or remote read-only LV.
+    # The caller owns the private COW partition. Do not auto-repair filesystem
+    # errors; accept only successful replay or no replay needed.
+    result = subprocess.run(['/usr/sbin/e2fsck', '-p', '-E', 'journal_only', device], stdin=subprocess.DEVNULL,
+                            capture_output=True, timeout=120, check=False,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    if result.returncode not in {0, 1}:
+        raise CaptureError('state_snapshot_replay_failed')
+    command(['/usr/sbin/blockdev', '--setro', device])
+
+
+@contextmanager
+def state_snapshot_attached(policy, record, stage):
+    """Attach one immutable export, replay only into a bounded scratch COW."""
+    require_private_mounts()
+    if not state_device_idle():
+        raise CaptureError('state_snapshot_attachment_requires_inspection')
+    scratch = state_attachment_path(stage)
+    scratch.mkdir(mode=0o700)
+    endpoint = scratch / 'nbd.sock'
+    root = scratch / 'root'
+    root.mkdir(mode=0o700)
+    process, partition, attached, mounts = None, None, False, ()
+    try:
+        # A 1 GiB file-size limit is ample for journal replay and fails closed
+        # on larger writes; qemu opens the remote backing export read-only.
+        spec = zfs_spec(policy)
+        options = ('driver=raw,file.driver=nbd,file.server.type=inet,file.server.host=' + spec['broker_ipv4'] +
+                   ',file.server.port=' + str(STATE_NBD_PORT) + ',file.export=' + record['capture'])
+        process = subprocess.Popen(['/usr/bin/prlimit', '--fsize=1073741824:1073741824', '--',
+                                    '/usr/bin/qemu-nbd', '--snapshot', '--socket', str(endpoint), '--persistent',
+                                    '--image-opts', options], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin',
+                                                                  'LC_ALL': 'C', 'TMPDIR': str(scratch)})
+        deadline = time.monotonic() + 20
+        while not endpoint.is_socket():
+            if process.poll() is not None or time.monotonic() >= deadline:
+                raise CaptureError('state_snapshot_export_unavailable')
+            time.sleep(.1)
+        # Mark attempt before attaching: failed or interrupted ioctl delivery
+        # must retain scratch if the dedicated device still has an active peer.
+        attached = True
+        result = subprocess.run(['/usr/sbin/nbd-client', '-L', '-t', '15', '-u', str(endpoint), STATE_NBD],
+                                stdin=subprocess.DEVNULL, capture_output=True, timeout=30, check=False)
+        if result.returncode:
+            raise CaptureError('state_snapshot_attach_failed')
+        offset, size = state_partition(policy)
+        rdev = Path(STATE_NBD).stat().st_rdev
+        table = f'0 {size // 512} linear {os.major(rdev)}:{os.minor(rdev)} {offset // 512}'
+        command(['/usr/sbin/dmsetup', 'create', STATE_MAPPING, '--table', table])
+        partition = STATE_MAPPING
+        actual = command(['/usr/sbin/dmsetup', 'table', STATE_MAPPING]).decode().strip()
+        if actual != table:
+            raise CaptureError('state_snapshot_partition_device')
+        identifier = command(['/usr/sbin/dmsetup', 'info', '-c', '--noheadings', '--separator', ':',
+                              '-o', 'major,minor', STATE_MAPPING]).strip()
+        if not re.fullmatch(rb'[0-9]+:[0-9]+', identifier):
+            raise CaptureError('state_snapshot_partition_device')
+        major, minor = map(int, identifier.split(b':'))
+        # A private node avoids races with host device aliases and also works
+        # before udev has populated the device mapper's /dev links.
+        partition_device = scratch / 'partition'
+        os.mknod(partition_device, stat.S_IFBLK | 0o600, os.makedev(major, minor))
+        replay_snapshot_journal(str(partition_device))
+        mounts = state_snapshot_mount(policy, partition_device, root, stage)
+        yield mounts, partition_device
+    finally:
+        # Failure to unmount/detach is an inspection gate, never permission
+        # to disconnect a possibly active reader or destroy its remote LV.
+        state_snapshot_unmount(mounts)
+        if partition:
+            if command(['/usr/sbin/dmsetup', 'table', STATE_MAPPING]).decode().strip() != table:
+                raise CaptureError('state_snapshot_partition_device')
+            command(['/usr/sbin/dmsetup', 'remove', STATE_MAPPING])
+        if attached and not state_device_idle():
+            sysfs = Path('/sys/class/block') / Path(STATE_NBD).name
+            if any((sysfs / 'holders').iterdir()):
+                raise CaptureError('state_snapshot_attachment_requires_inspection')
+            command(['/usr/sbin/nbd-client', '-d', STATE_NBD])
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        deadline = time.monotonic() + 5
+        while not state_device_idle():
+            if time.monotonic() >= deadline:
+                raise CaptureError('state_snapshot_attachment_requires_inspection')
+            time.sleep(.1)
+        if endpoint.is_socket():
+            endpoint.unlink()
+        (scratch / 'partition').unlink(missing_ok=True)
+        root.rmdir()
+        scratch.rmdir()
 
 
 def sqlite_backup(source, target, *, reader=None):
@@ -718,8 +1028,11 @@ def capacity_check(policy):
     paths.extend(policy['capture'].get('online_stores', []))
     for step in policy['capture'].get('online', []):
         paths.extend(step['paths'])
+    snapshot_paths = set(zfs_paths()) if policy['capture'].get('zfs') else set()
+    if policy['capture'].get('state_snapshot'):
+        snapshot_paths.update(map(str, state_snapshot_roots(policy)))
     for step in policy['capture']['cold']:
-        paths.extend(step['paths'])
+        paths.extend(path for path in step['paths'] if path not in snapshot_paths)
         if step.get('wolf'):
             selected, _ = wolf_paths(step['wolf'])
             paths.extend(selected)

@@ -62,7 +62,7 @@ class SnapshotAuthority(unittest.TestCase):
         self.patch = mock.patch.dict(self.call.__globals__, {
             'zfs': self.native, 'pool_status': lambda **_: {'pool_healthy': True, 'capture_admissible': True},
             'source_is_current': lambda: True,
-            'ensure_export': mock.Mock(), 'withdraw_export': mock.Mock(),
+            'ensure_export': mock.Mock(), 'withdraw_exports': mock.Mock(),
         })
         self.patch.start()
         self.addCleanup(self.patch.stop)
@@ -197,23 +197,31 @@ class SnapshotAuthority(unittest.TestCase):
                 self.request('create')
         self.assertEqual(self.native.snapshots, {})
 
-    def test_nested_nextcloud_mounts_are_refused_instead_of_silently_omitted_from_snapshot(self):
+    def test_overmounted_and_nested_roots_are_refused_instead_of_silently_omitted(self):
         probe = BROKER['source_is_current']
         for target, expected in (('/storage/docker/.zfs/snapshot/unrelated', True),
-                                 ('/storage/docker/media/nextcloud/data/user/external', False)):
+                                 ('/storage/docker/media/nextcloud/data/user/external', False),
+                                 ('/storage/docker/media', False),
+                                 ('/storage/docker/media/caro-tachidesk', False)):
             value = {'filesystems': [{'target': '/storage/docker', 'source': 'storage/docker', 'fstype': 'zfs',
                                      'children': [{'target': target, 'source': 'storage/other', 'fstype': 'zfs'}]}]}
             with self.subTest(target=target), mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, json.dumps(value), '')):
                 self.assertEqual(probe(), expected)
 
-    def test_export_fsid_is_namespaced_and_cannot_select_the_callers_raw_uuid(self):
-        value = BROKER['export_fsid']('0' * 32)
-        self.assertNotEqual(value, '00000000-0000-0000-0000-000000000000')
-        self.assertEqual(value, BROKER['export_fsid']('0' * 32))
+    def test_scope_is_read_only_and_fsids_are_distinct_across_export_roots(self):
+        reply = self.call({'action': 'scope'}, '123456')
+        self.assertEqual(reply, {'paths': list(BROKER['EXPORTS'])})
+        self.assertTrue(all(command[0] == 'get' for command in self.native.commands))
+        ids = [BROKER['export_fsid']('0' * 32, root) for root in reply['paths']]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertNotIn('00000000-0000-0000-0000-000000000000', ids)
 
     def test_ready_republishes_only_an_existing_exact_snapshot_and_never_recaptures(self):
         self.request('create')
+        publish = self.call.__globals__['ensure_export']
+        publish.assert_not_called()
         self.request('ready', guid='789')
+        self.assertEqual(publish.call_args_list, [mock.call(self.identity['capture'], root) for root in BROKER['EXPORTS']])
         with self.assertRaisesRegex(ValueError, 'snapshot_replaced'):
             self.request('ready', guid='790')
         self.assertEqual(sum(c[0] == 'snapshot' for c in self.native.commands), 1)
@@ -282,7 +290,7 @@ class SnapshotAuthority(unittest.TestCase):
 
     def test_export_lifecycle_is_readonly_one_client_one_immutable_subtree(self):
         ensure = BROKER['ensure_export']
-        withdraw = BROKER['withdraw_export']
+        withdraw = BROKER['withdraw_exports']
         path = BROKER['export_path']('b' * 32)
         table = ''
         commands = []
@@ -303,8 +311,8 @@ class SnapshotAuthority(unittest.TestCase):
                 mock.patch('pathlib.Path.is_symlink', return_value=False), \
                 mock.patch('pathlib.Path.is_dir', return_value=True), \
                 mock.patch('pathlib.Path.is_file', return_value=True):
-            ensure('b' * 32)
-            ensure('b' * 32)
+            ensure('b' * 32, BROKER['NEXTCLOUD'])
+            ensure('b' * 32, BROKER['NEXTCLOUD'])
             withdraw('b' * 32)
         self.assertEqual(sum(c[0] == '-i' for c in commands), 1)
         self.assertEqual(sum(c[0] == '-u' for c in commands), 1)
@@ -381,7 +389,7 @@ class SnapshotCapture(unittest.TestCase):
                 self.running.add(args[1]); self.events.append('start:' + args[1])
             return subprocess.CompletedProcess(args, 0, '', '')
         self.adapter = types.SimpleNamespace(CaptureError=CAPTURE['CaptureError'],
-            ZFS_DATA_PATH=CAPTURE['ZFS_DATA_PATH'], zfs_spec=lambda _: self.spec,
+            zfs_paths=CAPTURE['zfs_paths'], zfs_spec=lambda _: self.spec,
             zfs_record=CAPTURE['zfs_record'], zfs_call=mock.Mock(side_effect=remote),
             zfs_inventory=mock.Mock(return_value=[self.record]),
             zfs_mount=mock.Mock(side_effect=lambda *_: self.events.append('mount')),
@@ -411,13 +419,13 @@ class SnapshotCapture(unittest.TestCase):
         return value
 
     def step(self):
-        return {'name': 'nextcloud', 'snapshot': 'zfs',
+        return {'name': 'nextcloud',
                 'services': ['nextcloud-cron', 'nextcloud'],
-                'paths': ['/srv/home-lab-state/nextcloud-config', CAPTURE['ZFS_DATA_PATH']],
+                'paths': ['/srv/home-lab-state/nextcloud-config', *CAPTURE['zfs_paths']()],
                 'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db', 'name': 'nextcloud.sql'}]}
 
     def test_cold_capture_exports_then_snapshots_then_recovers_before_mounting_bulk_data(self):
-        RUNNER['cold_capture'](self.policy, self.adapter, self.step(), self.stage, set(self.running))
+        RUNNER['cold_capture'](self.policy, self.adapter, [self.step()], self.stage, set(self.running))
         copied = self.adapter.copy_paths.call_args.args[0]
         self.assertEqual(copied, ['/srv/home-lab-state/nextcloud-config'])
         self.assertLess(self.events.index('dump'), self.events.index('create'))
@@ -430,7 +438,7 @@ class SnapshotCapture(unittest.TestCase):
     def test_lost_create_acknowledgement_recovers_writers_and_retains_intent_without_retry(self):
         self.adapter.zfs_call.side_effect = CAPTURE['CaptureError']('snapshot_remote_refused')
         with self.assertRaises(CAPTURE['CaptureError']):
-            RUNNER['cold_capture'](self.policy, self.adapter, self.step(), self.stage, set(self.running))
+            RUNNER['cold_capture'](self.policy, self.adapter, [self.step()], self.stage, set(self.running))
         self.assertEqual(self.running, {'nextcloud', 'nextcloud-cron'})
         self.assertEqual(self.adapter.zfs_call.call_count, 1)
         self.assertIsNone(json.loads((self.stage / 'zfs-source.json').read_text())['record'])
@@ -438,9 +446,24 @@ class SnapshotCapture(unittest.TestCase):
 
     def test_intentionally_stopped_cron_stays_stopped(self):
         self.running.remove('nextcloud-cron')
-        RUNNER['cold_capture'](self.policy, self.adapter, self.step(), self.stage, {'nextcloud', 'nextcloud-cron'})
+        RUNNER['cold_capture'](self.policy, self.adapter, [self.step()], self.stage, {'nextcloud', 'nextcloud-cron'})
         self.assertEqual(self.running, {'nextcloud'})
         self.assertEqual(json.loads((self.stage / 'zfs-source.json').read_text())['running_services'], ['nextcloud'])
+
+    def test_scope_check_rejects_incomplete_policy_or_unmatched_broker_before_capture(self):
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        scope = CAPTURE['zfs_verify_scope']
+        remote = mock.Mock(return_value={'paths': list(BROKER['EXPORTS'])})
+        with mock.patch.dict(scope.__globals__, {'zfs_call': remote}):
+            scope(policy)
+            remote.return_value = {'paths': [BROKER['NEXTCLOUD']]}
+            with self.assertRaisesRegex(ValueError, 'snapshot_broker_scope'):
+                scope(policy)
+            remote.reset_mock()
+            policy['capture']['cold'][1]['paths'].remove('/mnt/storage/media/books')
+            with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
+                scope(policy)
+            remote.assert_not_called()
 
     def test_ready_retries_reuse_exact_guid_and_missing_receipt_never_falls_back_to_live_files(self):
         self.state()
@@ -536,22 +559,56 @@ class SnapshotCapture(unittest.TestCase):
 
     def test_native_snapshot_mount_is_readonly_exact_source_and_refuses_live_or_nonempty_fallback(self):
         mount = CAPTURE['zfs_mount']
-        source = '192.168.0.123:/storage/docker/.zfs/snapshot/home-lab-nextcloud-' + self.token + '/media/nextcloud/data'
-        commands = []
+        roots = CAPTURE['ZFS_DATA_PATHS']
+        sources = [CAPTURE['snapshot_source'](self.token, root) for root in roots]
+        commands, mounted = [], {}
         def command(args):
             commands.append(args)
-            return json.dumps({'filesystems': [{'source': source, 'fstype': 'nfs4', 'options': 'ro,vers=4.2'}]}).encode()
+            if args[0] == '/usr/bin/mount':
+                mounted[args[-1]] = args[-2]
+                return b''
+            source = mounted.get(args[args.index('--mountpoint') + 1])
+            return json.dumps({'filesystems': [{'source': source, 'fstype': 'nfs4', 'options': 'ro,vers=4.2'}] if source else []}).encode()
         namespace = types.SimpleNamespace(stat=lambda path: types.SimpleNamespace(st_ino=1 if path == '/proc/self/ns/mnt' else 2))
-        with mock.patch.dict(mount.__globals__, {'command': command, 'os': namespace}):
+        not_mounted = subprocess.CompletedProcess([], 32, '', '')
+        with mock.patch.dict(mount.__globals__, {'command': command, 'os': namespace}), \
+                mock.patch('subprocess.run', return_value=not_mounted):
             mount(self.spec, self.record, self.stage)
         self.assertEqual(commands[0][:5], ['/usr/bin/mount', '-n', '-t', 'nfs4', '-o'])
         self.assertIn('ro,vers=4.2', commands[0][5])
-        self.assertEqual(commands[0][-2], source)
-        target = self.stage / 'files' / CAPTURE['ZFS_DATA_PATH'].lstrip('/')
-        (target / 'unexpected').touch()
-        with mock.patch.dict(mount.__globals__, {'command': command, 'os': namespace}):
-            with self.assertRaisesRegex(ValueError, 'target_not_empty'): mount(self.spec, self.record, self.stage)
-        self.assertEqual(len(commands), 2)
+        targets = CAPTURE['snapshot_mounts'](self.stage)
+        self.assertEqual(mounted, dict(zip(map(str, targets), sources)))
+        with mock.patch.dict(mount.__globals__, {'command': command, 'os': namespace}), \
+                mock.patch('subprocess.run', return_value=not_mounted):
+            CAPTURE['zfs_verify_mounts'](self.record, self.stage)
+            del mounted[str(targets[-1])]
+            with self.assertRaisesRegex(ValueError, 'unknown_snapshot_mount'):
+                CAPTURE['zfs_verify_mounts'](self.record, self.stage)
+            (targets[0] / 'unexpected').touch()
+            count = len(commands)
+            with self.assertRaisesRegex(ValueError, 'target_not_empty'):
+                mount(self.spec, self.record, self.stage)
+            self.assertEqual(len(commands), count)
+
+    def test_partial_mounts_are_unmounted_only_after_all_present_mounts_match_receipt(self):
+        self.state()
+        targets = CAPTURE['snapshot_mounts'](self.stage)[:2]
+        for target in targets:
+            target.mkdir(parents=True)
+        native = mock.Mock(return_value=subprocess.CompletedProcess([], 0, '', ''))
+        verify = mock.Mock(side_effect=[None, CAPTURE['CaptureError']('unknown_snapshot_mount')])
+        unmount = CAPTURE['zfs_unmount']
+        commands = mock.Mock()
+        with mock.patch('subprocess.run', native), mock.patch.dict(unmount.__globals__, {
+            'require_private_mounts': mock.Mock(), 'verify_snapshot_mount': verify, 'command': commands,
+        }):
+            with self.assertRaisesRegex(ValueError, 'unknown_snapshot_mount'):
+                unmount(self.stage)
+            commands.assert_not_called()
+            verify.side_effect = None
+            unmount(self.stage)
+        self.assertEqual(commands.call_args_list,
+                         [mock.call(['/usr/bin/umount', '--', str(target)]) for target in reversed(targets)])
 
     def test_application_recovery_requires_native_status_and_live_data_marker(self):
         healthy = RUNNER['nextcloud_healthy']

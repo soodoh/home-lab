@@ -45,16 +45,16 @@ run "backup_host_receives_only_snapshot_rpc_not_ssh" {
     condition = length([
       for grant in jsondecode(tailscale_acl.policy[0].acl).grants : grant
       if grant.src == ["tag:docker-host"] && grant.dst == ["tag:proxmox"] &&
-      toset(grant.ip) == toset(["tcp:2444", "tcp:8006"])
+      toset(grant.ip) == toset(["tcp:2444", "tcp:2445", "tcp:8006"])
     ]) == 1
-    error_message = "The snapshot path may add only TCP 2444 alongside the existing PVE API grant."
+    error_message = "Only snapshot control and read-only block data may be added to the PVE API grant."
   }
 
   assert {
     condition = length([
       for test in jsondecode(tailscale_acl.policy[0].acl).tests : test
       if test.src == "tag:docker-host" && contains(try(test.accept, []), "tag:proxmox:2444") &&
-      contains(try(test.deny, []), "tag:proxmox:22") && contains(try(test.deny, []), "tag:proxmox:8007")
+      contains(try(test.accept, []), "tag:proxmox:2445") && contains(try(test.deny, []), "tag:proxmox:22") && contains(try(test.deny, []), "tag:proxmox:8007")
     ]) == 1
     error_message = "The live network policy must admit snapshot RPC while denying SSH and unrelated ports."
   }

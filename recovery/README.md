@@ -148,8 +148,8 @@ Logical exports and native archives remain in `recovery-exports/`:
   generated attachments/fonts, trickplay or transcoding caches. The file layout
   also holds configuration/plugin files and online auxiliary SQLite exports.
 - `manifest.json`: format, policy/artifact/owner identities, capture timestamps,
-  database descriptors, Wolf symlink mappings and the exact ZFS source receipt
-  when Nextcloud uses snapshot-backed capture. Follow these mappings when
+  database descriptors, Wolf symlink mappings, the exact ZFS and local source
+  receipts and the ZFS-backed paths. Follow the link mappings when
   reconstructing original links; the helper never activates host links.
 
 Group selection filters ordinary file paths; native/SQL exports and the manifest
@@ -167,12 +167,14 @@ backup refuses active gaming rather than killing/recreating ephemeral apps.
 Unknown external or broken link mappings fail closed pending inspection; no complete gaming coverage
 is claimed until the live selection and representative restores are qualified.
 
-Nextcloud user files retain their original staged layout even when Restic reads
-through a temporary read-only NFS snapshot mount. The ZFS snapshot is a temporary
-source, not the recovery destination: recovery needs only the encrypted Restic
-snapshot and its independent keys, not a surviving ZFS pool or snapshot. Restore
-the SQL export and captured configuration/data from the same capture. Snapshot
-cleanup after local completion does not remove the Restic recovery set.
+Nextcloud data, Books and audiobooks, both Tachidesk libraries and Frigate exports
+retain their original archive paths when Restic reads them through temporary
+read-only NFS mounts of one ZFS snapshot. Selected cold application state keeps
+its original paths on the read-only view of the local volume; ext4 replay writes
+only to an overlay, not into the archived source. Restore the corresponding
+logical exports, configuration and files from the same capture. Recovery needs only the encrypted
+Restic snapshot and its independent keys; it does not require a surviving ZFS pool
+or snapshot. Cleanup of the source after local completion does not remove Restic data.
 
 ### Scope-specific rescue captures
 

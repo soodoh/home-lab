@@ -1,0 +1,12 @@
+[Unit]
+Description=Read-only block attachment for one state snapshot %i
+Requires=tailscaled.service
+After=tailscaled.service
+
+[Socket]
+ListenStream={{ zfs_backup_snapshot_tailscale_ipv4 }}:2445
+BindToDevice=tailscale0
+Accept=no
+Backlog=4
+IPAddressDeny=any
+IPAddressAllow=100.116.163.42/32

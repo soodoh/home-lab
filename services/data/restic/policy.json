@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "9453be9fe53bcbb958e3a2fef3a7d08636389e023862d311f773899f8cc689ef",
+    "sha256": "2f1f61833da491464155925c63eefd5b12806bfd765fff43de6d69e7153be292",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -80,14 +80,14 @@
   },
   "stop_groups": {
     "applications": [
+      "homeassistant",
+      "zwave",
       "authentik-worker",
       "authentik-server",
       "shelfmark",
       "grimmory",
       "nextcloud-cron",
       "nextcloud",
-      "homeassistant",
-      "zwave",
       "frigate",
       "karaoke-eternal",
       "omada",
@@ -105,7 +105,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "771e113ec6d7b0a08e998920a1079c2d9ead0b5ef0c494aa993f4fb67c6a230e",
+    "adapter_sha256": "91538cc5495254f1c7ae91c7e91e48e1d200f478e7715579d61d0000a89119e3",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -113,6 +113,12 @@
       "/srv/home-lab-state/nextcloud-db-data"
     ],
     "radio_max_age_seconds": 172800,
+    "state_snapshot": {
+      "bytes": 137438953472,
+      "offset": 1048576,
+      "partition_bytes": 137436856320,
+      "partition_uuid": "83c137ee-828d-47a3-b317-09b7782ca650"
+    },
     "zfs": {
       "dataset_guid": "8756195246383642806",
       "expiry_seconds": 259200,
@@ -187,7 +193,6 @@
       },
       {
         "name": "nextcloud",
-        "snapshot": "zfs",
         "services": [
           "nextcloud-cron",
           "nextcloud"
@@ -272,6 +277,7 @@
       },
       {
         "name": "sonarr",
+        "precopy": true,
         "services": [
           "sonarr"
         ],
@@ -281,6 +287,7 @@
       },
       {
         "name": "radarr",
+        "precopy": true,
         "services": [
           "radarr"
         ],
