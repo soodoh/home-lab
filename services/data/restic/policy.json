@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "198c0bba6532dc14663671ac5814c4d9e5d85ade8da39bcd1e9956ff365b4b91",
+    "sha256": "c7db196023e16a330419e523f349d94223cfbe8ae57a933e8b76c46b2a727a0c",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -93,7 +93,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "9497c1b9eddbd6ebfb0d4c4c7ae1c92d157dca38eedb0cf38b73b57ba36fe472",
+    "adapter_sha256": "274a01e56535f1a8a8bb6ac2d8c54945529a5d6092efb8aa5e6fedef2a67a390",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",

@@ -468,8 +468,12 @@ class Runtime(unittest.TestCase):
             self.assertEqual(accepted.returncode, 0)
 
     def pause_policy(self, *services, owner=None):
-        return {'capture': {}, 'stop_groups': {'applications': list(services), 'databases': []},
+        return {'capture': {'live_files': [], 'online_json': [], 'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin'},
+                'stop_groups': {'applications': list(services), 'databases': []},
                 'runner': {'exclude_file_path': '/excluded'}, '_owner': owner}
+
+    def cold_plan(self, policy, steps, declared):
+        return CAPTURE['capture_plan']({**policy, 'capture': {**policy['capture'], 'cold': steps}}, declared)
 
     def test_stop_copy_restart_has_no_repository_phase_and_preserves_inactive_services(self):
         cold = RUNNER['cold_capture']
@@ -493,7 +497,7 @@ class Runtime(unittest.TestCase):
             'compose': compose, 'restart_recorded': lambda *_: events.append('restart'),
             'restic_result': mock.Mock(side_effect=AssertionError('upload during cold window')),
         }):
-            cold(policy, adapter, [step], Path('/unused'), {'app', 'inactive'})
+            cold(policy, adapter, self.cold_plan(policy, [step], {'app', 'inactive'}), Path('/unused'))
         self.assertEqual(events, [['stop', '--timeout', '120', 'app'], 'copy', 'dump', 'restart'])
         self.assertEqual(recorded.call_args.args[1]['owner'], policy['_owner'])
 
@@ -507,16 +511,14 @@ class Runtime(unittest.TestCase):
                 'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf',
                 'authentik-server', 'authentik-worker'} | snapshot_online.keys()
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
-        self.assertEqual(policy['capture']['state_snapshot']['online_paths'], snapshot_online)
-        self.assertTrue(set(map(Path, snapshot_online.values())) <= set(CAPTURE['state_snapshot_roots'](policy)))
+        plan = CAPTURE['capture_plan'](policy, declared)
+        self.assertTrue(set(map(Path, snapshot_online.values())) <= set(plan.sources.state))
         running = set(declared)
         stops = []
         adapter = mock.Mock()
         adapter.retry.side_effect = lambda operation: operation()
         adapter.database_dump.side_effect = lambda *_: self.assertEqual(running, kept)
         policy['_capture'] = 'b' * 32
-        adapter.zfs_paths.side_effect = CAPTURE['zfs_paths']
-        adapter.state_snapshot_roots.side_effect = CAPTURE['state_snapshot_roots']
         adapter.state_snapshot_record.side_effect = CAPTURE['state_snapshot_record']
         adapter.zfs_spec.return_value = policy['capture']['zfs']
         adapter.zfs_record.side_effect = CAPTURE['zfs_record']
@@ -546,7 +548,7 @@ class Runtime(unittest.TestCase):
             'nextcloud_healthy': lambda *_: True,
             'compose': compose,
         }):
-            cold(policy, adapter, policy['capture']['cold'], Path('/unused'), declared)
+            cold(policy, adapter, plan, Path('/unused'))
         self.assertEqual(running, declared)
         self.assertEqual(stops, [policy['stop_groups']['applications']])
         self.assertEqual(set(stops[0]), declared - kept)
@@ -557,26 +559,99 @@ class Runtime(unittest.TestCase):
         adapter.precopy.assert_not_called()
         adapter.finish_copy.assert_not_called()
 
-    def test_invalid_snapshot_online_scope_refuses_before_interrupting_any_service(self):
-        cold = RUNNER['cold_capture']
-        kwargs = {'rooted': Path, 'compose': mock.Mock(), 'atomic_json': mock.Mock()}
-        for service, path, error in (
-                ('stopped', '/srv/home-lab-state/online', 'state_snapshot_online_services'),
-                ('undeclared', '/srv/home-lab-state/online', 'state_snapshot_online_services'),
-                ('online', '/mnt/storage/media/online', 'state_snapshot_scope'),
-                ('online', '/srv/home-lab-state/app/nested', 'state_snapshot_scope'),
-                ('online', '/srv/home-lab-state/../outside', 'state_snapshot_scope')):
-            policy = self.pause_policy('stopped')
-            steps = [{'services': ['stopped'], 'paths': ['/srv/home-lab-state/app']}]
-            policy['capture'] = {'zfs': True, 'state_snapshot': {'online_paths': {service: path}}, 'cold': steps}
-            adapter = mock.Mock()
-            adapter.zfs_paths.return_value = []
-            adapter.state_snapshot_roots.side_effect = CAPTURE['state_snapshot_roots']
-            with self.subTest(service=service, path=path), mock.patch.dict(cold.__globals__, kwargs):
-                with self.assertRaisesRegex((RUNNER['WorkflowError'], CAPTURE['CaptureError']), error):
-                    cold(policy, adapter, steps, Path('/unused'), {'stopped', 'online'})
-        kwargs['compose'].assert_not_called()
-        kwargs['atomic_json'].assert_not_called()
+    def test_fresh_capture_and_ready_retry_use_the_same_archive_sources(self):
+        daily = RUNNER['daily_local']
+        capacity = CAPTURE['capacity_check']
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        settings = policy['capture']
+        state_path = Path('/srv/home-lab-state/omada-data/data')
+        zfs_path = '/mnt/storage/media/books'
+        live_path = Path('/mnt/games/roms')
+        state_receipt = {'created': 1, 'id': 'retained-state'}
+        zfs_receipt = {'created': 1, 'guid': 'retained-zfs'}
+        declared = mock.Mock(return_value={*policy['stop_groups']['applications'],
+                                            *settings['state_snapshot']['online_paths'],
+                                            'authentik-server', 'authentik-worker', 'mosquitto'})
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'], capture_plan=CAPTURE['capture_plan'],
+                            capture_sources=CAPTURE['capture_sources'], capacity_check=capacity)
+        adapter.zfs_inventory.return_value = []
+        adapter.state_snapshot_attached.side_effect = lambda *_: contextlib.nullcontext()
+        adapter.live_games_mounted.side_effect = lambda *_: contextlib.nullcontext()
+        adapter.fresh_stage.side_effect = lambda path, _: (path.mkdir(mode=0o700) or path)
+        adapter.retry.side_effect = lambda operation: operation()
+        adapter.state_snapshot_exclusions.return_value = []
+        cold, ready = mock.Mock(), mock.Mock()
+        upload = mock.Mock(return_value=subprocess.CompletedProcess([], 3, '', ''))
+        du = mock.Mock(return_value=f'10\t{settings["jellyfin"]}\n20\ttotal\n'.encode())
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(daily.__globals__, {
+            'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
+            'capture_adapter': lambda _: adapter, 'rooted': Path, 'declared_services': declared,
+            'artifact_hash': lambda _: 'b' * 64, 'cold_capture': cold, 'restic_result': upload,
+            'service_container': lambda _, service: service, 'service_running': lambda *_: True,
+            'inventory': lambda *_: [], 'state_source': lambda *_: state_receipt,
+            'state_request': lambda *_: state_receipt, 'zfs_state': lambda *_: {'record': zfs_receipt}, 'zfs_ready': ready,
+        }), mock.patch.dict(capacity.__globals__, {
+            'command': du, 'verify_live_games_sources': mock.Mock(),
+            'shutil': types.SimpleNamespace(disk_usage=lambda _: types.SimpleNamespace(free=10**12)),
+        }):
+            stage = Path(directory).resolve() / 'capture'
+            settings['stage'] = str(stage)
+            for retry in (False, True):
+                if retry:
+                    declared.side_effect = AssertionError('ready retry consulted Compose')
+                with self.subTest(retry=retry), self.assertRaisesRegex(RUNNER['WorkflowError'], 'restic_partial_source'):
+                    daily(policy, 'a' * 64)
+            manifest = json.loads((stage / 'manifest.json').read_text())
+        du.assert_called_once()
+        estimate = du.call_args.args[0]
+        self.assertNotIn(str(state_path), estimate)
+        self.assertNotIn(zfs_path, estimate)
+        self.assertIn(str(live_path), estimate)
+        self.assertIn('/srv/home-lab-state/authentik-data/media', estimate)
+        cold.assert_called_once()
+        self.assertEqual(ready.call_count, 2)
+        self.assertEqual(upload.call_count, 2)
+        first_state, retry_state = [call.args[-1] for call in adapter.state_snapshot_attached.call_args_list]
+        self.assertEqual(first_state, retry_state)
+        self.assertIn(state_path, first_state)
+        first_live, retry_live = [call.args[0] for call in adapter.live_games_mounted.call_args_list]
+        self.assertEqual(first_live, retry_live)
+        self.assertIn(live_path, first_live)
+        self.assertEqual(manifest['state_source'], state_receipt)
+        self.assertEqual(manifest['zfs_source'], zfs_receipt)
+        self.assertIn(zfs_path, manifest['zfs_paths'])
+        self.assertIn('omada', [row['name'] for row in manifest['captures']])
+
+    def test_invalid_capture_scope_refuses_before_staging_or_pausing_writers(self):
+        daily = RUNNER['daily_local']
+        for service, path, extra, error in (
+                ('stopped', '/srv/home-lab-state/online', [], 'state_snapshot_online_services'),
+                ('undeclared', '/srv/home-lab-state/online', [], 'state_snapshot_online_services'),
+                ('online', '/mnt/storage/media/online', [], 'state_snapshot_scope'),
+                ('online', '/srv/home-lab-state/app/nested', [], 'state_snapshot_scope'),
+                ('online', '/srv/home-lab-state/../outside', [], 'state_snapshot_scope'),
+                ('online', '/srv/home-lab-state/online', ['/srv/home-lab-state/online'], 'capture_path_scope')):
+            with self.subTest(service=service, path=path, extra=extra), tempfile.TemporaryDirectory() as directory:
+                policy = self.pause_policy('stopped')
+                stage = Path(directory) / 'capture'
+                steps = [{'name': 'app', 'services': ['stopped'],
+                          'paths': ['/srv/home-lab-state/app', *CAPTURE['zfs_paths']()]}]
+                policy['capture'].update(stage=str(stage), zfs=True, cold=steps, live_files=extra,
+                                         state_snapshot={'online_paths': {service: path}})
+                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'], capture_plan=CAPTURE['capture_plan'])
+                compose, journal, upload = mock.Mock(), mock.Mock(), mock.Mock()
+                with mock.patch.dict(daily.__globals__, {
+                    'rooted': Path, 'capture_adapter': lambda _: adapter,
+                    'declared_services': lambda _: {'stopped', 'online'}, 'recover_interruption': mock.Mock(),
+                    'preflight': mock.Mock(), 'verify_sources': mock.Mock(), 'compose': compose,
+                    'atomic_json': journal, 'restic_result': upload,
+                }), self.assertRaisesRegex(RUNNER['WorkflowError'], error):
+                    daily(policy, 'a' * 64)
+                self.assertFalse(stage.exists())
+                adapter.fresh_stage.assert_not_called()
+                compose.assert_not_called()
+                journal.assert_not_called()
+                upload.assert_not_called()
 
     def test_failed_precopy_never_interrupts_a_writer_or_publishes_a_journal(self):
         cold = RUNNER['cold_capture']
@@ -584,10 +659,11 @@ class Runtime(unittest.TestCase):
         adapter.retry.side_effect = lambda operation: operation()
         adapter.precopy.side_effect = CAPTURE['CaptureError']('copy_failed')
         journal, compose = mock.Mock(), mock.Mock()
+        policy = self.pause_policy('app')
+        plan = self.cold_plan(policy, [{'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}], {'app'})
         with mock.patch.dict(cold.__globals__, {'rooted': Path, 'atomic_json': journal, 'compose': compose}), \
                 self.assertRaisesRegex(CAPTURE['CaptureError'], 'copy_failed'):
-            cold(self.pause_policy('app'), adapter,
-                 [{'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}], Path('/stage'), {'app'})
+            cold(policy, adapter, plan, Path('/stage'))
         journal.assert_not_called()
         compose.assert_not_called()
 
@@ -615,12 +691,13 @@ class Runtime(unittest.TestCase):
         def restart(*_):
             events.append('restart')
             running.add('app')
+        policy = self.pause_policy('app')
+        plan = self.cold_plan(policy, [{'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}], {'app'})
         with mock.patch.dict(cold.__globals__, {
             'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
             'service_running': lambda _, s: s in running, 'compose': compose, 'restart_recorded': restart,
         }):
-            cold(self.pause_policy('app'), adapter,
-                 [{'name': 'library', 'services': ['app'], 'paths': ['/library'], 'precopy': True}], Path('/stage'), {'app'})
+            cold(policy, adapter, plan, Path('/stage'))
         self.assertEqual(events, ['precopy', 'stop', 'final-sync', 'restart'])
         self.assertEqual(running, {'app'})
 
@@ -633,14 +710,15 @@ class Runtime(unittest.TestCase):
                 if phase == 'copy':
                     adapter.copy_paths.side_effect = CAPTURE['CaptureError']('copy')
                 restart = mock.Mock()
+                policy = self.pause_policy('app')
+                plan = self.cold_plan(policy, [{'name': 'app', 'services': ['app'], 'paths': ['/data']}], {'app'})
                 with mock.patch.dict(cold.__globals__, {
                     'rooted': Path, 'journal_path': lambda _: Path('/unused'),
                     'service_running': mock.Mock(side_effect=[True, False]), 'atomic_json': mock.Mock(),
                     'compose': mock.Mock(return_value=OK if phase == 'copy' else subprocess.CompletedProcess([], 1, '', '')),
                     'restart_recorded': restart,
                 }), self.assertRaises((RUNNER['WorkflowError'], CAPTURE['CaptureError'])):
-                    cold(self.pause_policy('app'), adapter,
-                         [{'name': 'app', 'services': ['app'], 'paths': ['/data']}], Path('/unused'), {'app'})
+                    cold(policy, adapter, plan, Path('/unused'))
                 self.assertEqual(restart.call_args.args[1]['running_services'], ['app'])
 
     def test_authentik_online_capture_precedes_stops_and_preserves_restore_descriptor(self):
@@ -657,7 +735,8 @@ class Runtime(unittest.TestCase):
                                      'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin'}
                 if outcome == 'overlapping_stop':
                     policy['stop_groups']['applications'].append('authentik-worker')
-                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+                    policy['capture']['cold'] = [{**books, 'services': [*books['services'], 'authentik-worker']}]
+                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'], capture_plan=CAPTURE['capture_plan'])
                 adapter.retry.side_effect = CAPTURE['retry']
                 adapter.fresh_stage.side_effect = lambda path, _: (path.mkdir() or path)
                 cold, upload = mock.Mock(), mock.Mock()
@@ -693,6 +772,8 @@ class Runtime(unittest.TestCase):
                     self.assertIn('authentik', [capture['name'] for capture in manifest['captures']])
                 else:
                     self.assertEqual(events, ['authentik'] * 3 if outcome == 'changed_files' else [])
+                    if outcome == 'overlapping_stop':
+                        adapter.fresh_stage.assert_not_called()
                     cold.assert_not_called()
                     upload.assert_not_called()
                     self.assertFalse((stage / 'manifest.json').exists())
@@ -724,7 +805,7 @@ class Runtime(unittest.TestCase):
             manifest = {'version': 2, 'capture': 'fixture', 'policy': 'a' * 64, 'artifact': 'b' * 64,
                         'owner': None, 'captured_at': '2026-11-10T00:00:00+00:00'}
             (stage / 'manifest.json').write_text(json.dumps(manifest))
-            adapter = types.SimpleNamespace(CaptureError=CAPTURE['CaptureError'])
+            adapter = types.SimpleNamespace(CaptureError=CAPTURE['CaptureError'], capture_sources=CAPTURE['capture_sources'])
             events = []
             def restic(_policy, _repository, args, **kwargs):
                 events.append(args[0])
@@ -746,6 +827,7 @@ class Runtime(unittest.TestCase):
                 'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
                 'capture_adapter': lambda _: adapter, 'rooted': Path,
                 'artifact_hash': lambda _: 'b' * 64, 'read_json': lambda *_: manifest,
+                'declared_services': mock.Mock(side_effect=AssertionError('replanning ready stage')),
                 'restic_result': restic,
                 'inventory': mock.Mock(side_effect=[[], [{'id': 'd' * 64, 'tags': [
                     'capture=fixture', 'complete=full-v2', 'format=full-v2', 'cadence=daily']}]]),
@@ -1001,7 +1083,8 @@ g['main']()
                 calls = mock.Mock(return_value=subprocess.CompletedProcess([], code, '', 'private-error-not-logged'))
                 with mock.patch.dict(daily.__globals__, {
                     'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
-                    'capture_adapter': lambda _: types.SimpleNamespace(CaptureError=CAPTURE['CaptureError']),
+                    'capture_adapter': lambda _: types.SimpleNamespace(CaptureError=CAPTURE['CaptureError'],
+                                                                       capture_sources=CAPTURE['capture_sources']),
                     'rooted': Path, 'artifact_hash': lambda _: 'b' * 64,
                     'read_json': lambda *_: manifest, 'inventory': lambda *_: [], 'restic_result': calls,
                 }), mock.patch('time.sleep'), self.assertRaises(RUNNER['WorkflowError']):

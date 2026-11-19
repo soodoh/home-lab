@@ -389,7 +389,7 @@ class SnapshotCapture(unittest.TestCase):
                 self.running.add(args[1]); self.events.append('start:' + args[1])
             return subprocess.CompletedProcess(args, 0, '', '')
         self.adapter = types.SimpleNamespace(CaptureError=CAPTURE['CaptureError'],
-            zfs_paths=CAPTURE['zfs_paths'], zfs_spec=lambda _: self.spec,
+            zfs_spec=lambda _: self.spec,
             zfs_record=CAPTURE['zfs_record'], zfs_call=mock.Mock(side_effect=remote),
             zfs_inventory=mock.Mock(return_value=[self.record]),
             zfs_mount=mock.Mock(side_effect=lambda *_: self.events.append('mount')),
@@ -418,14 +418,16 @@ class SnapshotCapture(unittest.TestCase):
         RUNNER['atomic_json'](self.stage / 'zfs-source.json', value)
         return value
 
-    def step(self):
-        return {'name': 'nextcloud',
-                'services': ['nextcloud-cron', 'nextcloud'],
+    def plan(self):
+        step = {'name': 'nextcloud', 'services': ['nextcloud-cron', 'nextcloud'],
                 'paths': ['/srv/home-lab-state/nextcloud-config', *CAPTURE['zfs_paths']()],
                 'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db', 'name': 'nextcloud.sql'}]}
+        settings = {**self.policy['capture'], 'cold': [step], 'live_files': [], 'online_json': [],
+                    'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin'}
+        return CAPTURE['capture_plan']({**self.policy, 'capture': settings}, set(step['services']))
 
     def test_cold_capture_exports_then_snapshots_then_recovers_before_mounting_bulk_data(self):
-        RUNNER['cold_capture'](self.policy, self.adapter, [self.step()], self.stage, set(self.running))
+        RUNNER['cold_capture'](self.policy, self.adapter, self.plan(), self.stage)
         copied = self.adapter.copy_paths.call_args.args[0]
         self.assertEqual(copied, ['/srv/home-lab-state/nextcloud-config'])
         self.assertLess(self.events.index('dump'), self.events.index('create'))
@@ -438,7 +440,7 @@ class SnapshotCapture(unittest.TestCase):
     def test_lost_create_acknowledgement_recovers_writers_and_retains_intent_without_retry(self):
         self.adapter.zfs_call.side_effect = CAPTURE['CaptureError']('snapshot_remote_refused')
         with self.assertRaises(CAPTURE['CaptureError']):
-            RUNNER['cold_capture'](self.policy, self.adapter, [self.step()], self.stage, set(self.running))
+            RUNNER['cold_capture'](self.policy, self.adapter, self.plan(), self.stage)
         self.assertEqual(self.running, {'nextcloud', 'nextcloud-cron'})
         self.assertEqual(self.adapter.zfs_call.call_count, 1)
         self.assertIsNone(json.loads((self.stage / 'zfs-source.json').read_text())['record'])
@@ -446,24 +448,23 @@ class SnapshotCapture(unittest.TestCase):
 
     def test_intentionally_stopped_cron_stays_stopped(self):
         self.running.remove('nextcloud-cron')
-        RUNNER['cold_capture'](self.policy, self.adapter, [self.step()], self.stage, {'nextcloud', 'nextcloud-cron'})
+        RUNNER['cold_capture'](self.policy, self.adapter, self.plan(), self.stage)
         self.assertEqual(self.running, {'nextcloud'})
         self.assertEqual(json.loads((self.stage / 'zfs-source.json').read_text())['running_services'], ['nextcloud'])
 
     def test_scope_check_rejects_incomplete_policy_or_unmatched_broker_before_capture(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-        scope = CAPTURE['zfs_verify_scope']
+        scope = CAPTURE['zfs_verify_broker_scope']
         remote = mock.Mock(return_value={'paths': list(BROKER['EXPORTS'])})
         with mock.patch.dict(scope.__globals__, {'zfs_call': remote}):
             scope(policy)
             remote.return_value = {'paths': [BROKER['NEXTCLOUD']]}
             with self.assertRaisesRegex(ValueError, 'snapshot_broker_scope'):
                 scope(policy)
-            remote.reset_mock()
-            next(step for step in policy['capture']['cold'] if step['name'] == 'books')['paths'].remove('/mnt/storage/media/books')
-            with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
-                scope(policy)
-            remote.assert_not_called()
+        settings = policy['capture']
+        next(step for step in settings['cold'] if step['name'] == 'books')['paths'].remove('/mnt/storage/media/books')
+        with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
+            CAPTURE['capture_sources'](settings)
 
     def test_ready_retries_reuse_exact_guid_and_missing_receipt_never_falls_back_to_live_files(self):
         self.state()
