@@ -66,7 +66,7 @@ def safe_source(path):
     return path
 
 
-def copy_paths(paths, target, excludes, online_sqlite=False, *, exclude=(), synchronize=False):
+def copy_paths(paths, target, excludes, online_sqlite=False, *, exclude=(), synchronize=False, checksum=False):
     for path in paths:
         safe_source(path)
     options = ['--exclude=' + str(path) for path in exclude]
@@ -74,6 +74,8 @@ def copy_paths(paths, target, excludes, online_sqlite=False, *, exclude=(), sync
         options.extend(['--exclude=*.db', '--exclude=*.db-wal', '--exclude=*.db-shm', '--exclude=*.db-journal'])
     if synchronize:
         options.extend(['--delete-delay', '--modify-window=-1'])
+    if checksum:
+        options.append('--checksum')
     command(['/usr/bin/rsync', '--archive', '--relative', '--numeric-ids', '--hard-links', '--acls', '--xattrs',
              '--exclude-from=' + str(excludes), *options, '--', *paths, str(target) + '/'])
 
@@ -765,6 +767,19 @@ def database_dump(spec, target):
         os.fsync(output.fileno())
     if target.stat().st_size == 0:
         raise CaptureError('empty_dump')
+
+
+def online_postgres(paths, files, excludes, *, spec, target):
+    """Pair a native PostgreSQL dump with a stable local companion-file tree."""
+    if not paths or spec['engine'] != 'postgres':
+        raise CaptureError('online_postgres_scope')
+    before = file_inventory(paths)
+    # A rejected attempt can leave staged bytes whose size and mtime match a
+    # revised source file. Reconcile deletions and compare bytes on the retry.
+    copy_paths(paths, files, excludes, synchronize=True, checksum=True)
+    database_dump(spec, target)
+    if before != file_inventory(paths):
+        raise CaptureError('online_source_changed')
 
 
 def acme_store(source, target):

@@ -927,9 +927,13 @@ not application generations or mixed-age admission. Online captures have their
 own times; the remaining writers share a capture window and one ZFS snapshot.
 The manifest records those windows, not a globally atomic recovery point.
 
-Native PostgreSQL/MariaDB exports run while coupled application writers are
-paused. Vaultwarden and OpenFit stay online: native SQLite backups capture
-committed WAL data without copying live journals. A single native backup step
+Authentik stays online. Its native PostgreSQL dump runs during a verified
+stable interval for the copied media, custom templates and certificate trees.
+Concurrent database-only writes are allowed; observed companion-file changes
+retry the pair together before any stopped captures. Books and Nextcloud still
+stop their application writers around the MariaDB dumps and both snapshots.
+Vaultwarden and OpenFit stay online: native SQLite backups capture committed WAL
+data without copying live journals. A single native backup step
 avoids repeated restarts on read-only WAL heap-indexes. A write-free interval
 across companion files is verified using inode/size/mtime/ctime inventories;
 databases and durable journals additionally use private content fingerprints.

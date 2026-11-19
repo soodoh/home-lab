@@ -830,10 +830,20 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
             captures = []
             online_clock = time.monotonic()
             online_started = datetime.now(timezone.utc).isoformat()
-            for step in settings.get('online', []):
+            online_steps = settings.get('online', [])
+            for step in online_steps:
                 started = time.monotonic()
                 began = datetime.now(timezone.utc).isoformat()
-                if step.get('native') == 'mosquitto':
+                if step.get('native') == 'postgres':
+                    services, dumps = set(step['services']), step['databases']
+                    stopped = set(policy['stop_groups']['applications'] + policy['stop_groups']['databases'])
+                    if not services or not services <= declared or services & stopped or len(dumps) != 1:
+                        raise WorkflowError('online_postgres_scope')
+                    spec = dumps[0]
+                    adapter.retry(lambda: adapter.online_postgres(
+                        step['paths'], stage / 'files', rooted(policy['runner']['exclude_file_path']),
+                        spec=spec, target=stage / 'databases' / spec['name']))
+                elif step.get('native') == 'mosquitto':
                     container = service_container(policy, step['service'])
                     running = service_running(policy, step['service'])
                     adapter.retry(lambda: adapter.mosquitto(
@@ -881,7 +891,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                                 snapshot_scratch=stage if settings.get('state_snapshot') else None)
             manifest = {'version': 2, 'capture': token, 'captured_at': captured_at, 'artifact': artifact_hash(policy),
                         'owner': policy.get('_owner'), 'policy': policy_hash, 'links': {}, 'captures': captures,
-                        'databases': [d for s in settings['cold'] for d in s.get('databases', [])]}
+                        'databases': [d for s in (*online_steps, *settings['cold']) for d in s.get('databases', [])]}
             if settings.get('zfs'):
                 manifest['zfs_source'] = zfs_state(policy, stage)['record']
                 manifest['zfs_paths'] = adapter.zfs_paths()
