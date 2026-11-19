@@ -52,8 +52,7 @@ variable "tailscale_servers" {
 
 variable "tailscale_policy_identity" {
   type = object({
-    owner_identity   = string
-    work_laptop_ipv4 = string
+    owner_identity = string
     tags = object({
       docker_host = string
       proxmox     = string
@@ -63,16 +62,11 @@ variable "tailscale_policy_identity" {
   validation {
     condition = (
       endswith(var.tailscale_policy_identity.owner_identity, "@github") &&
-      try(
-        cidrnetmask(var.tailscale_policy_identity.work_laptop_ipv4) == "255.255.255.255" &&
-        cidrcontains("100.64.0.0/10", cidrhost(var.tailscale_policy_identity.work_laptop_ipv4, 0)),
-        false,
-      ) &&
       alltrue([
         for tag in values(var.tailscale_policy_identity.tags) : startswith(tag, "tag:")
       ]) &&
       length(toset(values(var.tailscale_policy_identity.tags))) == 2
     )
-    error_message = "The policy requires the owner identity, the work laptop Tailscale IPv4 /32 and two distinct permanent-server tag: values."
+    error_message = "The policy requires the owner identity and two distinct permanent-server tag: values."
   }
 }

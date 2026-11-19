@@ -73,22 +73,21 @@ run "only_reviewed_servers_receive_their_policy_tags" {
   }
 }
 
-run "peer_relay_is_scoped_to_the_work_laptop" {
+run "peer_relay_grants_only_the_owner_capability" {
   command = plan
 
   assert {
     condition = (
-      jsondecode(tailscale_acl.policy[0].acl).hosts.work-laptop == var.tailscale_policy_identity.work_laptop_ipv4 &&
       [
         for grant in jsondecode(tailscale_acl.policy[0].acl).grants : grant
         if can(grant.app["tailscale.com/cap/relay"])
         ] == [{
-          src = ["work-laptop"]
+          src = ["autogroup:owner"]
           dst = ["tag:proxmox"]
           app = { "tailscale.com/cap/relay" = [] }
       }]
     )
-    error_message = "Only the pinned work laptop may use the Proxmox peer relay; the grant must not add network access."
+    error_message = "The Proxmox peer relay must grant only the owner capability, without adding network access."
   }
 }
 

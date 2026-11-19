@@ -1243,25 +1243,24 @@ must not be called verified until exercised
 in the current environment. Before revoking any credential, inspect independent
 consumers rather than relying on age or past migrations.
 
-## Tailscale peer relay for `work-laptop`
+## Tailscale peer relay for owner devices
 
-Git owns the capability-only grant in the `tailscale` root, the Proxmox host
-firewall rule in `proxmox-firewall`, and the Omada WAN IPv4 UDP `3478` forward
-to `192.168.0.123:3478`. The Proxmox `tailscaled` relay preferences are manual.
+Git owns the `autogroup:owner` capability-only grant in the `tailscale` root,
+the Proxmox host firewall rule in `proxmox-firewall`, and the Omada WAN IPv4 UDP
+`3478` forward to `192.168.0.123:3478`. The Proxmox `tailscaled` relay preferences are manual.
 Neither GOST nor Tailscale coordination is changed. Check that employer network
 policy permits UDP `3478` to the **home WAN address**; reaching Tailscale’s STUN
 servers on the same port does not establish reachability of the home relay.
 
-Before activation, confirm `work-laptop` still has the Tailscale IP in
-[`policy.auto.tfvars.json`](../infrastructure/tofu/tailscale/policy.auto.tfvars.json)
-and that Proxmox is still tagged `tag:proxmox`, has the expected `vmbr0` IPv4,
+Before activation, confirm the test Macs are signed in as the tailnet owner.
+Confirm Proxmox is still tagged `tag:proxmox`, has the expected `vmbr0` IPv4,
 and has no other UDP `3478` listener. The relay and both test clients need
 Tailscale >= 1.86; on Proxmox also check that `tailscale set --help` lists the
 static-endpoint flag. In the fresh Omada export, check that the selected WAN
 port is the public IPv4 WAN and that there is no conflicting UDP forward.
 
 1. Use the [saved-plan procedure](#plan-and-apply-opentofu-resources) for the
-   three roots. Expect only the app capability and host alias, one IPv4 UDP
+   three roots. Expect only the owner app capability, one IPv4 UDP
    host firewall rule, and one UDP-only WAN forward (no DMZ). Use independent
    Proxmox owner apply credentials and preserve console access. Review and
    separately approve each apply, starting with `tailscale` and
@@ -1293,14 +1292,13 @@ port is the public IPv4 WAN and that there is no conflicting UDP forward.
 When the WAN IP changes, verify the new address and rerun the same `tailscale
 set` command on Proxmox. The CLI accepts literal `IP:port` pairs, not a DDNS
 name; no updater is installed. The Omada forward is bound to the WAN interface,
-so no router change is needed for an address change on that interface. If the
-laptop is re-enrolled, verify its new identity before changing the Git alias.
+so no router change is needed for an address change on that interface.
 
 To roll back, first disable the listener on Proxmox with
 `sudo tailscale set --relay-server-port="" --relay-server-static-endpoints=""`.
 Then disable and remove the Omada forward through the
 [reviewed delete workflow](../infrastructure/tofu/omada/EXPORT_SCHEMA.md#fresh-identity-export),
-and revert the firewall rule and tailnet alias/grant through their own plans.
+and revert the firewall rule and tailnet grant through their own plans.
 
 ## Maintain Proxmox
 
