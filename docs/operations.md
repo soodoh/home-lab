@@ -948,9 +948,12 @@ Gluetun and FlareSolverr remain running. Gluetun's JSON/cookie store and DDNS's 
 reads. Curl generation comments may precede the cookie jar's Netscape header.
 Mindwtr's JSON documents and opaque attachments use a verified stable tree;
 its native `.locks` SQLite shards are runtime coordination, not recovery data,
-and are excluded from both copying and stability checks. VPN namespace clients are interrupted
-only for their own coupled-state capture, never again for Gluetun. Recyclarr's
-selected settings file is read under the existing production/capture exclusion.
+and are excluded from both copying and stability checks. qBittorrent stays online;
+the local snapshot preserves its last persisted torrent, queue and resume state,
+not in-memory progress that a graceful shutdown would flush. Download payloads
+are outside this backup. SABnzbd still stops: its local queue index references
+per-job state in the excluded incomplete-download tree. Recyclarr's selected
+settings file is read under the existing production/capture exclusion.
 Home Assistant and Omada retain their short consistent stopped captures; native
 exports would require separately approved privileged application credentials and
 qualified restores, not reuse of an unrelated administrator identity.
