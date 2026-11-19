@@ -85,7 +85,6 @@
       "nextcloud-cron",
       "nextcloud",
       "frigate",
-      "omada",
       "sabnzbd",
       "tachidesk",
       "caro-tachidesk"
@@ -115,7 +114,8 @@
         "radarr": "/srv/home-lab-state/radarr-data",
         "qbittorrent": "/srv/home-lab-state/qbittorrent-data",
         "homeassistant": "/srv/home-lab-state/hass-data",
-        "zwave": "/srv/home-lab-state/zwave-data"
+        "zwave": "/srv/home-lab-state/zwave-data",
+        "omada": "/srv/home-lab-state/omada-data/data"
       }
     },
     "zfs": {
@@ -198,15 +198,6 @@
         "paths": [
           "/srv/home-lab-state/frigate-data",
           "/mnt/storage/media/frigate/exports"
-        ]
-      },
-      {
-        "name": "omada",
-        "services": [
-          "omada"
-        ],
-        "paths": [
-          "/srv/home-lab-state/omada-data/data"
         ]
       },
       {

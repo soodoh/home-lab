@@ -136,6 +136,12 @@ normal broker startup, not a separate SQL import. Physical database captures
 retain their journals; restore them together into an empty destination. Sonarr,
 Radarr, Prowlarr, Seerr and Karaoke Eternal are captured while running from the
 local state snapshot. On restore, SQLite recovers as after an abrupt shutdown.
+Omada's `/srv/home-lab-state/omada-data/data` is also captured while running.
+Restore its WiredTiger files, journal and keystore together into an empty data
+root. Start the matching pinned controller with networking disabled and no
+published ports; verify startup, controller identity, site and device records,
+and representative history before considering production activation. An isolated
+startup does not test device reconnection or adoption.
 Pre-copy seeds are never independently recoverable:
 only a completed full-v2 capture has reconciled the stopped final delta/deletions.
 Logical exports and native archives remain in `recovery-exports/`:
