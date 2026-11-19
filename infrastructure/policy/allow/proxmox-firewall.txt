@@ -1,6 +1,3 @@
 # Adoption only: permit these two no-op imports, not subsequent firewall mutations.
 import:proxmox_virtual_environment_cluster_firewall.policy[0]
 import:proxmox_virtual_environment_firewall_rules.cluster[0]
-
-# Reviewed cluster-rule update: inbound IPv4 UDP 3478 for the peer relay.
-proxmox_virtual_environment_firewall_rules.cluster[0]
