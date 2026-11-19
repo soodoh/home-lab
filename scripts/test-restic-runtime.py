@@ -502,6 +502,7 @@ class Runtime(unittest.TestCase):
         snapshot_online = {service: f'/srv/home-lab-state/{service}-data' for service in (
             'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent', 'zwave')}
         snapshot_online['homeassistant'] = '/srv/home-lab-state/hass-data'
+        snapshot_online['omada'] = '/srv/home-lab-state/omada-data/data'
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
                 'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf',
                 'authentik-server', 'authentik-worker'} | snapshot_online.keys()

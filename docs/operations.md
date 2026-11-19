@@ -958,8 +958,11 @@ not in-memory progress that a graceful shutdown would flush. Download payloads
 are outside this backup. SABnzbd still stops: its local queue index references
 per-job state in the excluded incomplete-download tree. Recyclarr's selected
 settings file is read under the existing production/capture exclusion.
-Omada retains its stopped capture; replacing it with a native export requires
-separately approved application credentials and a qualified restore.
+Omada stays online. Its existing data root is read from the immutable local
+snapshot, keeping MongoDB's WiredTiger files and journal together with Omada's
+keystore. The excluded device firmware cache and pre-upgrade tar are unchanged.
+This captures persisted state as after an abrupt shutdown; it does not flush
+in-memory changes or contact devices.
 Sonarr, Radarr, Prowlarr, Seerr, Karaoke Eternal, Home Assistant and Z-Wave JS UI
 stay online. Their existing state trees are read only from the local snapshot,
 not copied from live mounts. This is crash-consistent capture: it preserves
