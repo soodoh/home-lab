@@ -64,7 +64,11 @@ partition=$(losetup --find --show --offset 1048576 --sizelimit 460800000 "$origi
 mkfs.ext4 -q "$partition"
 mount -t ext4 "$partition" "$work/live"
 mkdir "$work/live/app" "$work/live/cold" "$work/live/uncaptured" "$work/capture"
-mkdir "$work/capture/files" "$work/capture/databases"
+mkdir "$work/capture/files" "$work/capture/databases" "$work/live/hass-data"
+mkdir -p "$work/live/zwave-data/backups/nvm"
+printf 'synthetic nvm\n' > "$work/live/zwave-data/backups/nvm/NVM_fixture"
+printf '%s\n' '{"zwave":{"port":"synthetic"}}' > "$work/live/zwave-data/settings.json"
+printf '%s\n' '{"k":"node","v":1}' > "$work/live/zwave-data/cache.jsonl"
 printf 'old attachment\n' > "$work/live/app/attachment"
 ln -s attachment "$work/live/app/current"
 printf 'cold state\n' > "$work/live/cold/state"
@@ -72,9 +76,17 @@ printf 'excluded\n' > "$work/live/app/transient"
 printf 'unselected\n' > "$work/live/uncaptured/value"
 printf 'export\n' > "$work/capture/databases/synthetic.sql"
 python3 - "$work" <<'PY' &
-import pathlib, sqlite3, sys, time
+import json, pathlib, sqlite3, sys, time
+from datetime import datetime, timezone
 root = pathlib.Path(sys.argv[1])
-with sqlite3.connect(root / 'live/app/database.sqlite3') as db:
+with (sqlite3.connect(root / 'live/app/database.sqlite3') as db,
+      sqlite3.connect(root / 'live/hass-data/zigbee.db') as zha):
+    zha.execute('pragma journal_mode=wal')
+    zha.execute('pragma wal_autocheckpoint=0')
+    zha.execute('create table network_backups_v1 (backup_json)')
+    zha.execute('insert into network_backups_v1 values (?)',
+                (json.dumps({'backup_time': datetime.now(timezone.utc).isoformat()}),))
+    zha.commit()
     db.execute('pragma journal_mode=wal')
     db.execute('pragma wal_autocheckpoint=0')
     db.execute('create table records (value)')
@@ -121,7 +133,9 @@ policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/cold', '/mnt/stor
                       'state_snapshot': {'bytes': 512 * 1024**2, 'offset': 1048576,
                                          'partition_bytes': 460800000,
                                          'partition_uuid': os.environ['FIXTURE_PARTUUID'],
-                                         'online_paths': {'app': '/srv/home-lab-state/app'}}}}
+                                         'online_paths': {'app': '/srv/home-lab-state/app',
+                                                          'homeassistant': '/srv/home-lab-state/hass-data',
+                                                          'zwave': '/srv/home-lab-state/zwave-data'}}}}
 attach = adapter['state_snapshot_attached']
 # Keep native attachment mechanics, but direct the transport to private loopback.
 attach.__wrapped__.__globals__['zfs_spec'] = lambda _: {'broker_ipv4': '127.0.0.1'}
@@ -157,6 +171,7 @@ with attach(policy, record, stage):
     assert (app / 'current').readlink() == pathlib.Path('attachment')
     assert (app.parent / 'cold/state').read_text() == 'cold state\n'
     assert not (app.parent / 'uncaptured').exists()
+    adapter['radio_check'](stage / 'files', 3600, snapshot_scratch=stage)
     try:
         (app / 'refuse-write').touch()
     except OSError:
@@ -180,11 +195,14 @@ for destination in local replica-a replica-b; do
   fi
   "$restic" restore latest --verify --target "$work/restored-$destination"
 done
-python3 - "$work" <<'PY'
-import pathlib, sqlite3, sys
+python3 - "$work" "$root" <<'PY'
+import pathlib, runpy, sqlite3, sys
 work = pathlib.Path(sys.argv[1])
+adapter = runpy.run_path(str(pathlib.Path(sys.argv[2]) / 'scripts/restic-capture-files.py'))
 for destination in ('local', 'replica-a', 'replica-b'):
-    restored = work / ('restored-' + destination) / work.relative_to('/') / 'capture/files/srv/home-lab-state/app'
+    files = work / ('restored-' + destination) / work.relative_to('/') / 'capture/files'
+    adapter['radio_check'](files, 3600, snapshot_scratch=work)
+    restored = files / 'srv/home-lab-state/app'
     assert (restored / 'attachment').read_text() == 'old attachment\n'
     assert (restored / 'current').readlink() == pathlib.Path('attachment')
     assert (restored.parent / 'cold/state').read_text() == 'cold state\n'
@@ -194,5 +212,5 @@ for destination in ('local', 'replica-a', 'replica-b'):
     with sqlite3.connect(restored / 'database.sqlite3') as db:
         assert db.execute('pragma integrity_check').fetchall() == [('ok',)]
         assert db.execute('select value from records').fetchall() == [('durable',)]
-print('native_state_snapshot=verified restic_bytes sqlite_wal_and_exclusion two_replicas')
+print('native_state_snapshot=verified restic_bytes sqlite_wal_radio_and_exclusion two_replicas')
 PY

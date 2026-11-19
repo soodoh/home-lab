@@ -204,10 +204,12 @@ up; missing or changed payloads can require a recheck or redownload. SABnzbd's
 config and history are backed up, but the queue index alone cannot restore
 active jobs without their companion metadata in the incomplete-download tree.
 
-Home Assistant includes the complete configuration and consistent database plus
-ZHA native network backups. Z-Wave includes store/security keys and actual fresh
-scheduled NVM files. Use supported radio migration/recovery tools; files alone
-cannot guarantee replacement-hardware compatibility.
+Home Assistant and Z-Wave JS UI stay running. The local snapshot preserves Home
+Assistant's configuration, Recorder database and SQLite journals, including ZHA
+native network backups. It also preserves the validated Z-Wave store, security
+keys and fresh scheduled NVM files. Restore each database with its journals and
+use supported radio migration tools; a successful file restore does not qualify
+replacement hardware.
 
 CLIProxyAPI is never stopped for capture. Codex per-file locks and bounded JSON
 validation protect online reads; other provider/concurrent writers remain a

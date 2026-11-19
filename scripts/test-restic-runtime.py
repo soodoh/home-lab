@@ -42,9 +42,12 @@ class Runtime(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory).resolve()
             state = work / 'files/srv/home-lab-state'
-            nvm = state / 'zwave-data/backups/nvm'
+            store = state / 'zwave-data'
+            nvm = store / 'backups/nvm'
             nvm.mkdir(parents=True)
             (nvm / 'NVM_synthetic').write_bytes(b'fixture')
+            (store / 'settings.json').write_text('{"zwave":{"port":"synthetic"}}')
+            (store / 'cache.jsonl').write_text('{"k":"node","v":1}\n')
             scratch = work / 'scratch'
             scratch.mkdir()
             db_dir = state / 'hass-data'
@@ -78,6 +81,32 @@ class Runtime(unittest.TestCase):
             CAPTURE['radio_check'](work / 'files', 60, snapshot_scratch=scratch)
             self.assertEqual(list(db_dir.iterdir()), [database])
             self.assertEqual(list(scratch.iterdir()), [])
+
+    def test_frozen_zwave_store_refuses_torn_json_and_jsonl(self):
+        check = CAPTURE['frozen_zwave_store_check']
+        with tempfile.TemporaryDirectory() as directory:
+            store = Path(directory).resolve()
+            settings = store / 'settings.json'
+            scenes = store / 'scenes.json'
+            cache = store / 'network.jsonl'
+            with self.assertRaisesRegex(CAPTURE['CaptureError'], 'zwave_store_invalid'):
+                check(store)
+            valid = {settings: '{"zwave":{"port":"synthetic"}}', scenes: '[]', cache: '{"k":"x","v":1}\n'}
+            for path, data in valid.items():
+                path.write_text(data)
+            check(store)
+            for path, broken in ((settings, '{"zwave":'), (settings, '{}'), (scenes, '[1,'),
+                                 (cache, '{"k":"x","v":1}\n{"k":"x"'), (cache, '{"k":"x"}')):
+                with self.subTest(path=path.name, broken=broken):
+                    path.write_text(broken)
+                    with self.assertRaisesRegex(CAPTURE['CaptureError'], 'zwave_store_invalid'):
+                        check(store)
+                    self.assertEqual(path.read_text(), broken)
+                    path.write_text(valid[path])
+            scenes.unlink()
+            scenes.symlink_to(settings)
+            with self.assertRaisesRegex(CAPTURE['CaptureError'], 'zwave_store_invalid'):
+                check(store)
 
     def test_state_source_survives_device_renumbering_but_not_identity_or_mount_loss(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
@@ -470,14 +499,15 @@ class Runtime(unittest.TestCase):
 
     def test_reviewed_capture_plan_keeps_online_writers_and_stops_other_services_at_most_once(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-        snapshot_online = {'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent'}
+        snapshot_online = {service: f'/srv/home-lab-state/{service}-data' for service in (
+            'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent', 'zwave')}
+        snapshot_online['homeassistant'] = '/srv/home-lab-state/hass-data'
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
                 'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf',
-                'authentik-server', 'authentik-worker'} | snapshot_online
+                'authentik-server', 'authentik-worker'} | snapshot_online.keys()
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
-        self.assertEqual(set(policy['capture']['state_snapshot']['online_paths']), snapshot_online)
-        self.assertTrue({Path(f'/srv/home-lab-state/{service}-data') for service in snapshot_online}
-                        <= set(CAPTURE['state_snapshot_roots'](policy)))
+        self.assertEqual(policy['capture']['state_snapshot']['online_paths'], snapshot_online)
+        self.assertTrue(set(map(Path, snapshot_online.values())) <= set(CAPTURE['state_snapshot_roots'](policy)))
         running = set(declared)
         stops = []
         adapter = mock.Mock()

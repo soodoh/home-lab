@@ -958,14 +958,15 @@ not in-memory progress that a graceful shutdown would flush. Download payloads
 are outside this backup. SABnzbd still stops: its local queue index references
 per-job state in the excluded incomplete-download tree. Recyclarr's selected
 settings file is read under the existing production/capture exclusion.
-Home Assistant and Omada retain their short consistent stopped captures; native
-exports would require separately approved privileged application credentials and
-qualified restores, not reuse of an unrelated administrator identity.
-Sonarr, Radarr, Prowlarr, Seerr and Karaoke Eternal stay online. Their existing
-state trees are read only from the local snapshot, not copied from live mounts.
-This is crash-consistent capture: the snapshot preserves SQLite databases and
-journals together with their files at the same storage point, not an
-application-level transaction with media outside the captured state trees.
+Omada retains its stopped capture; replacing it with a native export requires
+separately approved application credentials and a qualified restore.
+Sonarr, Radarr, Prowlarr, Seerr, Karaoke Eternal, Home Assistant and Z-Wave JS UI
+stay online. Their existing state trees are read only from the local snapshot,
+not copied from live mounts. This is crash-consistent capture: it preserves
+SQLite databases, committed WAL and companion files together, not a transaction
+with storage outside these trees. The frozen Z-Wave JSON and JSONL state is
+checked for torn writes before completion. ZHA and Z-Wave native backup
+freshness checks still apply; Restic does not signal or reset either radio.
 
 After the online captures, the runner records one restart journal and stops the
 reviewed pause set together. It completes native SQL exports, flushes NFS and

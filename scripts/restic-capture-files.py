@@ -950,13 +950,40 @@ def frozen_radio_copy(path, scratch):
         yield Path(directory) / path.name
 
 
+def frozen_zwave_store_check(store):
+    """Reject torn in-place writes to the Z-Wave store before publishing a capture."""
+    store = safe_source(store)
+    settings = store / 'settings.json'
+    try:
+        for path in {settings, *store.glob('*.json'), *store.glob('*.jsonl')}:
+            item = path.lstat()
+            if not stat.S_ISREG(item.st_mode) or item.st_size > 64 * 1024**2:
+                raise ValueError
+            with path.open('rb') as stream:
+                if path.suffix == '.jsonl':
+                    if any(not line.endswith(b'\n') or not isinstance(json.loads(line), dict)
+                           for line in stream if line.strip()):
+                        raise ValueError
+                else:
+                    value = json.load(stream)
+                    if not isinstance(value, (dict, list)):
+                        raise ValueError
+                    if path == settings and (not isinstance(value, dict) or not isinstance(value.get('zwave'), dict)):
+                        raise ValueError
+    except (OSError, ValueError):
+        raise CaptureError('zwave_store_invalid') from None
+
+
 def radio_check(files, max_age, *, snapshot_scratch=None):
     """Validate native outputs without touching/resetting either radio."""
     now = time.time()
-    nvm = Path(files) / 'srv/home-lab-state/zwave-data/backups/nvm'
+    store = Path(files) / 'srv/home-lab-state/zwave-data'
+    nvm = store / 'backups/nvm'
     candidates = [p for p in nvm.glob('NVM_*') if p.is_file() and not p.is_symlink() and p.stat().st_size]
     if not candidates or not 0 <= now - max(p.stat().st_mtime for p in candidates) <= max_age:
         raise CaptureError('zwave_nvm_stale')
+    if snapshot_scratch is not None:
+        frozen_zwave_store_check(store)
     path = Path(files) / 'srv/home-lab-state/hass-data/zigbee.db'
     selected = frozen_radio_copy(path, snapshot_scratch) if snapshot_scratch is not None else nullcontext(path)
     mode = 'rw' if snapshot_scratch is not None else 'ro'
