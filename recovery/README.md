@@ -142,6 +142,9 @@ Logical exports and native archives remain in `recovery-exports/`:
 
 - `databases/authentik.dump`: native PostgreSQL custom format, for `pg_restore`
   into an empty compatible database with separately reviewed roles/ownership.
+  Restore media, templates and certificates from that same capture before
+  starting the restored instance. The database is captured online while the
+  companion files are verified unchanged across the copy and dump.
 - `databases/books.sql`, `databases/nextcloud.sql`: native MariaDB logical
   exports for compatible empty databases. Restore database and coupled files
   from this same capture before enabling application/background writers.

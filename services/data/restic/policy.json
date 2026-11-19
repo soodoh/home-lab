@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "625386dc2e84ed327e30a872b6f9a21626ba93321c2db931301f54845aa3d365",
+    "sha256": "198c0bba6532dc14663671ac5814c4d9e5d85ade8da39bcd1e9956ff365b4b91",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -82,8 +82,6 @@
     "applications": [
       "homeassistant",
       "zwave",
-      "authentik-worker",
-      "authentik-server",
       "shelfmark",
       "grimmory",
       "nextcloud-cron",
@@ -98,7 +96,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "be0d566a10ba6e2b8267fdb8cf7f7e40a41e0b4ca86c3b1007e4e336dc1203d7",
+    "adapter_sha256": "15bc022eea116d46f8736c1f83eb01ff1a0c0269b2b1835745ab404c6c6163a7",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -150,26 +148,6 @@
       }
     ],
     "cold": [
-      {
-        "name": "authentik",
-        "services": [
-          "authentik-worker",
-          "authentik-server"
-        ],
-        "paths": [
-          "/srv/home-lab-state/authentik-data/media",
-          "/srv/home-lab-state/authentik-data/custom-templates",
-          "/srv/home-lab-state/authentik-data/certs/live",
-          "/srv/home-lab-state/authentik-data/certs/archive"
-        ],
-        "databases": [
-          {
-            "engine": "postgres",
-            "container": "authentik-postgres",
-            "name": "authentik.dump"
-          }
-        ]
-      },
       {
         "name": "books",
         "precopy": true,
@@ -282,6 +260,27 @@
       }
     ],
     "online": [
+      {
+        "name": "authentik",
+        "native": "postgres",
+        "services": [
+          "authentik-worker",
+          "authentik-server"
+        ],
+        "paths": [
+          "/srv/home-lab-state/authentik-data/media",
+          "/srv/home-lab-state/authentik-data/custom-templates",
+          "/srv/home-lab-state/authentik-data/certs/live",
+          "/srv/home-lab-state/authentik-data/certs/archive"
+        ],
+        "databases": [
+          {
+            "engine": "postgres",
+            "container": "authentik-postgres",
+            "name": "authentik.dump"
+          }
+        ]
+      },
       {
         "name": "mindwtr",
         "paths": ["/srv/home-lab-state/mindwtr-data"],

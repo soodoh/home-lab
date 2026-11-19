@@ -460,7 +460,7 @@ class SnapshotCapture(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'snapshot_broker_scope'):
                 scope(policy)
             remote.reset_mock()
-            policy['capture']['cold'][1]['paths'].remove('/mnt/storage/media/books')
+            next(step for step in policy['capture']['cold'] if step['name'] == 'books')['paths'].remove('/mnt/storage/media/books')
             with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
                 scope(policy)
             remote.assert_not_called()

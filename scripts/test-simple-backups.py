@@ -265,6 +265,39 @@ class Files(unittest.TestCase):
                         CAPTURE.online_tree([str(source)], target, excludes, sqlite_paths=[str(source / 'state.db')])
 
     @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
+    def test_online_postgres_retries_changed_companions_and_reconciles_staged_bytes(self):
+        source, stage = self.root / 'source', self.root / 'stage'
+        source.mkdir()
+        stage.mkdir()
+        media = source / 'media'
+        media.write_bytes(b'before')
+        (source / 'removed').write_bytes(b'old')
+        (source / 'link').symlink_to('media')
+        excludes = self.root / 'excludes'
+        excludes.touch()
+        target = self.root / 'database.dump'
+        spec = {'engine': 'postgres', 'container': 'synthetic-postgres'}
+        times = media.stat()
+        def mutate(_spec, _target):
+            media.write_bytes(b'change')
+            os.utime(media, ns=(times.st_atime_ns, times.st_mtime_ns))
+        with mock.patch.object(CAPTURE, 'database_dump', side_effect=mutate):
+            with self.assertRaisesRegex(CAPTURE.CaptureError, 'online_source_changed'):
+                CAPTURE.online_postgres([str(source)], stage, excludes, spec=spec, target=target)
+        restored = stage / str(source).lstrip('/')
+        self.assertEqual((restored / 'media').read_bytes(), b'before')
+        # Source and prior stage have equal size/mtime; the retry must compare
+        # contents and remove deleted entries even without a newer timestamp.
+        (source / 'removed').unlink()
+        with mock.patch.object(CAPTURE, 'database_dump', side_effect=lambda _, path: path.write_bytes(b'fixture-dump')) as dump:
+            CAPTURE.online_postgres([str(source)], stage, excludes, spec=spec, target=target)
+            dump.assert_called_once_with(spec, target)
+        self.assertEqual((restored / 'media').read_bytes(), b'change')
+        self.assertEqual((restored / 'link').readlink(), Path('media'))
+        self.assertFalse((restored / 'removed').exists())
+        self.assertEqual(target.read_bytes(), b'fixture-dump')
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
     def test_mosquitto_requires_a_fresh_atomic_native_flush_and_preserves_stopped_state(self):
         source = self.root / 'mosquitto'
         source.mkdir()

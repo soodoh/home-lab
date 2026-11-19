@@ -472,7 +472,8 @@ class Runtime(unittest.TestCase):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         snapshot_online = {'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent'}
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
-                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf'} | snapshot_online
+                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf',
+                'authentik-server', 'authentik-worker'} | snapshot_online
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
         self.assertEqual(set(policy['capture']['state_snapshot']['online_paths']), snapshot_online)
         self.assertTrue({Path(f'/srv/home-lab-state/{service}-data') for service in snapshot_online}
@@ -610,6 +611,60 @@ class Runtime(unittest.TestCase):
                     cold(self.pause_policy('app'), adapter,
                          [{'name': 'app', 'services': ['app'], 'paths': ['/data']}], Path('/unused'), {'app'})
                 self.assertEqual(restart.call_args.args[1]['running_services'], ['app'])
+
+    def test_authentik_online_capture_precedes_stops_and_preserves_restore_descriptor(self):
+        daily = RUNNER['daily_local']
+        reviewed = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        step = next(s for s in reviewed['capture']['online'] if s['name'] == 'authentik')
+        books = next(s for s in reviewed['capture']['cold'] if s['name'] == 'books')
+        for outcome in ('ready', 'changed_files', 'overlapping_stop'):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
+                stage = Path(directory).resolve() / 'capture'
+                policy = self.pause_policy(*books['services'])
+                policy['capture'] = {'stage': str(stage), 'reserve_bytes': 0, 'radio_max_age_seconds': 10,
+                                     'online': [step], 'cold': [books], 'live_files': [], 'online_json': [],
+                                     'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin'}
+                if outcome == 'overlapping_stop':
+                    policy['stop_groups']['applications'].append('authentik-worker')
+                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+                adapter.retry.side_effect = CAPTURE['retry']
+                adapter.fresh_stage.side_effect = lambda path, _: (path.mkdir() or path)
+                cold, upload = mock.Mock(), mock.Mock()
+                events = []
+                def online(*_args, **_kwargs):
+                    events.append('authentik')
+                    if outcome == 'changed_files':
+                        raise CAPTURE['CaptureError']('online_source_changed')
+                adapter.online_postgres.side_effect = online
+                cold.side_effect = lambda *_: events.append('cold')
+                def restic(*_args, **_kwargs):
+                    events.append('upload')
+                    # Do not need a real repository to observe the ready manifest.
+                    return subprocess.CompletedProcess([], 3, '', '')
+                upload.side_effect = restic
+                with mock.patch.dict(daily.__globals__, {
+                    'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
+                    'capture_adapter': lambda _: adapter, 'rooted': Path,
+                    'declared_services': lambda _: {*step['services'], *books['services']},
+                    'artifact_hash': lambda _: 'b' * 64, 'cold_capture': cold, 'restic_result': upload,
+                }), mock.patch('time.sleep'), self.assertRaisesRegex(RUNNER['WorkflowError'], {
+                    'ready': 'restic_partial_source', 'changed_files': 'capture_phase_failed',
+                    'overlapping_stop': 'online_postgres_scope',
+                }[outcome]):
+                    daily(policy, 'a' * 64)
+                if outcome == 'ready':
+                    self.assertEqual(events, ['authentik', 'cold', 'upload'])
+                    adapter.online_postgres.assert_called_once_with(
+                        step['paths'], stage / 'files', Path('/excluded'), spec=step['databases'][0],
+                        target=stage / 'databases/authentik.dump')
+                    manifest = json.loads((stage / 'manifest.json').read_text())
+                    self.assertEqual(manifest['databases'], [*step['databases'], *books['databases']])
+                    self.assertIn('authentik', [capture['name'] for capture in manifest['captures']])
+                else:
+                    self.assertEqual(events, ['authentik'] * 3 if outcome == 'changed_files' else [])
+                    cold.assert_not_called()
+                    upload.assert_not_called()
+                    self.assertFalse((stage / 'manifest.json').exists())
 
     def test_unready_stage_is_preserved_without_restarting_capture(self):
         daily = RUNNER['daily_local']
