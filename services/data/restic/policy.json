@@ -80,8 +80,6 @@
   },
   "stop_groups": {
     "applications": [
-      "homeassistant",
-      "zwave",
       "shelfmark",
       "grimmory",
       "nextcloud-cron",
@@ -96,7 +94,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "15bc022eea116d46f8736c1f83eb01ff1a0c0269b2b1835745ab404c6c6163a7",
+    "adapter_sha256": "9497c1b9eddbd6ebfb0d4c4c7ae1c92d157dca38eedb0cf38b73b57ba36fe472",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -115,7 +113,9 @@
         "prowlarr": "/srv/home-lab-state/prowlarr-data",
         "sonarr": "/srv/home-lab-state/sonarr-data",
         "radarr": "/srv/home-lab-state/radarr-data",
-        "qbittorrent": "/srv/home-lab-state/qbittorrent-data"
+        "qbittorrent": "/srv/home-lab-state/qbittorrent-data",
+        "homeassistant": "/srv/home-lab-state/hass-data",
+        "zwave": "/srv/home-lab-state/zwave-data"
       }
     },
     "zfs": {
@@ -188,24 +188,6 @@
             "container": "nextcloud-db",
             "name": "nextcloud.sql"
           }
-        ]
-      },
-      {
-        "name": "homeassistant",
-        "services": [
-          "homeassistant"
-        ],
-        "paths": [
-          "/srv/home-lab-state/hass-data"
-        ]
-      },
-      {
-        "name": "zwave",
-        "services": [
-          "zwave"
-        ],
-        "paths": [
-          "/srv/home-lab-state/zwave-data"
         ]
       },
       {
