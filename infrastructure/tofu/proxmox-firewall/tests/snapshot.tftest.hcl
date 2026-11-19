@@ -33,16 +33,3 @@ run "snapshot_rpc_has_only_the_backup_peer_host_rule" {
     error_message = "Adding snapshot RPC must preserve the enabled default-deny host boundary."
   }
 }
-
-run "peer_relay_admits_only_udp_on_3478" {
-  command = plan
-
-  assert {
-    condition = [
-      for rule in proxmox_virtual_environment_firewall_rules.cluster[0].rule :
-      [rule.action, rule.type, rule.proto, rule.source]
-      if rule.dport == "3478"
-    ] == [["ACCEPT", "in", "udp", "0.0.0.0/0"]]
-    error_message = "The peer relay needs exactly one ingress rule for IPv4 UDP 3478, not TCP."
-  }
-}

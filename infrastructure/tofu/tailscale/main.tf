@@ -38,11 +38,6 @@ locals {
         dst = [local.tags.proxmox]
         ip  = ["tcp:2444", "tcp:2445", "tcp:8006"]
       },
-      {
-        src = ["autogroup:owner"]
-        dst = [local.tags.proxmox]
-        app = { "tailscale.com/cap/relay" = [] }
-      },
     ]
 
     ssh = [

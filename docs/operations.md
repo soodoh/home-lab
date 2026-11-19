@@ -1243,63 +1243,6 @@ must not be called verified until exercised
 in the current environment. Before revoking any credential, inspect independent
 consumers rather than relying on age or past migrations.
 
-## Tailscale peer relay for owner devices
-
-Git owns the `autogroup:owner` capability-only grant in the `tailscale` root,
-the Proxmox host firewall rule in `proxmox-firewall`, and the Omada WAN IPv4 UDP
-`3478` forward to `192.168.0.123:3478`. The Proxmox `tailscaled` relay preferences are manual.
-Neither GOST nor Tailscale coordination is changed. Check that employer network
-policy permits UDP `3478` to the **home WAN address**; reaching Tailscale’s STUN
-servers on the same port does not establish reachability of the home relay.
-
-Before activation, confirm the test Macs are signed in as the tailnet owner.
-Confirm Proxmox is still tagged `tag:proxmox`, has the expected `vmbr0` IPv4,
-and has no other UDP `3478` listener. The relay and both test clients need
-Tailscale >= 1.86; on Proxmox also check that `tailscale set --help` lists the
-static-endpoint flag. In the fresh Omada export, check that the selected WAN
-port is the public IPv4 WAN and that there is no conflicting UDP forward.
-
-1. Use the [saved-plan procedure](#plan-and-apply-opentofu-resources) for the
-   three roots. Expect only the owner app capability, one IPv4 UDP
-   host firewall rule, and one UDP-only WAN forward (no DMZ). Use independent
-   Proxmox owner apply credentials and preserve console access. Review and
-   separately approve each apply, starting with `tailscale` and
-   `proxmox-firewall`. Do not edit the router or tailnet policy in the UI.
-2. After host approval, use the Proxmox console or authorized SSH. Read the
-   active public IPv4 in Omada, compare it to the IPv4 from `tailscale netcheck`
-   on Proxmox (and to `home.diloreto.com` if using its DNS as a cross-check),
-   and substitute the current value below. If Omada has a private or CGNAT WAN
-   address, the Omada forward alone will not make the relay reachable.
-
-   ```sh
-   tailscale version
-   ip -4 -brief address show dev vmbr0
-   sudo ss -H -lunp sport = :3478
-   tailscale netcheck
-   wan_ip=47.229.215.5 # Example; use the verified current Omada WAN IPv4.
-   sudo tailscale set --relay-server-port=3478 \
-     --relay-server-static-endpoints="${wan_ip}:3478"
-   sudo ss -H -lunp sport = :3478
-   ```
-
-3. Apply the separately approved `omada` plan last, using a fresh export as
-   described above. Reobserve and require no-op plans. From the work Mac,
-   run `tailscale ping --until-direct=false --c=10 docker-host` (or another
-   allowed peer **other than Proxmox**) and look for `peer-relay`. Early
-   `DERP(lax)` responses can occur during negotiation; persistent DERP means
-   the relay is not qualified. DERP remains the fallback.
-
-When the WAN IP changes, verify the new address and rerun the same `tailscale
-set` command on Proxmox. The CLI accepts literal `IP:port` pairs, not a DDNS
-name; no updater is installed. The Omada forward is bound to the WAN interface,
-so no router change is needed for an address change on that interface.
-
-To roll back, first disable the listener on Proxmox with
-`sudo tailscale set --relay-server-port="" --relay-server-static-endpoints=""`.
-Then disable and remove the Omada forward through the
-[reviewed delete workflow](../infrastructure/tofu/omada/EXPORT_SCHEMA.md#fresh-identity-export),
-and revert the firewall rule and tailnet grant through their own plans.
-
 ## Maintain Proxmox
 
 ### Motherboard SATA link-power persistence

@@ -73,24 +73,6 @@ run "only_reviewed_servers_receive_their_policy_tags" {
   }
 }
 
-run "peer_relay_grants_only_the_owner_capability" {
-  command = plan
-
-  assert {
-    condition = (
-      [
-        for grant in jsondecode(tailscale_acl.policy[0].acl).grants : grant
-        if can(grant.app["tailscale.com/cap/relay"])
-        ] == [{
-          src = ["autogroup:owner"]
-          dst = ["tag:proxmox"]
-          app = { "tailscale.com/cap/relay" = [] }
-      }]
-    )
-    error_message = "The Proxmox peer relay must grant only the owner capability, without adding network access."
-  }
-}
-
 run "same_name_replacement_is_refused" {
   command = plan
 

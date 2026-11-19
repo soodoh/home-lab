@@ -125,7 +125,7 @@
   "named_port_forwards": {
     "Tailscale Peer Relay": {
       "dmz": false,
-      "enable": true,
+      "enable": false,
       "external_port": "3478",
       "forward_ip": "192.168.0.123",
       "forward_port": "3478",

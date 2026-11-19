@@ -71,14 +71,6 @@
       "log": "nolog",
       "protocol": "tcp",
       "source": "192.168.0.0/24"
-    },
-    {
-      "action": "ACCEPT",
-      "destination_port": 3478,
-      "direction": "IN",
-      "log": "nolog",
-      "protocol": "udp",
-      "source": "0.0.0.0/0"
     }
   ]
 }
