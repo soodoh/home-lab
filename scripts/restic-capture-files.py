@@ -22,6 +22,7 @@ import stat
 import subprocess
 import tempfile
 import time
+from typing import NamedTuple
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -357,11 +358,7 @@ def zfs_paths():
     return [str(ZFS_BASE / root) for root in ZFS_DATA_PATHS]
 
 
-def zfs_verify_scope(policy):
-    declared = [path for step in policy['capture']['cold'] for path in step['paths']
-                if Path(path).is_relative_to(ZFS_BASE)]
-    if sorted(declared) != sorted(zfs_paths()):
-        raise CaptureError('snapshot_policy_scope')
+def zfs_verify_broker_scope(policy):
     if zfs_call(zfs_spec(policy), {'action': 'scope'}) != {'paths': list(ZFS_DATA_PATHS)}:
         raise CaptureError('snapshot_broker_scope')
 
@@ -461,12 +458,10 @@ def zfs_unmount(stage):
 STATE_BASE = Path('/srv/home-lab-state')
 
 
-def state_snapshot_roots(policy):
-    """Project only selected application trees, not the whole state volume."""
-    capture = policy['capture']
-    paths = [Path(path) for step in capture['cold'] for path in step['paths']
-             if Path(path).is_relative_to(STATE_BASE)]
-    paths.extend(Path(path) for path in capture['state_snapshot'].get('online_paths', {}).values())
+def state_snapshot_roots(cold_paths, online_paths):
+    """Select only declared application trees, not the whole state volume."""
+    paths = [Path(path) for path in cold_paths if Path(path).is_relative_to(STATE_BASE)]
+    paths.extend(map(Path, online_paths))
     if (not paths or len(set(paths)) != len(paths) or
             any(not path.is_relative_to(STATE_BASE) or path == STATE_BASE or '..' in path.parts or
                 any(parent in paths for parent in path.parents) for path in paths)):
@@ -500,15 +495,14 @@ def verify_state_snapshot_mount(target, device_number, relative):
         raise CaptureError('state_snapshot_mount_identity')
 
 
-def state_snapshot_mount(policy, device, snapshot_root, stage):
-    """Project cold trees from a verified snapshot partition without copying.
+def state_snapshot_mount(policy, device, snapshot_root, stage, paths):
+    """Project the selected trees from a verified snapshot partition without copying.
 
     The caller must own a private mount namespace and a read-only block
     attachment already verified against the storage producer's capture receipt.
     This function does not attach, freeze, or take a storage-host snapshot.
     The caller must unmount all projections before releasing the block source.
     """
-    paths = state_snapshot_roots(policy)
     require_private_mounts()
     device = safe_source(device)
     metadata = device.stat()
@@ -584,7 +578,6 @@ def state_device_idle():
 
 def state_snapshot_preflight(policy, stage):
     require_private_mounts()
-    state_snapshot_roots(policy)
     for name in ('qemu-nbd', 'nbd-client', 'sfdisk', 'e2fsck', 'dmsetup', 'prlimit', 'tune2fs'):
         if shutil.which(name, path='/usr/sbin:/usr/bin:/sbin:/bin') is None:
             raise CaptureError('state_snapshot_tools')
@@ -628,7 +621,7 @@ def replay_snapshot_journal(device):
 
 
 @contextmanager
-def state_snapshot_attached(policy, record, stage):
+def state_snapshot_attached(policy, record, stage, paths):
     """Attach one immutable export, replay only into a bounded scratch COW."""
     require_private_mounts()
     if not state_device_idle():
@@ -682,7 +675,7 @@ def state_snapshot_attached(policy, record, stage):
         partition_device = scratch / 'partition'
         os.mknod(partition_device, stat.S_IFBLK | 0o600, os.makedev(major, minor))
         replay_snapshot_journal(str(partition_device))
-        mounts = state_snapshot_mount(policy, partition_device, root, stage)
+        mounts = state_snapshot_mount(policy, partition_device, root, stage, paths)
         yield mounts, partition_device
     finally:
         # Failure to unmount/detach is an inspection gate, never permission
@@ -1005,17 +998,23 @@ def radio_check(files, max_age, *, snapshot_scratch=None):
         raise CaptureError('zha_backup_stale')
 
 
-def live_games_sources(policy):
-    games = Path('/mnt/games')
-    paths = policy['capture'].get('live_games_paths', [])
+GAMES_BASE = Path('/mnt/games')
+
+
+def live_games_roots(paths):
     if not isinstance(paths, list) or any(not isinstance(p, str) or str(Path(p)) != p for p in paths):
         raise CaptureError('live_games_scope')
     roots = [Path(p) for p in paths]
     if (len(set(roots)) != len(roots) or any(
-            not p.is_relative_to(games) or p == games or p.is_relative_to(games / 'restic')
-            or p.is_relative_to(games / 'home-lab-backup') or '..' in p.parts
+            not p.is_relative_to(GAMES_BASE) or p == GAMES_BASE or p.is_relative_to(GAMES_BASE / 'restic')
+            or p.is_relative_to(GAMES_BASE / 'home-lab-backup') or '..' in p.parts
             or any(parent in roots for parent in p.parents) for p in roots)):
         raise CaptureError('live_games_scope')
+    return roots
+
+
+def verify_live_games_sources(roots):
+    games = GAMES_BASE
     if roots:
         device = safe_source(games).stat().st_dev
         mounts = json.loads(command(['/usr/bin/findmnt', '--json', '--list', '--output', 'TARGET']))['filesystems']
@@ -1024,15 +1023,15 @@ def live_games_sources(policy):
                     or any((target := Path(row['target'])) != games and target.is_relative_to(games)
                            and (target.is_relative_to(root) or root.is_relative_to(target)) for row in mounts)):
                 raise CaptureError('live_games_mount_identity')
-    return roots
 
 
 @contextmanager
-def live_games_mounted(policy, stage):
+def live_games_mounted(roots, stage):
     require_private_mounts()
+    verify_live_games_sources(roots)
     mounted = []
     try:
-        for source in live_games_sources(policy):
+        for source in roots:
             target = empty_snapshot_target(stage, source)
             command(['/usr/bin/mount', '-n', '--bind', str(source), str(target)])
             mounted.append(target)
@@ -1046,32 +1045,123 @@ def live_games_mounted(policy, stage):
         state_snapshot_unmount(mounted)
 
 
-def capacity_check(policy):
-    paths = list(policy['capture']['live_files']) + [policy['capture']['cli_auth'], policy['capture']['jellyfin']]
-    paths.extend(policy['capture']['estimate_paths'])
-    paths.extend(policy['capture']['online_json'])
-    paths.extend(policy['capture'].get('online_stores', []))
-    for step in policy['capture'].get('online', []):
-        paths.extend(step['paths'])
-    snapshot_paths = set(zfs_paths()) if policy['capture'].get('zfs') else set()
-    if policy['capture'].get('state_snapshot'):
-        snapshot_paths.update(map(str, state_snapshot_roots(policy)))
-    for step in policy['capture']['cold']:
-        paths.extend(path for path in step['paths'] if path not in snapshot_paths)
-    paths.extend(map(str, live_games_sources(policy)))
+class CaptureSources(NamedTuple):
+    zfs: list[str]
+    state: list[Path]
+    live_games: list[Path]
+
+
+def capture_sources(settings):
+    """Select archive mounts from reviewed policy, also usable on a ready retry."""
+    cold_paths = [path for step in settings.get('cold', []) for path in step['paths']]
+    zfs, state = [], []
+    if settings.get('zfs'):
+        # Use the native adapter's fixed mount order, not policy ordering.
+        zfs = zfs_paths()
+        declared = [path for path in cold_paths if Path(path).is_relative_to(ZFS_BASE)]
+        if sorted(declared) != sorted(zfs):
+            raise CaptureError('snapshot_policy_scope')
+    if settings.get('state_snapshot'):
+        if not zfs:
+            raise CaptureError('state_snapshot_requires_shared_capture')
+        state = state_snapshot_roots(cold_paths, settings['state_snapshot'].get('online_paths', {}).values())
+    return CaptureSources(zfs, state, live_games_roots(settings.get('live_games_paths', [])))
+
+
+class CapturePlan(NamedTuple):
+    sources: CaptureSources
+    pause_services: list[str]
+    precopy: list[str]
+    paused_copy: list[str]
+    cold_dumps: list[dict]
+    cold_names: list[str]
+    state_names: list[str]
+    online: list[dict]
+    online_stores: list[str]
+    live_files: list[str]
+    online_json: list[str]
+    cli_auth: str
+    jellyfin: str
+    capacity_paths: list[str]
+
+    @property
+    def databases(self):
+        return [dump for step in self.online for dump in step.get('databases', [])] + self.cold_dumps
+
+
+def capture_plan(policy, declared):
+    """Resolve one fresh capture's source selection before doing capture I/O."""
+    settings = policy['capture']
+    cold = settings['cold']
+    online = settings.get('online', [])
+    pause = policy['stop_groups']['applications']
+    stopped = set(pause + policy['stop_groups']['databases'])
+    selected = [service for step in cold for service in step['services']]
+    if len(pause) != len(selected) or len(set(selected)) != len(selected) or set(pause) != set(selected):
+        raise CaptureError('capture_stop_scope')
+    if not set(pause) <= declared:
+        raise CaptureError('capture_service_missing')
+    state_online = settings.get('state_snapshot', {}).get('online_paths', {})
+    if not state_online.keys() <= declared or state_online.keys() & stopped:
+        raise CaptureError('state_snapshot_online_services')
+    for step in online:
+        native = step.get('native')
+        if native == 'postgres':
+            services = set(step['services'])
+            if (not services or not services <= declared or services & stopped or len(step['databases']) != 1
+                    or step['databases'][0]['engine'] != 'postgres' or not step['paths']):
+                raise CaptureError('online_postgres_scope')
+        elif native == 'mosquitto':
+            if step['service'] not in declared or step['service'] in stopped:
+                raise CaptureError('online_mosquitto_scope')
+        elif 'native' in step:
+            raise CaptureError('unknown_native_capture')
+    sources = capture_sources(settings)
+    snapshot = {*sources.zfs, *map(str, sources.state)}
+    precopy, paused_copy, cold_paths = [], [], []
+    for step in cold:
+        for path in step['paths']:
+            cold_paths.append(path)
+            if path not in snapshot:
+                (precopy if step.get('precopy') else paused_copy).append(path)
+    online_stores = settings.get('online_stores', [])
+    live_files, online_json = settings['live_files'], settings['online_json']
+    cli_auth, jellyfin = settings['cli_auth'], settings['jellyfin']
+    online_paths = [path for step in online for path in step['paths']]
+    online_paths.extend((*online_stores, *live_files, *online_json, cli_auth))
+    live_games = list(map(str, sources.live_games))
+    # A stage path cannot be owned by both a copy and a mount, or written by
+    # multiple capture steps. Jellyfin's parent and SQL estimate-only roots
+    # are budgets, not file writers; auxiliary Jellyfin exports are deliberate.
+    archive_paths = [*cold_paths, *state_online.values(), *online_paths, *live_games]
+    roots = set(map(Path, archive_paths))
+    if len(roots) != len(archive_paths) or any(
+            path.anchor != '/' or path == Path('/') or '..' in path.parts or roots.intersection(path.parents)
+            for path in roots) or any(str(Path(path)) != path for path in archive_paths):
+        raise CaptureError('capture_path_scope')
+    capacity_paths = sorted({*precopy, *paused_copy, *online_paths, *settings.get('estimate_paths', []),
+                             jellyfin, *live_games})
+    return CapturePlan(
+        sources=sources, pause_services=pause, precopy=precopy, paused_copy=paused_copy,
+        cold_dumps=[dump for step in cold for dump in step.get('databases', [])],
+        cold_names=[step['name'] for step in cold], state_names=list(state_online), online=online,
+        online_stores=online_stores, live_files=live_files, online_json=online_json,
+        cli_auth=cli_auth, jellyfin=jellyfin, capacity_paths=capacity_paths,
+    )
+
+
+def capacity_check(plan, stage, reserve, excludes):
+    verify_live_games_sources(plan.sources.live_games)
     # Native du does not follow links into bulk game installations. Conservative
     # bytes plus reserve must fit staging before any service is stopped.
     raw = command(['/usr/bin/du', '--summarize', '--total', '--apparent-size', '--block-size=1',
-                   '--exclude-from=' + policy['runner']['exclude_file_path'], '--', *sorted(set(paths))])
+                   '--exclude-from=' + str(excludes), '--', *plan.capacity_paths])
     sizes = dict((line.split('\t', 1)[1], int(line.split('\t', 1)[0])) for line in raw.decode().splitlines())
-    size = sizes['total']
     # Jellyfin first creates its native archive on its own filesystem. Budget
     # that temporary archive too; staging capacity alone is insufficient.
-    jelly = policy['capture']['jellyfin']
-    if shutil.disk_usage(jelly).free < sizes[jelly] * 2 + policy['capture']['reserve_bytes']:
+    if shutil.disk_usage(plan.jellyfin).free < sizes[plan.jellyfin] * 2 + reserve:
         raise CaptureError('native_archive_capacity')
-    parent = safe_source(Path(policy['capture']['stage']).parent)
-    if shutil.disk_usage(parent).free < size * 2 + policy['capture']['reserve_bytes']:
+    if shutil.disk_usage(safe_source(stage.parent)).free < sizes['total'] * 2 + reserve:
         raise CaptureError('capture_capacity')
 
 

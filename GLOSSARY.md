@@ -24,3 +24,10 @@ only when its writer is healthy and the changed configuration is verified.
 **Managed publication**:
 Replacement of deployment-owned application configuration and credentials,
 including refreshing the running consumers affected by those replacements.
+
+## Backup
+
+**Restic capture plan**:
+The reviewed source selections and writer pause set for one fresh capture,
+checked against the declared Compose inventory. It describes what to capture,
+not what a completed backup has proved.

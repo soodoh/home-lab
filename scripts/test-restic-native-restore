@@ -106,7 +106,7 @@ import json, pathlib, runpy, subprocess, sys
 repo, stage = map(pathlib.Path, sys.argv[1:3])
 adapter = runpy.run_path(str(repo / 'scripts/restic-capture-files.py'))
 policy = json.loads((repo / 'services/data/restic/policy.json').read_text())
-roots = list(map(pathlib.Path, policy['capture']['live_games_paths']))
+roots = adapter['capture_sources'](policy['capture']).live_games
 for root in roots:
     root.mkdir(parents=True, exist_ok=True)
     (root / 'fixture').write_bytes(b'protected')
@@ -122,16 +122,14 @@ for name in excluded:
     path.touch()
 rom = pathlib.Path('/mnt/games/roms')
 projection = stage / 'files' / rom.relative_to('/')
-missing = '/mnt/games/synthetic-missing-source'
-policy['capture']['live_games_paths'].append(missing)
+missing = pathlib.Path('/mnt/games/synthetic-missing-source')
 try:
-    with adapter['live_games_mounted'](policy, stage):
+    with adapter['live_games_mounted']([*roots, missing], stage):
         raise AssertionError('missing source admitted')
 except adapter['CaptureError'] as exc:
     assert str(exc) == 'source_missing'
 assert not projection.exists(), 'partial projection after preflight failure'
-policy['capture']['live_games_paths'].remove(missing)
-with adapter['live_games_mounted'](policy, stage):
+with adapter['live_games_mounted'](roots, stage):
     assert projection.joinpath('fixture').samefile(rom / 'fixture'), 'must mount, not copy'
     try:
         (projection / 'blocked').touch()

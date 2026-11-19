@@ -926,6 +926,12 @@ The complete recovery set is defined by
 not application generations or mixed-age admission. Online captures have their
 own times; the remaining writers share a capture window and one ZFS snapshot.
 The manifest records those windows, not a globally atomic recovery point.
+The runner resolves one Restic capture plan per fresh capture from the installed
+controller's policy and declared Compose inventory. Conflicting scope refuses
+before staging or writer interruption. Capacity estimates, copy and mount
+selection, and the manifest use that plan; native source checks still apply.
+Ready retries use the bound policy and saved evidence, not current Compose
+membership.
 
 Authentik stays online. Its native PostgreSQL dump runs during a verified
 stable interval for the copied media, custom templates and certificate trees.

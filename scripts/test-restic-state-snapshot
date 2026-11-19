@@ -128,7 +128,8 @@ root, work = map(pathlib.Path, sys.argv[1:3])
 restic = sys.argv[3]
 adapter = runpy.run_path(str(root / 'scripts/restic-capture-files.py'))
 identity = {'fstype': 'ext4', 'uuid': os.environ['FIXTURE_STATE_UUID']}
-policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/cold', '/mnt/storage/media/books']}],
+policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/cold', *adapter['zfs_paths']()]}],
+                      'zfs': True,
                       'mounts': [{'path': '/srv/home-lab-state', 'identity': identity}],
                       'state_snapshot': {'bytes': 512 * 1024**2, 'offset': 1048576,
                                          'partition_bytes': 460800000,
@@ -136,6 +137,7 @@ policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/cold', '/mnt/stor
                                          'online_paths': {'app': '/srv/home-lab-state/app',
                                                           'homeassistant': '/srv/home-lab-state/hass-data',
                                                           'zwave': '/srv/home-lab-state/zwave-data'}}}}
+paths = adapter['capture_sources'](policy['capture']).state
 attach = adapter['state_snapshot_attached']
 # Keep native attachment mechanics, but direct the transport to private loopback.
 attach.__wrapped__.__globals__['zfs_spec'] = lambda _: {'broker_ipv4': '127.0.0.1'}
@@ -152,7 +154,7 @@ for defect in ('foreign_uuid', 'existing_staged_file'):
         app.mkdir(parents=True)
         (app / 'conflict').touch()
     try:
-        with attach(policy, record, stage):
+        with attach(policy, record, stage, paths):
             raise AssertionError(f'{defect} accepted')
     except adapter['CaptureError'] as exc:
         assert str(exc) == {'foreign_uuid': 'state_snapshot_filesystem_identity',
@@ -160,13 +162,13 @@ for defect in ('foreign_uuid', 'existing_staged_file'):
     assert adapter['state_device_idle']() and not (work / 'state-attachment').exists()
 (app / 'conflict').unlink()
 try:
-    with attach(policy, record, stage):
+    with attach(policy, record, stage, paths):
         raise InterruptedError('synthetic cancellation during backup')
 except InterruptedError:
     assert adapter['state_device_idle']() and not (work / 'state-attachment').exists()
 else:
     raise AssertionError('cancellation was swallowed')
-with attach(policy, record, stage):
+with attach(policy, record, stage, paths):
     assert (app / 'attachment').read_text() == 'old attachment\n' and not (app / 'new').exists()
     assert (app / 'current').readlink() == pathlib.Path('attachment')
     assert (app.parent / 'cold/state').read_text() == 'cold state\n'
