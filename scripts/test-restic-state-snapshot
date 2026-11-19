@@ -63,9 +63,11 @@ printf 'label: gpt\nstart=2048, size=900000, type=linux, uuid=%s\n' "$FIXTURE_PA
 partition=$(losetup --find --show --offset 1048576 --sizelimit 460800000 "$origin")
 mkfs.ext4 -q "$partition"
 mount -t ext4 "$partition" "$work/live"
-mkdir "$work/live/app" "$work/live/uncaptured" "$work/capture"
+mkdir "$work/live/app" "$work/live/cold" "$work/live/uncaptured" "$work/capture"
 mkdir "$work/capture/files" "$work/capture/databases"
 printf 'old attachment\n' > "$work/live/app/attachment"
+ln -s attachment "$work/live/app/current"
+printf 'cold state\n' > "$work/live/cold/state"
 printf 'excluded\n' > "$work/live/app/transient"
 printf 'unselected\n' > "$work/live/uncaptured/value"
 printf 'export\n' > "$work/capture/databases/synthetic.sql"
@@ -91,7 +93,9 @@ sync --file-system "$work/live"
 lvcreate --devices "$loop" --snapshot --permission r -n captured "$vg/state"
 lvchange --activate y --ignoreactivationskip --devices "$loop" "$vg/captured"
 rm -- "$work/live/app/attachment"
+ln -sf new "$work/live/app/current"
 printf 'live addition\n' > "$work/live/app/new"
+kill -0 "$writer"
 snap=/dev/mapper/${vg}-captured
 [[ $(blockdev --getro "$snap") == 1 ]]
 export FIXTURE_CAPTURE=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -112,11 +116,12 @@ root, work = map(pathlib.Path, sys.argv[1:3])
 restic = sys.argv[3]
 adapter = runpy.run_path(str(root / 'scripts/restic-capture-files.py'))
 identity = {'fstype': 'ext4', 'uuid': os.environ['FIXTURE_STATE_UUID']}
-policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/app', '/mnt/storage/media/books']}],
+policy = {'capture': {'cold': [{'paths': ['/srv/home-lab-state/cold', '/mnt/storage/media/books']}],
                       'mounts': [{'path': '/srv/home-lab-state', 'identity': identity}],
                       'state_snapshot': {'bytes': 512 * 1024**2, 'offset': 1048576,
                                          'partition_bytes': 460800000,
-                                         'partition_uuid': os.environ['FIXTURE_PARTUUID']}}}
+                                         'partition_uuid': os.environ['FIXTURE_PARTUUID'],
+                                         'online_paths': {'app': '/srv/home-lab-state/app'}}}}
 attach = adapter['state_snapshot_attached']
 # Keep native attachment mechanics, but direct the transport to private loopback.
 attach.__wrapped__.__globals__['zfs_spec'] = lambda _: {'broker_ipv4': '127.0.0.1'}
@@ -149,6 +154,8 @@ else:
     raise AssertionError('cancellation was swallowed')
 with attach(policy, record, stage):
     assert (app / 'attachment').read_text() == 'old attachment\n' and not (app / 'new').exists()
+    assert (app / 'current').readlink() == pathlib.Path('attachment')
+    assert (app.parent / 'cold/state').read_text() == 'cold state\n'
     assert not (app.parent / 'uncaptured').exists()
     try:
         (app / 'refuse-write').touch()
@@ -179,6 +186,8 @@ work = pathlib.Path(sys.argv[1])
 for destination in ('local', 'replica-a', 'replica-b'):
     restored = work / ('restored-' + destination) / work.relative_to('/') / 'capture/files/srv/home-lab-state/app'
     assert (restored / 'attachment').read_text() == 'old attachment\n'
+    assert (restored / 'current').readlink() == pathlib.Path('attachment')
+    assert (restored.parent / 'cold/state').read_text() == 'cold state\n'
     assert not (restored / 'new').exists() and not (restored / 'transient').exists()
     assert not (restored.parent / 'uncaptured').exists()
     assert (restored / 'database.sqlite3-wal').stat().st_size > 0

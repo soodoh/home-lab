@@ -132,9 +132,11 @@ validated and copied online, including attachments, without changing its native
 layout. Its `.locks` SQLite shards are runtime coordination and are recreated by
 the application rather than restored. Mosquitto's
 `mosquitto.db` is its fresh native online persistence output, restored through the
-normal broker startup, not a separate SQL import. Cold-copied databases retain
-their complete physical set; never combine restored files with journals left in
-an existing destination. Pre-copy seeds are never independently recoverable:
+normal broker startup, not a separate SQL import. Physical database captures
+retain their journals; restore them together into an empty destination. Sonarr,
+Radarr, Prowlarr, Seerr and Karaoke Eternal are captured while running from the
+local state snapshot. On restore, SQLite recovers as after an abrupt shutdown.
+Pre-copy seeds are never independently recoverable:
 only a completed full-v2 capture has reconciled the stopped final delta/deletions.
 Logical exports and native archives remain in `recovery-exports/`:
 
@@ -171,7 +173,7 @@ state.
 
 Nextcloud data, Books and audiobooks, both Tachidesk libraries and Frigate exports
 retain their original archive paths when Restic reads them through temporary
-read-only NFS mounts of one ZFS snapshot. Selected cold application state keeps
+read-only NFS mounts of one ZFS snapshot. Selected local application state keeps
 its original paths on the read-only view of the local volume; ext4 replay writes
 only to an overlay, not into the archived source. Restore the corresponding
 logical exports, configuration and files from the same capture. Recovery needs only the encrypted

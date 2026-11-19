@@ -460,15 +460,13 @@ STATE_BASE = Path('/srv/home-lab-state')
 
 
 def state_snapshot_roots(policy):
-    """Use exactly the cold paths declared beneath the state volume.
-
-    In particular, do not bind the whole volume into the archive: it contains
-    excluded database datadirs and already-captured online recovery artifacts.
-    """
-    paths = [Path(path) for step in policy['capture']['cold'] for path in step['paths']
+    """Project only selected application trees, not the whole state volume."""
+    capture = policy['capture']
+    paths = [Path(path) for step in capture['cold'] for path in step['paths']
              if Path(path).is_relative_to(STATE_BASE)]
+    paths.extend(Path(path) for path in capture['state_snapshot'].get('online_paths', {}).values())
     if (not paths or len(set(paths)) != len(paths) or
-            any(path == STATE_BASE or '..' in path.parts or
+            any(not path.is_relative_to(STATE_BASE) or path == STATE_BASE or '..' in path.parts or
                 any(parent in paths for parent in path.parents) for path in paths)):
         raise CaptureError('state_snapshot_scope')
     return paths

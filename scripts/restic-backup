@@ -711,7 +711,12 @@ def cold_capture(policy, adapter, steps, stage, declared):
     if state_snapshot:
         if not snapshot:
             raise WorkflowError('state_snapshot_requires_shared_capture')
+        online_paths = state_snapshot.get('online_paths', {})
+        if not set(online_paths) <= declared or set(online_paths).intersection(services):
+            raise WorkflowError('state_snapshot_online_services')
         snapshot_paths.update(map(str, adapter.state_snapshot_roots(policy)))
+        for path in online_paths.values():
+            adapter.safe_source(path)
     seed, local, dumps = [], [], []
     for step in steps:
         for path in step['paths']:
@@ -882,6 +887,9 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
                 manifest['zfs_paths'] = adapter.zfs_paths()
             if settings.get('state_snapshot'):
                 manifest['state_source'] = state_source(policy, adapter, stage)
+                captured = datetime.fromtimestamp(manifest['state_source']['created'], timezone.utc).isoformat()
+                captures.extend({'name': service, 'started_at': captured, 'finished_at': captured}
+                                for service in settings['state_snapshot'].get('online_paths', {}))
             # A ready manifest is also a crash-recovery promise. Flush staged
             # files/metadata on this filesystem before publishing that promise.
             adapter.command(['/usr/bin/sync', '--file-system', str(stage)])

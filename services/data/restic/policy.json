@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "0f51e045bb1b48a53e934752452f7aefca70a258cdce3258a084b0fe1019f8ac",
+    "sha256": "625386dc2e84ed327e30a872b6f9a21626ba93321c2db931301f54845aa3d365",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -89,12 +89,7 @@
       "nextcloud-cron",
       "nextcloud",
       "frigate",
-      "karaoke-eternal",
       "omada",
-      "seerr",
-      "prowlarr",
-      "sonarr",
-      "radarr",
       "qbittorrent",
       "sabnzbd",
       "tachidesk",
@@ -104,7 +99,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "c507c3bdd723379c8a760c17f734172d354002c11366cba7ec1fa10e9d1963eb",
+    "adapter_sha256": "be0d566a10ba6e2b8267fdb8cf7f7e40a41e0b4ca86c3b1007e4e336dc1203d7",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -116,7 +111,14 @@
       "bytes": 137438953472,
       "offset": 1048576,
       "partition_bytes": 137436856320,
-      "partition_uuid": "83c137ee-828d-47a3-b317-09b7782ca650"
+      "partition_uuid": "83c137ee-828d-47a3-b317-09b7782ca650",
+      "online_paths": {
+        "karaoke-eternal": "/srv/home-lab-state/karaoke-eternal-data",
+        "seerr": "/srv/home-lab-state/seerr-data",
+        "prowlarr": "/srv/home-lab-state/prowlarr-data",
+        "sonarr": "/srv/home-lab-state/sonarr-data",
+        "radarr": "/srv/home-lab-state/radarr-data"
+      }
     },
     "zfs": {
       "dataset_guid": "8756195246383642806",
@@ -239,59 +241,12 @@
         ]
       },
       {
-        "name": "karaoke",
-        "services": [
-          "karaoke-eternal"
-        ],
-        "paths": [
-          "/srv/home-lab-state/karaoke-eternal-data"
-        ]
-      },
-      {
         "name": "omada",
         "services": [
           "omada"
         ],
         "paths": [
           "/srv/home-lab-state/omada-data/data"
-        ]
-      },
-      {
-        "name": "seerr",
-        "services": [
-          "seerr"
-        ],
-        "paths": [
-          "/srv/home-lab-state/seerr-data"
-        ]
-      },
-      {
-        "name": "prowlarr",
-        "services": [
-          "prowlarr"
-        ],
-        "paths": [
-          "/srv/home-lab-state/prowlarr-data"
-        ]
-      },
-      {
-        "name": "sonarr",
-        "precopy": true,
-        "services": [
-          "sonarr"
-        ],
-        "paths": [
-          "/srv/home-lab-state/sonarr-data"
-        ]
-      },
-      {
-        "name": "radarr",
-        "precopy": true,
-        "services": [
-          "radarr"
-        ],
-        "paths": [
-          "/srv/home-lab-state/radarr-data"
         ]
       },
       {
