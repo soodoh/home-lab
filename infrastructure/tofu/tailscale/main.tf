@@ -4,6 +4,10 @@ locals {
   wolf_security  = jsondecode(file("${path.module}/../../../services/data/wolf/security.json"))
 
   policy = {
+    hosts = {
+      work-laptop = var.tailscale_policy_identity.work_laptop_ipv4
+    }
+
     tagOwners = {
       (local.tags.docker_host) = ["autogroup:admin"]
       (local.tags.proxmox)     = ["autogroup:admin"]
@@ -37,6 +41,11 @@ locals {
         src = [local.tags.docker_host]
         dst = [local.tags.proxmox]
         ip  = ["tcp:2444", "tcp:2445", "tcp:8006"]
+      },
+      {
+        src = ["work-laptop"]
+        dst = [local.tags.proxmox]
+        app = { "tailscale.com/cap/relay" = [] }
       },
     ]
 

@@ -8,9 +8,13 @@ settings produce a drift plan to investigate, not permission to copy them into G
 ## Selective ownership
 
 The selected site owns the LAN, every DHCP reservation and port forward, and the
-listed SSIDs. SSID IDs, reservation MACs and port-forward IDs are stable resource
-address keys. Changing a key or WLAN-group identity needs a reviewed migration,
-not an accidental replacement. The gateway is bound to its reviewed device MAC.
+listed SSIDs. SSID IDs, reservation MACs and adopted port-forward IDs are stable
+resource address keys. Rules under `named_port_forwards` instead key by their
+unique Omada name, so OpenTofu can create them before an ID exists. A live rule
+with that name resolves to its controller ID for declarative import; any import
+requires independent identity review and explicit import approval. Changing a
+key or WLAN-group identity needs a reviewed migration, not an accidental
+replacement. The gateway is bound to its reviewed device MAC.
 
 The root also manages these explicitly configured settings:
 
@@ -150,6 +154,15 @@ provider credentials separately; do not delete required non-credential inputs
 while an approved operation remains nonterminal. An expired export requires a
 fresh observation, plan and approval, not a rewritten timestamp. Remove the
 export and saved plans at completed-run cleanup.
+
+To remove a managed forward, first disable it through a reviewed apply. Then
+remove its definition and pass `omada_retiring_port_forwards` as a private
+per-plan map of controller ID to rule name. Take the ID from the existing
+state-owned address and compare it with the fresh export; the boundary accepts
+only an exact, disabled live match no longer declared in Git. The saved plan
+must show deletion of that exact state-owned forward. Use the standard
+exact-plan deletion approval, then re-export and plan without the map. Never
+use this input to admit an unmanaged extra rule or store it in Git.
 
 Follow [operations](../../../docs/operations.md) for clean-checkout review,
 private credentials, remote state, plan inspection and separate apply confirmation. An import-only policy entry admits ownership only;

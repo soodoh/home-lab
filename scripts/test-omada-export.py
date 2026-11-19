@@ -101,7 +101,7 @@ class OmadaExportTests(unittest.TestCase):
     def test_committed_desired_settings_have_stable_ownership_keys(self) -> None:
         desired = json.loads((ROOT / "infrastructure/tofu/omada/desired.json").read_text())
         domain = json.loads((ROOT / "infrastructure/tofu/omada/domain.auto.tfvars.json").read_text())
-        self.assertEqual(set(desired), {
+        self.assertEqual(set(desired) - {"named_port_forwards"}, {
             "network", "reservations", "port_forwards", "wireless_networks", "gateway",
             "upnp", "ssh_settings", "snmp", "site_settings", "attack_defense", "iptv",
             "notification_settings",
@@ -124,6 +124,14 @@ class OmadaExportTests(unittest.TestCase):
             self.assertTrue(rule_id)
             self.assertEqual(set(forward), {
                 "name", "enable", "external_port", "forward_ip", "forward_port",
+                "protocol", "wan_port_ids", "dmz",
+            })
+            self.assertTrue(forward["wan_port_ids"])
+        for name, forward in desired.get("named_port_forwards", {}).items():
+            self.assertTrue(name.strip())
+            self.assertNotIn(name, desired["port_forwards"])
+            self.assertEqual(set(forward), {
+                "enable", "external_port", "forward_ip", "forward_port",
                 "protocol", "wan_port_ids", "dmz",
             })
             self.assertTrue(forward["wan_port_ids"])

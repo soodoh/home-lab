@@ -16,15 +16,26 @@ locals {
   live_reservations = {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
   }
-  live_port_forwards = {
-    for port_forward in local.export.port_forwards : port_forward.id => port_forward
-  }
   live_wireless_networks = {
     for ssid in local.export.wireless_networks : ssid.id => ssid
   }
-  wireless_networks = var.omada_enable_management ? local.desired.wireless_networks : {}
-  reservations      = var.omada_enable_management ? local.desired.reservations : {}
-  port_forwards     = var.omada_enable_management ? local.desired.port_forwards : {}
+  wireless_networks     = var.omada_enable_management ? local.desired.wireless_networks : {}
+  reservations          = var.omada_enable_management ? local.desired.reservations : {}
+  adopted_port_forwards = var.omada_enable_management ? local.desired.port_forwards : {}
+  named_port_forwards = var.omada_enable_management ? {
+    for name, rule in try(local.desired.named_port_forwards, {}) : name => merge(rule, { name = name })
+  } : {}
+  port_forwards = merge(local.adopted_port_forwards, local.named_port_forwards)
+
+  # Adopted addresses retain their controller IDs. New rules have a stable name
+  # before Omada assigns an ID; multiple live matches are an error, not an import.
+  live_port_forwards = { for rule in local.export.port_forwards : rule.id => rule }
+  named_port_forward_ids = {
+    for id, rule in local.live_port_forwards : rule.name => id
+    if !contains(keys(local.adopted_port_forwards), id) && contains(keys(local.named_port_forwards), rule.name)
+  }
+  tracked_port_forward_ids = setunion(toset(keys(local.adopted_port_forwards)), toset(values(local.named_port_forward_ids)))
+  retiring_port_forwards   = var.omada_retiring_port_forwards
   export_matches_boundary = !var.omada_enable_management || (
     local.export.controller_version == var.omada_domain.controller_version &&
     local.export.site.id != "" &&
@@ -50,7 +61,17 @@ locals {
     length(local.export.reservations) > 0 &&
     length(local.export.port_forwards) > 0 &&
     toset(keys(local.live_reservations)) == toset(keys(local.reservations)) &&
-    toset(keys(local.live_port_forwards)) == toset(keys(local.port_forwards)) &&
+    length(local.port_forwards) == length(local.adopted_port_forwards) + length(local.named_port_forwards) &&
+    toset(keys(local.live_port_forwards)) == setunion(local.tracked_port_forward_ids, toset(keys(local.retiring_port_forwards))) &&
+    alltrue([
+      for id, name in local.retiring_port_forwards :
+      try(
+        !contains(local.tracked_port_forward_ids, id) &&
+        local.live_port_forwards[id].name == name &&
+        !local.live_port_forwards[id].enable,
+        false,
+      )
+    ]) &&
     toset(keys(local.live_wireless_networks)) == toset(keys(local.wireless_networks)) &&
     alltrue([
       for id, ssid in local.live_wireless_networks :
@@ -125,10 +146,13 @@ resource "omada_dhcp_reservation" "reservation" {
 }
 
 import {
-  for_each = local.port_forwards
+  for_each = merge(
+    { for id in keys(local.adopted_port_forwards) : id => id },
+    local.named_port_forward_ids,
+  )
 
   to = omada_port_forward.port_forward[each.key]
-  id = "${local.export.site.name}/${each.key}"
+  id = "${local.export.site.name}/${each.value}"
 }
 
 resource "omada_port_forward" "port_forward" {
@@ -143,4 +167,11 @@ resource "omada_port_forward" "port_forward" {
   protocol      = each.value.protocol
   wan_port_ids  = each.value.wan_port_ids
   dmz           = each.value.dmz
+
+  lifecycle {
+    precondition {
+      condition     = local.export_matches_boundary
+      error_message = "Refusing Omada management without a fresh matching inventory of every owned identity."
+    }
+  }
 }

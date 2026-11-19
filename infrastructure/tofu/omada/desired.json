@@ -122,6 +122,19 @@
       ]
     }
   },
+  "named_port_forwards": {
+    "Tailscale Peer Relay": {
+      "dmz": false,
+      "enable": true,
+      "external_port": "3478",
+      "forward_ip": "192.168.0.123",
+      "forward_port": "3478",
+      "protocol": "udp",
+      "wan_port_ids": [
+        "1_d5e6238e8a1e48179e527468719ebffc"
+      ]
+    }
+  },
   "reservations": {
     "8c:4f:00:e6:53:14": {
       "enable": true,
