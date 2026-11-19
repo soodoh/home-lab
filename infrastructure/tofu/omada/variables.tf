@@ -8,13 +8,6 @@ variable "omada_enable_management" {
   default = false
 }
 
-variable "omada_retiring_port_forwards" {
-  description = "Per-plan controller IDs and names of disabled, state-owned forwards being deleted; requires exact saved-plan deletion approval."
-  type        = map(string)
-  default     = {}
-  nullable    = false
-}
-
 variable "omada_domain" {
   type = object({
     controller_version = string
