@@ -470,12 +470,12 @@ class Runtime(unittest.TestCase):
 
     def test_reviewed_capture_plan_keeps_online_writers_and_stops_other_services_at_most_once(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-        sqlite_services = {'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr'}
+        snapshot_online = {'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent'}
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
-                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf'} | sqlite_services
+                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf'} | snapshot_online
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
-        self.assertEqual(set(policy['capture']['state_snapshot']['online_paths']), sqlite_services)
-        self.assertTrue({Path(f'/srv/home-lab-state/{service}-data') for service in sqlite_services}
+        self.assertEqual(set(policy['capture']['state_snapshot']['online_paths']), snapshot_online)
+        self.assertTrue({Path(f'/srv/home-lab-state/{service}-data') for service in snapshot_online}
                         <= set(CAPTURE['state_snapshot_roots'](policy)))
         running = set(declared)
         stops = []
@@ -518,7 +518,7 @@ class Runtime(unittest.TestCase):
         self.assertEqual(running, declared)
         self.assertEqual(stops, [policy['stop_groups']['applications']])
         self.assertEqual(set(stops[0]), declared - kept)
-        self.assertTrue({'nextcloud', 'nextcloud-cron', 'shelfmark', 'grimmory'} <= set(stops[0]))
+        self.assertTrue({'nextcloud', 'nextcloud-cron', 'shelfmark', 'grimmory', 'sabnzbd'} <= set(stops[0]))
         self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list],
                          ['create', 'state-create'])
         adapter.copy_paths.assert_not_called()

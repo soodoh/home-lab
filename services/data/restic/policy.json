@@ -90,7 +90,6 @@
       "nextcloud",
       "frigate",
       "omada",
-      "qbittorrent",
       "sabnzbd",
       "tachidesk",
       "caro-tachidesk"
@@ -117,7 +116,8 @@
         "seerr": "/srv/home-lab-state/seerr-data",
         "prowlarr": "/srv/home-lab-state/prowlarr-data",
         "sonarr": "/srv/home-lab-state/sonarr-data",
-        "radarr": "/srv/home-lab-state/radarr-data"
+        "radarr": "/srv/home-lab-state/radarr-data",
+        "qbittorrent": "/srv/home-lab-state/qbittorrent-data"
       }
     },
     "zfs": {
@@ -247,15 +247,6 @@
         ],
         "paths": [
           "/srv/home-lab-state/omada-data/data"
-        ]
-      },
-      {
-        "name": "qbittorrent",
-        "services": [
-          "qbittorrent"
-        ],
-        "paths": [
-          "/srv/home-lab-state/qbittorrent-data"
         ]
       },
       {

@@ -195,6 +195,12 @@ production activation. Offsite copy and eventual disposal require explicit revie
 
 ### Other application coverage
 
+qBittorrent restores its last persisted torrent list, queue order and resume
+checkpoints from the local state snapshot. Its download payloads are not backed
+up; missing or changed payloads can require a recheck or redownload. SABnzbd's
+config and history are backed up, but the queue index alone cannot restore
+active jobs without their companion metadata in the incomplete-download tree.
+
 Home Assistant includes the complete configuration and consistent database plus
 ZHA native network backups. Z-Wave includes store/security keys and actual fresh
 scheduled NVM files. Use supported radio migration/recovery tools; files alone
