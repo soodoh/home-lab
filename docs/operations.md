@@ -954,6 +954,11 @@ selected settings file is read under the existing production/capture exclusion.
 Home Assistant and Omada retain their short consistent stopped captures; native
 exports would require separately approved privileged application credentials and
 qualified restores, not reuse of an unrelated administrator identity.
+Sonarr, Radarr, Prowlarr, Seerr and Karaoke Eternal stay online. Their existing
+state trees are read only from the local snapshot, not copied from live mounts.
+This is crash-consistent capture: the snapshot preserves SQLite databases and
+journals together with their files at the same storage point, not an
+application-level transaction with media outside the captured state trees.
 
 After the online captures, the runner records one restart journal and stops the
 reviewed pause set together. It completes native SQL exports, flushes NFS and
@@ -976,10 +981,11 @@ backup scope when adding an emulator or changing its data directory.
 All recorded writers resume before Restic mounts or reads the snapshot. Nextcloud
 must also pass native `occ status`. Only the approved Nextcloud data, Books and
 audiobooks, both Tachidesk libraries and Frigate export subtrees are mounted
-read-only at their existing archive paths, alongside the selected cold paths on
-the local snapshot. These roots are not counted toward staging capacity. Missing
-or unexpected sources fail closed. The shared pause can lengthen an individual
-application's outage even if total backup time falls. Compare `shutdown`,
+read-only at their existing archive paths, alongside the selected application
+state paths on the local snapshot. These roots are not counted toward staging
+capacity. Missing or unexpected sources fail closed. The shared pause can
+lengthen an individual application's outage even if total backup time falls.
+Compare `shutdown`,
 `final_copy_local`, `sql_exports`, `zfs_snapshot`, `state_snapshot`,
 `restart`, `interruption_shared`, `online_capture_total` and `restic_backup` on
 successive captures.

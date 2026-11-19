@@ -470,9 +470,13 @@ class Runtime(unittest.TestCase):
 
     def test_reviewed_capture_plan_keeps_online_writers_and_stops_other_services_at_most_once(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        sqlite_services = {'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr'}
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
-                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf'}
+                'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf'} | sqlite_services
         declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
+        self.assertEqual(set(policy['capture']['state_snapshot']['online_paths']), sqlite_services)
+        self.assertTrue({Path(f'/srv/home-lab-state/{service}-data') for service in sqlite_services}
+                        <= set(CAPTURE['state_snapshot_roots'](policy)))
         running = set(declared)
         stops = []
         adapter = mock.Mock()
@@ -499,6 +503,7 @@ class Runtime(unittest.TestCase):
                 stops.append(args[3:])
                 running.difference_update(args[3:])
             else:
+                self.assertTrue(kept.isdisjoint(args[1:]))
                 running.update(args[1:])
             return OK
         cold = RUNNER['cold_capture']
@@ -513,11 +518,33 @@ class Runtime(unittest.TestCase):
         self.assertEqual(running, declared)
         self.assertEqual(stops, [policy['stop_groups']['applications']])
         self.assertEqual(set(stops[0]), declared - kept)
+        self.assertTrue({'nextcloud', 'nextcloud-cron', 'shelfmark', 'grimmory'} <= set(stops[0]))
         self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list],
                          ['create', 'state-create'])
         adapter.copy_paths.assert_not_called()
         adapter.precopy.assert_not_called()
         adapter.finish_copy.assert_not_called()
+
+    def test_invalid_snapshot_online_scope_refuses_before_interrupting_any_service(self):
+        cold = RUNNER['cold_capture']
+        kwargs = {'rooted': Path, 'compose': mock.Mock(), 'atomic_json': mock.Mock()}
+        for service, path, error in (
+                ('stopped', '/srv/home-lab-state/online', 'state_snapshot_online_services'),
+                ('undeclared', '/srv/home-lab-state/online', 'state_snapshot_online_services'),
+                ('online', '/mnt/storage/media/online', 'state_snapshot_scope'),
+                ('online', '/srv/home-lab-state/app/nested', 'state_snapshot_scope'),
+                ('online', '/srv/home-lab-state/../outside', 'state_snapshot_scope')):
+            policy = self.pause_policy('stopped')
+            steps = [{'services': ['stopped'], 'paths': ['/srv/home-lab-state/app']}]
+            policy['capture'] = {'zfs': True, 'state_snapshot': {'online_paths': {service: path}}, 'cold': steps}
+            adapter = mock.Mock()
+            adapter.zfs_paths.return_value = []
+            adapter.state_snapshot_roots.side_effect = CAPTURE['state_snapshot_roots']
+            with self.subTest(service=service, path=path), mock.patch.dict(cold.__globals__, kwargs):
+                with self.assertRaisesRegex((RUNNER['WorkflowError'], CAPTURE['CaptureError']), error):
+                    cold(policy, adapter, steps, Path('/unused'), {'stopped', 'online'})
+        kwargs['compose'].assert_not_called()
+        kwargs['atomic_json'].assert_not_called()
 
     def test_failed_precopy_never_interrupts_a_writer_or_publishes_a_journal(self):
         cold = RUNNER['cold_capture']
