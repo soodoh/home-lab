@@ -70,11 +70,11 @@ run "native_vm_and_node_ownership" {
       proxmox_virtual_environment_vm.debian.disk[2].interface == "scsi3" &&
       proxmox_virtual_environment_vm.debian.disk[2].path_in_datastore == "vm-100-disk-2" &&
       proxmox_virtual_environment_vm.debian.disk[2].serial == "HOME-LAB-DEBIAN-64G" &&
-      proxmox_virtual_environment_vm.debian.disk[2].size == 64 &&
+      proxmox_virtual_environment_vm.debian.disk[2].size == 384 &&
       length(proxmox_virtual_environment_vm.debian.disk) == 3 &&
       proxmox_virtual_environment_vm.debian.boot_order == tolist(["scsi3", "net0"])
     )
-    error_message = "All existing attachments must match native import ordering without moving their bus slots."
+    error_message = "Preserve all adopted attachments in bus order and grow only the existing boot disk to the desired size."
   }
 
   assert {

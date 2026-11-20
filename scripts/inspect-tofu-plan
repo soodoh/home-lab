@@ -6,7 +6,7 @@ if (($# < 1)); then
   exit 64
 fi
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 plan=$1
 plan="$(cd "$(dirname "$plan")" && pwd)/$(basename "$plan")"
 shift
@@ -38,7 +38,7 @@ printf 'saved_plan_sha256=%s\n' "$plan_sha256"
 plan_root=unknown
 if [[ -n $tofu_chdir ]]; then
   canonical_root=$(cd "$tofu_chdir" && pwd -P)
-  for candidate in aws-foundation proxmox-access; do
+  for candidate in aws-foundation proxmox proxmox-access; do
     if [[ $canonical_root == "$repo_root/infrastructure/tofu/$candidate" ]]; then
       plan_root=$candidate
     fi

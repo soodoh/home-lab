@@ -103,6 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-change-file", type=Path)
     parser.add_argument("--approve-deletion-file", type=Path)
     parser.add_argument("--approve-identity-file", type=Path)
+    parser.add_argument("--approve-vm-boot-growth-file", type=Path)
     parser.add_argument("--saved-plan-sha256")
     parser.add_argument("--plan-root", default="unknown")
     return parser.parse_args()
@@ -527,6 +528,106 @@ def approved_deletions(args: argparse.Namespace, plan: dict[str, Any]) -> set[tu
     return entries
 
 
+def expected_proxmox_boot_growth_readback(item: dict[str, Any]) -> bool:
+    """Only the clock and empty-list normalization in the disabled agent wait."""
+    change = item["change"]
+    before, after = change.get("before"), change.get("after")
+    if (
+        item.get("mode") != "managed" or change["actions"] != ["update"]
+        or not isinstance(before, dict) or not isinstance(after, dict)
+        or before.get("node_name") != "proxmox"
+        or not known_identity_result(change.get("after_unknown", {}))
+    ):
+        return False
+    if (item.get("address"), item["type"]) == (
+        "proxmox_virtual_environment_time.node", "proxmox_virtual_environment_time",
+    ):
+        fields = {("local_time",), ("utc_time",)}
+        return bool(changed_keys(before, after)) and changed_keys(before, after) <= fields and all(
+            isinstance(side.get(field), str) for side in (before, after) for field, in fields
+        )
+    if (item.get("address"), item["type"]) != (VM_ADDRESS, VM_RESOURCE_TYPE) or before.get("vm_id") != 100:
+        return False
+    wait = ("agent", "0", "wait_for_ip", "0")
+    fields = {(*wait, "cidrs"), (*wait, "interfaces")}
+    changed = changed_keys(before, after)
+    return (
+        bool(changed) and changed <= fields
+        and all(value_at_path(side, (*wait, "disabled")) is True for side in (before, after))
+        and all(value_at_path(before, field) is None and value_at_path(after, field) == [] for field in changed)
+    )
+
+
+def approve_vm_boot_growth(args: argparse.Namespace, plan: dict[str, Any]) -> tuple[int, int]:
+    path = args.approve_vm_boot_growth_file
+    if args.plan_root != "proxmox" or args.mode != "normal" or any((
+        args.allow_change_file, args.approve_deletion_file, args.approve_identity_file,
+    )):
+        raise ValueError("boot growth requires the standalone Proxmox approval")
+    digest = args.saved_plan_sha256 or ""
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise ValueError("boot growth requires a saved-plan SHA-256 digest")
+    if path.is_symlink() or path.resolve().is_relative_to(Path(__file__).resolve().parents[2]):
+        raise ValueError("boot growth approval must be a private file outside the checkout")
+    metadata = path.stat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise ValueError("boot growth approval must be a mode-0600 regular file")
+    approval = json.loads(path.read_text(), object_pairs_hook=reject_duplicate_keys)
+    if not isinstance(approval, dict) or set(approval) != {"saved_plan_sha256", "from_gib", "to_gib"} or (
+        approval["saved_plan_sha256"] != digest
+    ):
+        raise ValueError("boot growth approval must match the exact saved plan")
+    old, new = approval["from_gib"], approval["to_gib"]
+    if type(old) is not int or type(new) is not int or not 64 <= old < new:
+        raise ValueError("boot disk can only grow from its adopted size in whole GiB")
+    if (
+        plan.get("format_version") != "1.2" or plan.get("complete", True) is not True
+        or plan.get("errored") is not False or plan.get("applyable", True) is not True
+        or plan.get("deferred_changes")
+        or any(change.get("actions") != ["no-op"] for change in plan.get("output_changes", {}).values())
+    ):
+        raise ValueError("boot growth requires a complete plan without deferrals or output changes")
+    if not all(expected_proxmox_boot_growth_readback(item) for item in plan.get("resource_drift", [])):
+        raise ValueError("boot growth cannot mask provider drift beyond known clock and disabled-agent readback")
+    resources = plan.get("resource_changes", [])
+    if any(item.get("previous_address") or "importing" in item["change"] for item in resources):
+        raise ValueError("boot growth cannot move or import resources")
+    changes = [item for item in resources if item["change"]["actions"] != ["no-op"]]
+    if len(changes) != 1:
+        raise ValueError("boot growth requires exactly one resource change")
+    item, = changes
+    change = item["change"]
+    if (
+        item.get("address") != VM_ADDRESS or item.get("type") != VM_RESOURCE_TYPE
+        or item.get("mode") != "managed" or change["actions"] != ["update"]
+        or not known_identity_result(change.get("after_unknown", {}))
+    ):
+        raise ValueError("boot growth must be a known in-place update to the adopted VM")
+    before, after = change.get("before"), change.get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict) or (
+        before.get("vm_id") != 100 or before.get("node_name") != "proxmox"
+        or before.get("protection") is not True or before.get("boot_order") != ["scsi3", "net0"]
+    ):
+        raise ValueError("VM 100 identity, boot order, and protection must be preserved")
+    disks = before.get("disk")
+    disk_identity = {
+        "interface": "scsi3", "datastore_id": "local-lvm", "path_in_datastore": "vm-100-disk-2",
+        "serial": "HOME-LAB-DEBIAN-64G", "file_format": "raw",
+    }
+    if (
+        not isinstance(disks, list) or not all(isinstance(disk, dict) for disk in disks)
+        or [disk.get("interface") for disk in disks] != ["scsi1", "scsi2", "scsi3"]
+        or any(disks[2].get(key) != value for key, value in disk_identity.items())
+    ):
+        raise ValueError("boot growth must preserve the adopted disk identities and bus ordering")
+    expected_after = {**before, "disk": [*disks[:2], {**disks[2], "size": new}]}
+    if type(disks[2].get("size")) is not int or disks[2]["size"] != old or (
+        json.dumps(after, sort_keys=True) != json.dumps(expected_after, sort_keys=True)
+    ):
+        raise ValueError("the only VM change must be the exact approved boot disk growth")
+    return old, new
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -554,6 +655,14 @@ def main() -> int:
             print(f"DENY: {failure}; owner intervention required: independently verify source/state/plan, "
                   "complete owner bootstrap or repair, and refresh/verify retained identity tracking before resuming", file=sys.stderr)
         return 1
+    if args.approve_vm_boot_growth_file is not None:
+        try:
+            old, new = approve_vm_boot_growth(args, plan)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            print(f"DENY: invalid boot growth approval: {error}", file=sys.stderr)
+            return 1
+        print(f"plan policy passed: VM 100 scsi3 in-place growth {old} to {new} GiB")
+        return 0
     try:
         approved = approved_deletions(args, plan)
     except (OSError, ValueError, TypeError, KeyError) as error:

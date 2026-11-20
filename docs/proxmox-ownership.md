@@ -31,6 +31,29 @@ independently approved, backed-up provider state repair/readback before deployme
 then require a remote-backed plan proving the existing attachments are preserved.
 A successful import into a disposable read fixture is not remote-state repair.
 
+### In-place boot disk growth
+
+Change only `vm.boot_disk.size_gb` in `vm.auto.tfvars.json`; the original serial
+is an identity, not a capacity label. Confirm thin-pool data and metadata
+headroom including backup snapshot writes, independent console access and a
+recoverable guest boot disk before proceeding. Follow strict storage-change
+admission in [operations](operations.md#observe-before-deciding) under the
+production owner. Application-level Restic coverage is not a bootable VM backup.
+
+The default inspector refuses disk edits. After privately reviewing the **entire**
+remote-backed plan, provide `--approve-vm-boot-growth-file` with a private
+mode-0600 JSON file outside Git containing `saved_plan_sha256`, `from_gib`, and
+`to_gib`, with the sizes as integers. It admits only the exact in-place size
+increase of VM 100's existing `scsi3` with all other fields and resources unchanged.
+No allowlist, deletion approval, import, or configuration drift is admitted.
+Only node clock readings and null-to-empty list readback for the disabled agent
+IP wait are tolerated. Obtain separate approval to apply that saved plan. Verify the attachment and guest disk
+identity and size before growing the guest root partition and ext4 filesystem;
+OpenTofu does not grow them. Verify service health, new backup coverage and a
+fresh remote-backed no-op plan. Recovery is by restore, not shrinking.
+
+### Storage and control-plane ownership
+
 Storage resources register **existing** pools and paths; they do not create the
 underlying ZFS pool, datasets, LVM pool, partitions or filesystems. In particular,
 `proxmox_node_disk_zfs` cannot reconstruct topology and creation properties on

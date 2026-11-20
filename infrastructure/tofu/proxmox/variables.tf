@@ -122,11 +122,12 @@ variable "proxmox_vm" {
       var.proxmox_vm.vm.boot_disk.datastore == "local-lvm" &&
       var.proxmox_vm.vm.boot_disk.volume == "vm-100-disk-2" &&
       var.proxmox_vm.vm.boot_disk.serial == "HOME-LAB-DEBIAN-64G" &&
-      var.proxmox_vm.vm.boot_disk.size_gb == 64 &&
+      var.proxmox_vm.vm.boot_disk.size_gb >= 64 &&
+      floor(var.proxmox_vm.vm.boot_disk.size_gb) == var.proxmox_vm.vm.boot_disk.size_gb &&
       var.proxmox_vm.vm.games_disk.interface == "scsi1" &&
       var.proxmox_vm.vm.state_disk.interface == "scsi2" &&
       var.proxmox_vm.cloud_init.drive_interface == "ide2"
     )
-    error_message = "The adopted VM 100 identity and disk/interface ordering must remain unchanged."
+    error_message = "Preserve the adopted VM 100 and disk identities and use a boot disk size of at least 64 whole GiB."
   }
 }
