@@ -354,6 +354,7 @@ class SnapshotAuthority(unittest.TestCase):
 
 
 RUNNER = runpy.run_path(str(ROOT / 'scripts/restic-backup'))
+LOCAL = RUNNER['LocalCapture']
 CAPTURE = runpy.run_path(str(ROOT / 'scripts/restic-capture-files.py'))
 
 
@@ -371,7 +372,7 @@ class SnapshotCapture(unittest.TestCase):
         self.spec = {'dataset_guid': '123456', 'expiry_seconds': 72 * 3600, 'broker_ipv4': '100.113.54.34'}
         self.record = {'capture': self.token, 'owner': self.owner, 'guid': '789',
                        'created': int(time.time()), 'dataset_guid': '123456'}
-        self.policy = {'_owner': None, '_capture': self.token,
+        self.policy = {'_owner': None,
             'capture': {'stage': '/mnt/games/home-lab-backup/capture', 'zfs': self.spec},
             'runner': {'journal_path': '/var/lib/home-lab-restic/interruption.json',
                        'deploy_lock_path': '/var/lib/iac-ansible-production.lock',
@@ -390,21 +391,28 @@ class SnapshotCapture(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, '', '')
         self.adapter = types.SimpleNamespace(CaptureError=CAPTURE['CaptureError'],
             zfs_spec=lambda _: self.spec,
+            capture_sources=lambda settings: types.SimpleNamespace(zfs=CAPTURE['zfs_paths'](),
+                state=['/srv/home-lab-state/test'] if settings.get('state_snapshot') else [], live_games=[]),
             zfs_record=CAPTURE['zfs_record'], zfs_call=mock.Mock(side_effect=remote),
             zfs_inventory=mock.Mock(return_value=[self.record]),
             zfs_mount=mock.Mock(side_effect=lambda *_: self.events.append('mount')),
+            zfs_verify_mounts=mock.Mock(),
             zfs_unmount=mock.Mock(side_effect=lambda *_: self.events.append('unmount')),
             copy_paths=mock.Mock(side_effect=lambda *_: self.events.append('copy')),
             database_dump=mock.Mock(side_effect=lambda *_: self.events.append('dump')),
             command=mock.Mock(side_effect=lambda *_: self.events.append('sync')),
             safe_source=mock.Mock(), retry=lambda call: call())
-        self.globals = RUNNER['cold_capture'].__globals__
+        self.capture = LOCAL(self.policy)
+        self.globals = LOCAL.run.__globals__
         patch = mock.patch.dict(self.globals, {
             'capture_adapter': lambda _: self.adapter,
             'compose': compose, 'service_running': lambda _, service: service in self.running,
             'service_healthy': lambda _, service: service in self.running,
             'nextcloud_healthy': lambda _: 'nextcloud' in self.running,
-            'verify_sources': mock.Mock(), 'inventory': mock.Mock(return_value=[]),
+            'verify_sources': mock.Mock(), 'preflight': mock.Mock(), 'inventory': mock.Mock(return_value=[]),
+            'artifact_hash': lambda _: 'b' * 64,
+            'declared_services': mock.Mock(side_effect=AssertionError('ready capture replanned')),
+            'restic_result': mock.Mock(return_value=subprocess.CompletedProcess([], 3, '', '')),
         })
         patch.start(); self.addCleanup(patch.stop)
         env = mock.patch.dict(os.environ, {'HOME_LAB_RESTIC_TESTING': '1', 'HOME_LAB_RESTIC_TEST_ROOT': str(self.root)})
@@ -412,11 +420,22 @@ class SnapshotCapture(unittest.TestCase):
 
     def state(self, **changes):
         value = {'version': 1, 'capture': self.token, 'owner': self.owner,
-                 'production_owner': None, 'running_services': ['nextcloud', 'nextcloud-cron'],
+                 'production_owner': self.policy['_owner'], 'running_services': ['nextcloud', 'nextcloud-cron'],
                  'record': self.record}
         value.update(changes)
         RUNNER['atomic_json'](self.stage / 'zfs-source.json', value)
         return value
+
+    def state_snapshot_receipt(self):
+        self.policy['capture']['state_snapshot'] = {'bytes': 1024}
+        self.adapter.state_snapshot_record = CAPTURE['state_snapshot_record']
+        self.adapter.state_device_idle = lambda: True
+        self.adapter.state_attachment_path = lambda stage: stage / 'state-attachment'
+        self.adapter.state_snapshot_attached = mock.Mock(side_effect=AssertionError('unexpected state attach'))
+        receipt = {'capture': self.token, 'owner': self.owner, 'created': int(time.time()),
+                   'bytes': 1024, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff'}
+        RUNNER['atomic_json'](self.stage / 'state-source.json', receipt)
+        return receipt
 
     def plan(self):
         step = {'name': 'nextcloud', 'services': ['nextcloud-cron', 'nextcloud'],
@@ -426,21 +445,39 @@ class SnapshotCapture(unittest.TestCase):
                     'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin'}
         return CAPTURE['capture_plan']({**self.policy, 'capture': settings}, set(step['services']))
 
+    def ready(self, **changes):
+        self.state()
+        manifest = {'version': 2, 'capture': self.token, 'owner': self.policy['_owner'],
+                    'policy': 'a' * 64, 'artifact': 'b' * 64, 'zfs_source': self.record,
+                    'captured_at': '2026-11-10T00:00:00+00:00'}
+        manifest.update(changes)
+        RUNNER['atomic_json'](self.stage / 'manifest.json', manifest)
+        return manifest
+
+    def completed(self, **changes):
+        fields = {'capture': self.token, 'policy': 'a' * 64, 'artifact': 'b' * 64,
+                  'owner': self.policy['_owner']}
+        fields.update(changes)
+        return {'id': 'c' * 64, 'tags': ['cadence=daily', 'format=full-v2', 'complete=full-v2',
+                                        *(f'{key}={value}' for key, value in fields.items() if value is not None)]}
+
     def test_cold_capture_exports_then_snapshots_then_recovers_before_mounting_bulk_data(self):
-        RUNNER['cold_capture'](self.policy, self.adapter, self.plan(), self.stage)
+        self.capture._pause_writers(self.adapter, self.plan(), self.stage, self.token)
         copied = self.adapter.copy_paths.call_args.args[0]
         self.assertEqual(copied, ['/srv/home-lab-state/nextcloud-config'])
         self.assertLess(self.events.index('dump'), self.events.index('create'))
         self.assertLess(self.events.index('create'), self.events.index('start:nextcloud'))
         self.assertFalse(self.adapter.zfs_mount.called)
-        RUNNER['zfs_ready'](self.policy, self.adapter, self.stage)
+        self.ready()
+        with self.assertRaisesRegex(RuntimeError, 'restic_partial_source'):
+            self.capture.run('a' * 64)
         self.assertLess(self.events.index('start:nextcloud-cron'), self.events.index('mount'))
         self.assertFalse(RUNNER['journal_path'](self.policy).exists())
 
     def test_lost_create_acknowledgement_recovers_writers_and_retains_intent_without_retry(self):
         self.adapter.zfs_call.side_effect = CAPTURE['CaptureError']('snapshot_remote_refused')
         with self.assertRaises(CAPTURE['CaptureError']):
-            RUNNER['cold_capture'](self.policy, self.adapter, self.plan(), self.stage)
+            self.capture._pause_writers(self.adapter, self.plan(), self.stage, self.token)
         self.assertEqual(self.running, {'nextcloud', 'nextcloud-cron'})
         self.assertEqual(self.adapter.zfs_call.call_count, 1)
         self.assertIsNone(json.loads((self.stage / 'zfs-source.json').read_text())['record'])
@@ -448,7 +485,7 @@ class SnapshotCapture(unittest.TestCase):
 
     def test_intentionally_stopped_cron_stays_stopped(self):
         self.running.remove('nextcloud-cron')
-        RUNNER['cold_capture'](self.policy, self.adapter, self.plan(), self.stage)
+        self.capture._pause_writers(self.adapter, self.plan(), self.stage, self.token)
         self.assertEqual(self.running, {'nextcloud'})
         self.assertEqual(json.loads((self.stage / 'zfs-source.json').read_text())['running_services'], ['nextcloud'])
 
@@ -467,43 +504,48 @@ class SnapshotCapture(unittest.TestCase):
             CAPTURE['capture_sources'](settings)
 
     def test_ready_retries_reuse_exact_guid_and_missing_receipt_never_falls_back_to_live_files(self):
-        self.state()
-        RUNNER['zfs_ready'](self.policy, self.adapter, self.stage)
+        self.ready()
+        with self.assertRaisesRegex(RuntimeError, 'restic_partial_source'):
+            self.capture.run('a' * 64)
         self.assertEqual(self.adapter.zfs_call.call_args.args[1], {
             'action': 'ready', 'capture': self.token, 'owner': self.owner, 'guid': '789'})
         self.assertFalse(self.adapter.copy_paths.called)
         self.state(record=None)
         with self.assertRaisesRegex(RuntimeError, 'snapshot_receipt_missing'):
-            RUNNER['zfs_ready'](self.policy, self.adapter, self.stage)
+            self.capture.run('a' * 64)
         self.assertEqual(self.adapter.zfs_mount.call_count, 1)
 
     def test_expired_ready_source_is_not_reopened_by_automatic_retries(self):
         self.record['created'] = int(time.time()) - 72 * 3600 - 5
-        self.state()
+        self.ready()
         with self.assertRaisesRegex(RuntimeError, 'snapshot_expired_cleanup_required'):
-            RUNNER['zfs_ready'](self.policy, self.adapter, self.stage)
+            self.capture.run('a' * 64)
         self.assertFalse(self.adapter.zfs_call.called)
         self.assertFalse(self.adapter.zfs_mount.called)
         self.assertTrue(self.stage.exists())
 
     def test_successful_completion_unmounts_before_withdrawing_and_deleting_exact_snapshot(self):
-        self.state()
-        RUNNER['zfs_release'](self.policy, self.adapter, self.stage, 'c' * 64)
+        self.policy['_owner'] = 'd' * 64
+        self.ready()
+        self.globals['inventory'].return_value = [self.completed()]
+        self.capture.run('a' * 64)
         self.assertEqual(self.events, ['unmount', 'complete'])
         self.assertEqual(self.adapter.zfs_call.call_args.args[1]['guid'], '789')
         self.assertEqual(self.adapter.zfs_call.call_args.args[1]['backup'], 'c' * 64)
+        self.assertFalse(self.stage.exists())
+        self.assertFalse(self.globals['restic_result'].called)
 
     def test_expiry_before_72_hours_does_not_delete_or_discard_retry_state(self):
         self.record['created'] = int(time.time()) - 72 * 3600 + 60
         self.state()
-        RUNNER['expire_snapshots'](self.policy)
+        self.capture.expire()
         self.assertTrue(self.stage.exists())
         self.assertFalse(self.adapter.zfs_call.called)
 
     def test_expired_unowned_recovered_capture_is_abandoned_without_false_completion(self):
         self.record['created'] = int(time.time()) - 72 * 3600 - 5
         self.state()
-        RUNNER['expire_snapshots'](self.policy)
+        self.capture.expire()
         self.assertEqual(self.adapter.zfs_call.call_args.args[1], {
             'action': 'abandon', 'capture': self.token, 'owner': self.owner, 'guid': '789'})
         self.assertFalse(self.stage.exists())
@@ -520,7 +562,7 @@ class SnapshotCapture(unittest.TestCase):
                     value['record'] = {**self.record, 'guid': '790'}
                     RUNNER['atomic_json'](self.stage / 'zfs-source.json', value)
                 self.adapter.zfs_call.reset_mock()
-                with self.assertRaises(RuntimeError): RUNNER['expire_snapshots'](self.policy)
+                with self.assertRaises(RuntimeError): self.capture.expire()
                 self.assertFalse(self.adapter.zfs_call.called)
                 self.assertTrue(self.stage.exists())
 
@@ -529,33 +571,106 @@ class SnapshotCapture(unittest.TestCase):
         self.state()
         self.globals['inventory'].return_value = [{'id': 'c' * 64, 'tags': [
             'format=full-v2', 'complete=full-v2', 'cadence=daily', 'capture=' + self.token]}]
-        RUNNER['expire_snapshots'](self.policy)
+        self.capture.expire()
         self.assertEqual(self.adapter.zfs_call.call_args.args[1]['action'], 'complete')
         self.assertFalse(self.stage.exists())
 
     def test_lost_destroy_acknowledgement_cleans_verified_stage_without_recapture(self):
-        self.state()
+        state = self.state_snapshot_receipt()
+        self.ready(state_source=state)
         self.adapter.zfs_inventory.return_value = []
-        self.globals['inventory'].return_value = [{'id': 'c' * 64, 'tags': [
-            'format=full-v2', 'complete=full-v2', 'cadence=daily', 'capture=' + self.token]}]
-        RUNNER['expire_snapshots'](self.policy)
+        self.adapter.zfs_call.return_value = {'deleted': True}
+        self.adapter.zfs_call.side_effect = None
+        self.globals['inventory'].return_value = [self.completed()]
+        self.capture.expire()
         self.assertFalse(self.stage.exists())
-        self.assertEqual(self.adapter.zfs_call.call_args.args[1]['action'], 'complete')
-        self.assertFalse(self.adapter.zfs_mount.called)
-        self.assertFalse(self.adapter.copy_paths.called)
+        requests = [call.args[1] for call in self.adapter.zfs_call.call_args_list]
+        self.assertEqual(requests, [
+            {'action': 'state-complete', 'capture': self.token, 'owner': self.owner, 'id': state['id']},
+            {'action': 'complete', 'capture': self.token, 'owner': self.owner, 'guid': self.record['guid'],
+             'backup': 'c' * 64},
+        ])
+        self.adapter.state_snapshot_attached.assert_not_called()
+        self.adapter.zfs_mount.assert_not_called()
+        self.adapter.copy_paths.assert_not_called()
+
+    def test_ready_capture_requires_both_receipts_before_any_open_or_release(self):
+        for command in ('reopen', 'complete', 'expire'):
+            for problem in ('zfs-missing', 'zfs-replaced', 'state-missing', 'state-replaced'):
+                with self.subTest(command=command, problem=problem):
+                    state = self.state_snapshot_receipt()
+                    self.ready(state_source=state)
+                    if problem == 'zfs-missing':
+                        self.state(record=None)
+                    elif problem == 'zfs-replaced':
+                        self.state(record={**self.record, 'guid': '999'})
+                    elif problem == 'state-missing':
+                        (self.stage / 'state-source.json').unlink()
+                    else:
+                        RUNNER['atomic_json'](self.stage / 'state-source.json', {**state, 'created': state['created'] + 1})
+                    self.globals['inventory'].return_value = [] if command == 'reopen' else [self.completed()]
+                    error = {'zfs-missing': 'snapshot_receipt_missing', 'zfs-replaced': 'zfs_snapshot_manifest_mismatch',
+                             'state-missing': 'state_snapshot_receipt_missing',
+                             'state-replaced': 'state_snapshot_manifest_mismatch'}[problem]
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        if command == 'expire':
+                            self.capture.expire()
+                        else:
+                            self.capture.run('a' * 64)
+                    self.assertTrue((self.stage / 'manifest.json').is_file())
+                    self.adapter.state_snapshot_attached.assert_not_called()
+                    self.adapter.zfs_call.assert_not_called()
+                    self.globals['restic_result'].assert_not_called()
+
+    def test_ambiguous_or_wrong_completion_never_releases_ready_capture(self):
+        for expiry in (False, True):
+            # Daily can run as the exact acquired production owner; expiry cannot.
+            self.policy['_owner'] = None if expiry else 'd' * 64
+            self.ready()
+            for identity in ('policy', 'artifact', 'owner', 'conflicting-tag', 'ambiguous'):
+                with self.subTest(expiry=expiry, identity=identity):
+                    snapshots = [self.completed(**{identity: 'e' * 64})] if identity in {
+                        'policy', 'artifact', 'owner'} else [self.completed()]
+                    if identity == 'conflicting-tag':
+                        snapshots[0]['tags'].append('policy=' + 'e' * 64)
+                    elif identity == 'ambiguous':
+                        snapshots.append({**self.completed(policy='e' * 64), 'id': 'f' * 64})
+                    self.globals['inventory'].return_value = snapshots
+                    with self.assertRaisesRegex(RuntimeError, 'completion_mapping' if identity == 'ambiguous'
+                                                else 'snapshot_completion_identity'):
+                        if expiry:
+                            self.capture.expire()
+                        else:
+                            self.capture.run('a' * 64)
+                    self.assertTrue((self.stage / 'manifest.json').is_file())
+                    self.adapter.zfs_call.assert_not_called()
+                    self.globals['restic_result'].assert_not_called()
+
+    def test_post_tag_inventory_must_match_ready_capture_before_cleanup(self):
+        self.ready()
+        self.globals['inventory'].side_effect = [[], [self.completed(artifact='e' * 64)]]
+        self.globals['restic_result'].side_effect = [
+            subprocess.CompletedProcess([], 0, json.dumps({'message_type': 'summary', 'snapshot_id': 'f' * 64}), ''),
+            subprocess.CompletedProcess([], 0, '', ''),
+        ]
+        with self.assertRaisesRegex(RuntimeError, 'snapshot_completion_identity'):
+            self.capture.run('a' * 64)
+        self.assertEqual(self.events, ['ready', 'mount', 'inspect', 'unmount'])
+        self.assertTrue((self.stage / 'manifest.json').is_file())
+        self.assertTrue((self.stage / 'zfs-source.json').is_file())
 
     def test_missing_unqualified_source_retains_stage_and_fails_for_inspection(self):
         self.state()
         self.adapter.zfs_inventory.return_value = []
         with self.assertRaisesRegex(RuntimeError, 'snapshot_missing_requires_inspection'):
-            RUNNER['expire_snapshots'](self.policy)
+            self.capture.expire()
         self.assertTrue(self.stage.exists())
         self.assertFalse(self.adapter.zfs_call.called)
 
     def test_unknown_orphan_ownership_is_preserved_even_after_expiry(self):
         self.record['owner'] = 'd' * 64
         with self.assertRaisesRegex(RuntimeError, 'owner_requires_inspection'):
-            RUNNER['expire_snapshots'](self.policy)
+            self.capture.expire()
         self.assertFalse(self.adapter.zfs_call.called)
 
     def test_native_snapshot_mount_is_readonly_exact_source_and_refuses_live_or_nonempty_fallback(self):
