@@ -606,13 +606,13 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         stage = self.root / 'stage'
         stage.mkdir(mode=0o700)
         (stage / 'value').write_text('synthetic ready capture')
-        manifest = {'version': 2, 'capture': 'lock-fixture', 'policy': 'a' * 64,
+        manifest = {'version': 2, 'capture': '1' * 32, 'policy': 'a' * 64,
                     'artifact': 'b' * 64, 'owner': None, 'captured_at': datetime.now(timezone.utc).isoformat()}
         (stage / 'manifest.json').write_text(json.dumps(manifest))
         (stage / 'manifest.json').chmod(0o600)
         policy = {'capture': {'stage': str(stage)}, 'tools': {'restic': {'installed_path': binary}},
                   'repositories': {'games': {'path': str(repository)}}}
-        daily, restic = RUNNER['daily_local'], RUNNER['restic_result']
+        local, restic = RUNNER['LocalCapture'](policy), RUNNER['restic_result']
         tagging, finished = threading.Event(), threading.Event()
         errors = []
         def command(*args, **kwargs):
@@ -623,7 +623,7 @@ sys.exit(int(os.environ['DUMP_RESULT']))
             return restic(*args, **kwargs)
         def complete():
             try:
-                daily(policy, 'a' * 64)
+                local.run('a' * 64)
             except BaseException as error:
                 errors.append(error)
             finally:
@@ -640,12 +640,12 @@ sys.exit(int(os.environ['DUMP_RESULT']))
                     self.assertIsNone(reader.poll(), 'native lock holder exited prematurely')
                     self.assertLess(time.monotonic(), deadline, 'native reader did not acquire its lock')
                     time.sleep(.02)
-                with mock.patch.dict(daily.__globals__, {
-                    'recover_interruption': mock.Mock(), 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
+                with mock.patch.dict(local.run.__globals__, {
+                    'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
                     'capture_adapter': lambda _: CAPTURE, 'rooted': Path, 'artifact_hash': lambda _: 'b' * 64,
                     'repository_environment': lambda *_: environment, 'restic_result': command,
-                    'cold_capture': mock.Mock(side_effect=AssertionError('recapture')),
-                }), mock.patch('builtins.print'):
+                    'declared_services': mock.Mock(side_effect=AssertionError('ready capture replanned')),
+                }), mock.patch.object(local, 'recover'), mock.patch('builtins.print'):
                     worker.start()
                     try:
                         self.assertTrue(tagging.wait(10), 'completion did not reach native tagging')

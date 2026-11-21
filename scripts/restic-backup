@@ -369,58 +369,6 @@ def journal_path(policy: dict[str, Any]) -> Path:
     return rooted(policy["runner"]["journal_path"])
 
 
-def restart_recorded(policy: dict[str, Any], journal: dict[str, Any]) -> None:
-    running = set(journal.get("running_services", []))
-    stop_order = journal.get("stop_order", [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]])
-    failed = False
-    for service in reversed(stop_order):
-        if service in running:
-            try:
-                require_success(compose(policy, ["start", service]), "service_restart")
-            except WorkflowError:
-                if service == 'gluetun':
-                    raise
-                # A failed application must not strand the rest of the pause set.
-                failed = True
-                continue
-            if service == "gluetun":
-                # Its network-namespace clients require a healthy VPN before start.
-                deadline = time.monotonic() + (3 if testing() else 300)
-                while time.monotonic() < deadline:
-                    if service_healthy(policy, service):
-                        break
-                    time.sleep(0.1 if testing() else 5)
-                else:
-                    raise WorkflowError("service_health")
-    if failed:
-        raise WorkflowError('service_restart')
-    deadline = time.monotonic() + (3 if testing() else 300)
-    while time.monotonic() < deadline:
-        if (all(service_healthy(policy, service) for service in running) and
-                ('nextcloud' not in running or nextcloud_healthy(policy))):
-            durable_unlink(journal_path(policy))
-            return
-        time.sleep(0.1 if testing() else 5)
-    raise WorkflowError("service_health")
-
-
-def recover_interruption(policy: dict[str, Any]) -> None:
-    value = read_json(journal_path(policy), {})
-    if value:
-        if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("running_services"), list):
-            raise WorkflowError("journal_schema")
-        if value.get('owner') != policy.get('_owner'):
-            raise WorkflowError('journal_owner')
-        allowed = set(policy['stop_groups']['applications'] + policy['stop_groups']['databases'])
-        running = value['running_services']
-        order = value.get('stop_order', list(allowed))
-        if (not isinstance(order, list) or any(not isinstance(s, str) or s not in allowed for s in running + order)
-                or len(set(running)) != len(running) or len(set(order)) != len(order)
-                or not set(running) <= set(order)):
-            raise WorkflowError('journal_schema')
-        restart_recorded(policy, value)
-
-
 def restic_backup_time(value):
     # Restic accepts a zone-less, whole-second timestamp; run() pins TZ=UTC.
     stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -509,389 +457,400 @@ def verify_sources(policy):
             raise WorkflowError('source_mount_identity')
 
 
-def zfs_state(policy, stage):
-    adapter = capture_adapter(policy)
-    value = read_json(stage / 'zfs-source.json', {})
-    if (not isinstance(value, dict) or
-            set(value) != {'version', 'capture', 'owner', 'production_owner', 'running_services', 'record'} or
-            value['version'] != 1 or not isinstance(value['capture'], str) or
-            re.fullmatch('[0-9a-f]{32}', value['capture']) is None or
-            value['owner'] != hashlib.sha256(value['capture'].encode()).hexdigest() or
-            value['production_owner'] != policy.get('_owner') or
-            not isinstance(value['running_services'], list) or
-            any(not isinstance(service, str) for service in value['running_services']) or
-            len(value['running_services']) != len(set(value['running_services'])) or
-            not set(value['running_services']) <= set(policy['stop_groups']['applications'])):
-        raise WorkflowError('snapshot_state')
-    if value['record'] is not None:
-        adapter.zfs_record(adapter.zfs_spec(policy), value['record'],
-                           capture=value['capture'], owner=value['owner'])
-    return value
+class LocalCapture:
+    """One local capture under the runner's locks, including recovery and expiry."""
 
+    def __init__(self, policy: dict[str, Any]):
+        self.policy = policy
 
-def zfs_ready(policy, adapter, stage):
-    value = zfs_state(policy, stage)
-    if value['record'] is None:
-        raise WorkflowError('snapshot_receipt_missing')
-    spec = adapter.zfs_spec(policy)
-    if time.time() - value['record']['created'] >= spec['expiry_seconds']:
-        raise WorkflowError('snapshot_expired_cleanup_required')
-    record = adapter.zfs_record(spec, adapter.zfs_call(spec, {
-        'action': 'ready', 'capture': value['capture'], 'owner': value['owner'],
-        'guid': value['record']['guid'],
-    }), capture=value['capture'], owner=value['owner'])
-    if record != value['record']:
-        raise WorkflowError('snapshot_replaced')
-    adapter.zfs_mount(spec, record, stage)
+    def preflight(self) -> None:
+        self.recover()
+        preflight(self.policy, ['games'])
+        verify_sources(self.policy)
 
+    def recover(self) -> None:
+        policy = self.policy
+        value = read_json(journal_path(policy), {})
+        if value:
+            if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("running_services"), list):
+                raise WorkflowError("journal_schema")
+            if value.get('owner') != policy.get('_owner'):
+                raise WorkflowError('journal_owner')
+            allowed = set(policy['stop_groups']['applications'] + policy['stop_groups']['databases'])
+            running = value['running_services']
+            order = value.get('stop_order', list(allowed))
+            if (not isinstance(order, list) or any(not isinstance(s, str) or s not in allowed for s in running + order)
+                    or len(set(running)) != len(running) or len(set(order)) != len(order)
+                    or not set(running) <= set(order)):
+                raise WorkflowError('journal_schema')
+            self._restart(value)
 
-def state_source(policy, adapter, stage):
-    value = read_json(stage / 'state-source.json', {})
-    capture = value.get('capture') if isinstance(value, dict) else None
-    if not isinstance(capture, str) or re.fullmatch('[0-9a-f]{32}', capture) is None:
-        raise WorkflowError('state_snapshot_receipt_missing')
-    # Both sources belong to the same write pause and capture, never mix them.
-    zfs = zfs_state(policy, stage)
-    return adapter.state_snapshot_record(policy, value, zfs['capture'], zfs['owner'])
+    def _restart(self, journal: dict[str, Any]) -> None:
+        policy = self.policy
+        running = set(journal.get("running_services", []))
+        stop_order = journal.get("stop_order", [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]])
+        failed = False
+        for service in reversed(stop_order):
+            if service in running:
+                try:
+                    require_success(compose(policy, ["start", service]), "service_restart")
+                except WorkflowError:
+                    if service == 'gluetun':
+                        raise
+                    # A failed application must not strand the rest of the pause set.
+                    failed = True
+                    continue
+                if service == "gluetun":
+                    # Its network-namespace clients require a healthy VPN before start.
+                    deadline = time.monotonic() + (3 if testing() else 300)
+                    while time.monotonic() < deadline:
+                        if service_healthy(policy, service):
+                            break
+                        time.sleep(0.1 if testing() else 5)
+                    else:
+                        raise WorkflowError("service_health")
+        if failed:
+            raise WorkflowError('service_restart')
+        deadline = time.monotonic() + (3 if testing() else 300)
+        while time.monotonic() < deadline:
+            if (all(service_healthy(policy, service) for service in running) and
+                    ('nextcloud' not in running or nextcloud_healthy(policy))):
+                durable_unlink(journal_path(policy))
+                return
+            time.sleep(0.1 if testing() else 5)
+        raise WorkflowError("service_health")
 
-
-def state_request(policy, adapter, stage, action):
-    value = state_source(policy, adapter, stage)
-    payload = {'action': action, 'capture': value['capture'], 'owner': value['owner']}
-    if action != 'state-inspect':
-        payload['id'] = value['id']
-    result = adapter.zfs_call(adapter.zfs_spec(policy), payload)
-    if action in {'state-complete', 'state-abandon'}:
-        if result != {'deleted': True}:
-            raise WorkflowError('state_snapshot_retained')
-    elif result != value:
-        raise WorkflowError('state_snapshot_replaced')
-    return value
-
-
-def state_ready(policy, adapter, stage, stack, paths):
-    record = state_request(policy, adapter, stage, 'state-ready')
-    return stack.enter_context(adapter.state_snapshot_attached(policy, record, stage, paths))
-
-
-def state_release(policy, adapter, stage, action):
-    if policy['capture'].get('state_snapshot'):
-        if not adapter.state_device_idle() or adapter.state_attachment_path(stage).exists():
-            raise WorkflowError('state_snapshot_attachment_requires_inspection')
-        state_request(policy, adapter, stage, action)
-
-
-def zfs_release(policy, adapter, stage, backup):
-    if not policy['capture'].get('zfs'):
-        return
-    state_release(policy, adapter, stage, 'state-complete')
-    value = zfs_state(policy, stage)
-    if value['record'] is None:
-        raise WorkflowError('snapshot_receipt_missing')
-    adapter.zfs_unmount(stage)
-    result = adapter.zfs_call(adapter.zfs_spec(policy), {
-        'action': 'complete', 'capture': value['capture'], 'owner': value['owner'],
-        'guid': value['record']['guid'], 'backup': backup,
-    })
-    if result.get('deleted') is not True:
-        raise WorkflowError('snapshot_retained')
-
-
-def snapshot_readers_present(stage, adapter):
-    targets = set(map(str, adapter.snapshot_mounts(stage)))
-    for process in Path('/proc').iterdir():
-        if not process.name.isdigit():
-            continue
-        try:
-            # Do not read arbitrary process arguments/environments. Only native
-            # Restic mount namespaces are relevant; replica readers do not mount
-            # this source. This also catches orphaned manual-backup children.
-            if (process / 'comm').read_text().strip() != 'restic':
-                continue
-            if any(line.split()[4] in targets for line in (process / 'mountinfo').read_text().splitlines()):
-                return True
-        except (FileNotFoundError, ProcessLookupError):
-            continue
-    return False
-
-
-def expire_snapshots(policy):
-    """Native hourly cleanup, serialized with capture and blocked by any owner.
-
-    No owner is adopted or released here. Recovery must succeed first. Only a
-    scheduled producer's known namespace/receipt may be abandoned after 72h.
-    """
-    if rooted(policy['runner']['deploy_lock_path']).exists():
-        raise WorkflowError('snapshot_owner_requires_inspection')
-    adapter = capture_adapter(policy)
-    spec = adapter.zfs_spec(policy)
-    verify_sources(policy)
-    stage = rooted(policy['capture']['stage'])
-    if stage.exists():
-        metadata = stage.lstat()
-        if stage.is_symlink() or not stage.is_dir() or metadata.st_uid != os.geteuid() or metadata.st_mode & 0o777 != 0o700:
-            raise WorkflowError('snapshot_stage_metadata')
-    if not testing():
-        active = run(['/usr/bin/systemctl', 'show', 'home-lab-restic-daily-local.service',
-                      '--property=ActiveState', '--value'], timeout=20)
-        if (active.returncode or active.stdout.strip() not in {'inactive', 'failed'} or
-                snapshot_readers_present(stage, adapter)):
-            raise WorkflowError('snapshot_job_active')
-    recover_interruption(policy)
-    state = zfs_state(policy, stage) if (stage / 'zfs-source.json').exists() else None
-    manifest = read_json(stage / 'manifest.json', {}) if stage.exists() else {}
-    completed = qualified(inventory(policy, 'games'))
-    records = adapter.zfs_inventory(spec)
-    if state and not any(row['capture'] == state['capture'] for row in records):
-        matches = [row for row in completed if 'capture=' + state['capture'] in row.get('tags', [])]
-        if len(matches) != 1:
-            raise WorkflowError('snapshot_missing_requires_inspection')
-        if manifest and (('policy=' + manifest['policy']) not in matches[0].get('tags', []) or
-                         ('artifact=' + manifest['artifact']) not in matches[0].get('tags', [])):
-            raise WorkflowError('snapshot_completion_identity')
-        # A successful destroy may have lost its acknowledgement. Complete is
-        # idempotent, but still withdraws any exact leftover export before the
-        # verified retry set is removed.
-        zfs_release(policy, adapter, stage, matches[0]['id'])
-        shutil.rmtree(stage)
-        state, manifest = None, {}
-        print('restic_backup=snapshot_cleanup outcome=complete')
-    for record in records:
-        token = record['capture']
-        if record['owner'] != hashlib.sha256(token.encode()).hexdigest():
-            raise WorkflowError('snapshot_owner_requires_inspection')
-        if stage.exists() and (state is None or state['capture'] != token):
+    def _read_manifest(self, stage):
+        manifest = read_json(stage / 'manifest.json', None)
+        if (not isinstance(manifest, dict) or manifest.get('version') != 2
+                or not isinstance(manifest.get('capture'), str)
+                or re.fullmatch('[0-9a-f]{32}', manifest['capture']) is None
+                or any(not isinstance(manifest.get(key), str) or not SNAPSHOT_ID.fullmatch(manifest[key])
+                       for key in ('policy', 'artifact'))
+                or 'owner' not in manifest or manifest['owner'] != self.policy.get('_owner')):
             raise WorkflowError('previous_capture_requires_inspection')
-        matches = [row for row in completed if 'capture=' + token in row.get('tags', [])]
+        return manifest
+
+    @staticmethod
+    def _completed(rows, token, manifest=None):
+        # Do not turn a conflicting or ambiguous completion into absence.
+        matches = [row for row in qualified(rows) if 'capture=' + token in row.get('tags', [])]
         if len(matches) > 1:
             raise WorkflowError('completion_mapping')
-        if not matches and time.time() - record['created'] < spec['expiry_seconds']:
-            continue
-        # All captured writers remain as recorded; intentionally stopped services
-        # stay stopped. A remote orphan with no local state must pass the more
-        # conservative requirement that every known paused writer is healthy.
-        running = state['running_services'] if state else policy['stop_groups']['applications']
-        if (any(not service_healthy(policy, service) for service in running) or
-                ('nextcloud' in running and not nextcloud_healthy(policy))):
-            raise WorkflowError('snapshot_recovery_not_verified')
-        if state and state['record'] is not None and state['record'] != record:
+        if not matches:
+            return None
+        row = matches[0]
+        if manifest is not None:
+            for key in ('capture', 'policy', 'artifact', 'owner'):
+                value = manifest[key]
+                expected = {f'{key}={value}'} if value is not None else set()
+                if {tag for tag in row['tags'] if tag.startswith(key + '=')} != expected:
+                    raise WorkflowError('snapshot_completion_identity')
+        return row['id']
+
+    def _zfs_intent(self, adapter, stage):
+        policy = self.policy
+        value = read_json(stage / 'zfs-source.json', {})
+        if (not isinstance(value, dict) or
+                set(value) != {'version', 'capture', 'owner', 'production_owner', 'running_services', 'record'} or
+                value['version'] != 1 or not isinstance(value['capture'], str) or
+                re.fullmatch('[0-9a-f]{32}', value['capture']) is None or
+                value['owner'] != hashlib.sha256(value['capture'].encode()).hexdigest() or
+                value['production_owner'] != policy.get('_owner') or
+                not isinstance(value['running_services'], list) or
+                any(not isinstance(service, str) for service in value['running_services']) or
+                len(value['running_services']) != len(set(value['running_services'])) or
+                not set(value['running_services']) <= set(policy['stop_groups']['applications'])):
+            raise WorkflowError('snapshot_state')
+        if value['record'] is not None:
+            adapter.zfs_record(adapter.zfs_spec(policy), value['record'],
+                               capture=value['capture'], owner=value['owner'])
+        return value
+
+    def _state_receipt(self, adapter, stage, zfs):
+        value = read_json(stage / 'state-source.json', None)
+        if value is None or zfs is None:
+            raise WorkflowError('state_snapshot_receipt_missing')
+        # Both sources belong to the same writer pause and capture.
+        return adapter.state_snapshot_record(self.policy, value, zfs['capture'], zfs['owner'])
+
+    def _ready_receipts(self, adapter, stage, manifest):
+        settings = self.policy['capture']
+        zfs = None
+        if settings.get('zfs'):
+            zfs = self._zfs_intent(adapter, stage)
+            if zfs['record'] is None:
+                raise WorkflowError('snapshot_receipt_missing')
+        if (zfs['record'] if zfs else None) != manifest.get('zfs_source') or (
+                zfs and zfs['capture'] != manifest['capture']):
+            raise WorkflowError('zfs_snapshot_manifest_mismatch')
+        state = self._state_receipt(adapter, stage, zfs) if settings.get('state_snapshot') else None
+        if state != manifest.get('state_source'):
+            raise WorkflowError('state_snapshot_manifest_mismatch')
+        return zfs, state
+
+    def _open_zfs(self, adapter, stage, value):
+        spec = adapter.zfs_spec(self.policy)
+        if time.time() - value['record']['created'] >= spec['expiry_seconds']:
+            raise WorkflowError('snapshot_expired_cleanup_required')
+        record = adapter.zfs_record(spec, adapter.zfs_call(spec, {
+            'action': 'ready', 'capture': value['capture'], 'owner': value['owner'],
+            'guid': value['record']['guid'],
+        }), capture=value['capture'], owner=value['owner'])
+        if record != value['record']:
             raise WorkflowError('snapshot_replaced')
-        if matches and manifest and (('policy=' + manifest['policy']) not in matches[0].get('tags', []) or
-                                     ('artifact=' + manifest['artifact']) not in matches[0].get('tags', [])):
-            raise WorkflowError('snapshot_completion_identity')
-        if policy['capture'].get('state_snapshot'):
-            if state is None:
-                raise WorkflowError('state_snapshot_receipt_missing')
-            state_release(policy, adapter, stage, 'state-complete' if matches else 'state-abandon')
-        adapter.zfs_unmount(stage)
-        action = {'action': 'complete' if matches else 'abandon', 'capture': token,
-                  'owner': record['owner'], 'guid': record['guid']}
-        if matches:
-            action['backup'] = matches[0]['id']
-        if adapter.zfs_call(spec, action).get('deleted') is not True:
-            raise WorkflowError('snapshot_retained')
-        if state:
-            # The source is terminal and its unqualified retry set is explicitly
-            # abandoned, never tagged complete or admitted to deployment.
-            shutil.rmtree(stage)
-            state = None
-        print('restic_backup=snapshot_cleanup outcome=' + ('complete' if matches else 'abandoned'))
+        adapter.zfs_mount(spec, record, stage)
 
+    def _state_request(self, adapter, record, action):
+        payload = {'action': action, 'capture': record['capture'], 'owner': record['owner']}
+        if action != 'state-inspect':
+            payload['id'] = record['id']
+        result = adapter.zfs_call(adapter.zfs_spec(self.policy), payload)
+        if action in {'state-complete', 'state-abandon'}:
+            if result != {'deleted': True}:
+                raise WorkflowError('state_snapshot_retained')
+        elif result != record:
+            raise WorkflowError('state_snapshot_replaced')
 
-def cold_capture(policy, adapter, plan, stage):
-    services = plan.pause_services
-    for path in (*plan.precopy, *plan.paused_copy, *plan.sources.zfs, *plan.sources.state):
-        adapter.safe_source(path)
-    excludes = rooted(policy['runner']['exclude_file_path'])
-    baseline = None
-    if plan.precopy:
-        started = time.monotonic()
-        baseline = adapter.retry(lambda: adapter.precopy(plan.precopy, stage / 'files', excludes))
-        report_phase('precopy_local', started)
-    running = [s for s in services if service_running(policy, s)]
-    if plan.sources.zfs:
-        if (stage / 'zfs-source.json').exists():
-            raise WorkflowError('snapshot_scope')
-        token = policy['_capture']
-        state = {'version': 1, 'capture': token, 'owner': hashlib.sha256(token.encode()).hexdigest(),
-                 'production_owner': policy.get('_owner'), 'running_services': running, 'record': None}
-    journal = {'version': 1, 'running_services': running, 'stop_order': services,
-               'started_at': int(time.time()), 'owner': policy.get('_owner')}
-    atomic_json(journal_path(policy), journal, 0o600)
-    interrupted = time.monotonic()
-    try:
-        if running:
-            require_success(compose(policy, ['stop', '--timeout', '120', *running]), 'service_stop')
-        if any(service_running(policy, s) for s in services):
-            raise WorkflowError('writer_not_stopped')
-        report_phase('shutdown', interrupted)
-        started = time.monotonic()
-        if plan.precopy:
-            adapter.retry(lambda: adapter.finish_copy(plan.precopy, stage / 'files', excludes, baseline=baseline))
-        if plan.paused_copy:
-            adapter.retry(lambda: adapter.copy_paths(plan.paused_copy, stage / 'files', excludes))
-        report_phase('final_copy_local', started)
-        started = time.monotonic()
-        for dump in plan.cold_dumps:
-            adapter.retry(lambda: adapter.database_dump(dump, stage / 'databases' / dump['name']))
-        report_phase('sql_exports', started)
-        if plan.sources.zfs:
-            started = time.monotonic()
-            adapter.command(['/usr/bin/sync', '--file-system', '/mnt/storage'])
-            spec = adapter.zfs_spec(policy)
-            # Persist intent before the side effect. Lost acknowledgement retains
-            # it for inspection; never recapture from mutable live data.
-            atomic_json(stage / 'zfs-source.json', state)
-            state['record'] = adapter.zfs_record(spec, adapter.zfs_call(spec, {
-                'action': 'create', 'capture': state['capture'], 'owner': state['owner'],
-            }), capture=state['capture'], owner=state['owner'])
-            atomic_json(stage / 'zfs-source.json', state)
-            report_phase('zfs_snapshot', started)
-            if plan.sources.state:
-                started = time.monotonic()
-                adapter.command(['/usr/bin/sync', '--file-system', '/srv/home-lab-state'])
-                response = adapter.zfs_call(spec, {'action': 'state-create', 'capture': state['capture'],
-                                                  'owner': state['owner']})
-                receipt = adapter.state_snapshot_record(policy, response, state['capture'], state['owner'])
-                atomic_json(stage / 'state-source.json', receipt)
-                report_phase('state_snapshot', started)
-    finally:
-        started = time.monotonic()
-        restart_recorded(policy, journal)
-        report_phase('restart', started)
-        report_phase('interruption_shared', interrupted)
+    def _open_state(self, adapter, stage, record, attachments, paths):
+        self._state_request(adapter, record, 'state-ready')
+        attachments.enter_context(adapter.state_snapshot_attached(self.policy, record, stage, paths))
 
+    def _release_sources(self, adapter, stage, zfs_record, state_record, *, backup):
+        if state_record is not None:
+            if not adapter.state_device_idle() or adapter.state_attachment_path(stage).exists():
+                raise WorkflowError('state_snapshot_attachment_requires_inspection')
+            self._state_request(adapter, state_record, 'state-complete' if backup else 'state-abandon')
+        if zfs_record is not None:
+            adapter.zfs_unmount(stage)
+            request = {'action': 'complete' if backup else 'abandon', 'capture': zfs_record['capture'],
+                       'owner': zfs_record['owner'], 'guid': zfs_record['guid']}
+            if backup:
+                request['backup'] = backup
+            if adapter.zfs_call(adapter.zfs_spec(self.policy), request).get('deleted') is not True:
+                raise WorkflowError('snapshot_retained')
 
-def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
-    recover_interruption(policy)
-    preflight(policy, ['games'])
-    verify_sources(policy)
-    adapter = capture_adapter(policy)
-    settings = policy['capture']
-    stage = rooted(settings['stage'])
-    if stage.exists():
-        manifest = read_json(stage / 'manifest.json', {})
-        if (manifest.get('version') != 2 or manifest.get('policy') != policy_hash
-                or manifest.get('artifact') != artifact_hash(policy)
-                or manifest.get('owner') != policy.get('_owner')):
-            raise WorkflowError('previous_capture_requires_inspection')
-    else:
+    def _finish_ready(self, adapter, stage, manifest, backup):
+        zfs, state = self._ready_receipts(adapter, stage, manifest)
+        self._release_sources(adapter, stage, zfs['record'] if zfs else None, state, backup=backup)
+        shutil.rmtree(stage)
+
+    def run(self, policy_hash: str) -> None:
+        self.preflight()
+        policy = self.policy
+        settings = policy['capture']
+        stage = rooted(settings['stage'])
+        adapter = capture_adapter(policy)
+        attachments = ExitStack()
+        zfs_opening = False
         try:
-            plan = adapter.capture_plan(policy, declared_services(policy))
-            adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
-            if plan.sources.zfs:
-                adapter.zfs_verify_broker_scope(policy)
-                if adapter.zfs_inventory(adapter.zfs_spec(policy), require_admissible=True):
-                    raise WorkflowError('previous_snapshot_requires_inspection')
-            if plan.sources.state:
-                adapter.state_snapshot_preflight(policy, stage)
-            adapter.capacity_check(plan, stage, settings['reserve_bytes'], policy['runner']['exclude_file_path'])
-            stage = adapter.fresh_stage(stage, settings['reserve_bytes'])
+            if stage.exists():
+                manifest = self._read_manifest(stage)
+                if manifest['policy'] != policy_hash or manifest['artifact'] != artifact_hash(policy):
+                    raise WorkflowError('previous_capture_requires_inspection')
+                backup = self._completed(inventory(policy, 'games'), manifest['capture'], manifest)
+                if backup:
+                    self._finish_ready(adapter, stage, manifest, backup)
+                    print(f'restic_backup=local snapshot={backup}')
+                    return
+                # The policy digest binds mount selection. Never replan against
+                # current Compose or take new snapshots on a ready retry.
+                sources = adapter.capture_sources(settings)
+                zfs, state = self._ready_receipts(adapter, stage, manifest)
+                if state is not None:
+                    self._open_state(adapter, stage, state, attachments, sources.state)
+            else:
+                plan = self._prepare(adapter, stage)
+                sources = plan.sources
+                manifest, zfs, state = self._stage_fresh(adapter, stage, plan, policy_hash, attachments)
+            if zfs is not None:
+                zfs_opening = True
+                self._open_zfs(adapter, stage, zfs)
+            if sources.live_games:
+                # These paths are deliberately live on retries.
+                attachments.enter_context(adapter.live_games_mounted(sources.live_games, stage))
+            backup = self._upload(adapter, stage, manifest, sources, zfs, state, attachments)
+            self._finish_ready(adapter, stage, manifest, backup)
+            zfs_opening = False
+            print(f'restic_backup=local snapshot={backup}')
         except adapter.CaptureError as error:
             raise WorkflowError(str(error)) from None
-        manifest = None
-    token = manifest['capture'] if manifest else uuid.uuid4().hex
-    policy['_capture'] = token
-    attachments = ExitStack()
-    try:
-        if manifest:
-            completed = [r for r in qualified(inventory(policy, 'games')) if 'capture=' + token in r.get('tags', [])]
-            if len(completed) > 1:
-                raise WorkflowError('completion_mapping')
-            if completed:
-                zfs_release(policy, adapter, stage, completed[0]['id'])
-                shutil.rmtree(stage)
-                print(f"restic_backup=local snapshot={completed[0]['id']}")
-                return
-            # The manifest binds this policy digest. Reuse its mount selection
-            # without replanning against current Compose or taking new snapshots.
-            sources = adapter.capture_sources(settings)
-            if sources.state:
-                if manifest.get('state_source') != state_source(policy, adapter, stage):
-                    raise WorkflowError('state_snapshot_manifest_mismatch')
-                state_ready(policy, adapter, stage, attachments, sources.state)
-        else:
-            sources = plan.sources
-            captured_at = datetime.now(timezone.utc).isoformat()
-            captures = []
-            online_clock = time.monotonic()
-            online_started = datetime.now(timezone.utc).isoformat()
-            excludes = rooted(policy['runner']['exclude_file_path'])
-            for step in plan.online:
-                started = time.monotonic()
-                began = datetime.now(timezone.utc).isoformat()
-                if step.get('native') == 'postgres':
-                    spec = step['databases'][0]
-                    adapter.retry(lambda: adapter.online_postgres(
-                        step['paths'], stage / 'files', excludes,
-                        spec=spec, target=stage / 'databases' / spec['name']))
-                elif step.get('native') == 'mosquitto':
-                    container = service_container(policy, step['service'])
-                    running = service_running(policy, step['service'])
-                    adapter.retry(lambda: adapter.mosquitto(
-                        step, stage / 'files', excludes, container=container, running=running))
-                else:
-                    adapter.retry(lambda: adapter.online_tree(
-                        step['paths'], stage / 'files', excludes,
-                        sqlite_paths=step.get('sqlite', []), json_roots=step.get('json_roots', []),
-                        ephemeral=step.get('ephemeral', [])))
-                captures.append({'name': step['name'], 'started_at': began,
-                                 'finished_at': datetime.now(timezone.utc).isoformat()})
-                report_phase('online_capture_' + step['name'], started)
-            for path in plan.online_stores:
-                adapter.stable_store(Path(path), stage / 'files' / path.lstrip('/'))
-            for path in plan.live_files:
-                adapter.retry(lambda: adapter.copy_paths(
-                    [path], stage / 'files', excludes, online_sqlite=path.startswith(plan.jellyfin.rstrip('/') + '/')))
-            for path in plan.online_json:
-                adapter.acme_store(Path(path), stage / 'files' / path.lstrip('/'))
-            auth = plan.cli_auth
-            adapter.cli_auth(auth, stage / 'files' / auth.lstrip('/'))
-            jelly = Path(plan.jellyfin)
-            adapter.jellyfin(jelly, stage / 'native/jellyfin.zip')
-            # Auxiliary plugin databases also get online backup semantics.
-            for db in [*jelly.glob('data/*.db'), *jelly.glob('plugins/**/*.db')]:
-                if db.name != 'jellyfin.db':
-                    adapter.retry(lambda: adapter.sqlite_backup(db, stage / 'files' / str(db).lstrip('/')))
-            report_phase('online_capture_total', online_clock)
-            captures.append({'name': 'online', 'started_at': online_started,
-                             'finished_at': datetime.now(timezone.utc).isoformat()})
+        finally:
+            try:
+                attachments.close()
+            finally:
+                if zfs_opening:
+                    adapter.zfs_unmount(stage)
+
+    def _prepare(self, adapter, stage):
+        policy = self.policy
+        settings = policy['capture']
+        plan = adapter.capture_plan(policy, declared_services(policy))
+        adapter.radio_check(Path('/'), settings['radio_max_age_seconds'])
+        if plan.sources.zfs:
+            adapter.zfs_verify_broker_scope(policy)
+            if adapter.zfs_inventory(adapter.zfs_spec(policy), require_admissible=True):
+                raise WorkflowError('previous_snapshot_requires_inspection')
+        if plan.sources.state:
+            adapter.state_snapshot_preflight(policy, stage)
+        adapter.capacity_check(plan, stage, settings['reserve_bytes'], policy['runner']['exclude_file_path'])
+        adapter.fresh_stage(stage, settings['reserve_bytes'])
+        return plan
+
+    def _stage_fresh(self, adapter, stage, plan, policy_hash, attachments):
+        policy = self.policy
+        token = uuid.uuid4().hex
+        captured_at = datetime.now(timezone.utc).isoformat()
+        captures = self._capture_online(adapter, stage, plan)
+        began = datetime.now(timezone.utc).isoformat()
+        self._pause_writers(adapter, plan, stage, token)
+        finished = datetime.now(timezone.utc).isoformat()
+        captures.extend({'name': name, 'started_at': began, 'finished_at': finished} for name in plan.cold_names)
+        zfs = self._zfs_intent(adapter, stage) if plan.sources.zfs else None
+        if zfs is not None:
+            if zfs['record'] is None:
+                raise WorkflowError('snapshot_receipt_missing')
+            if zfs['capture'] != token:
+                raise WorkflowError('snapshot_replaced')
+        state = self._state_receipt(adapter, stage, zfs) if plan.sources.state else None
+        # Verify the same frozen radio view Restic will read, once writers have resumed.
+        if state is not None:
+            self._open_state(adapter, stage, state, attachments, plan.sources.state)
+        adapter.radio_check(stage / 'files', policy['capture']['radio_max_age_seconds'],
+                            snapshot_scratch=stage if plan.sources.state else None)
+        manifest = {'version': 2, 'capture': token, 'captured_at': captured_at, 'artifact': artifact_hash(policy),
+                    'owner': policy.get('_owner'), 'policy': policy_hash, 'links': {}, 'captures': captures,
+                    'databases': plan.databases}
+        if zfs is not None:
+            manifest['zfs_source'] = zfs['record']
+            manifest['zfs_paths'] = plan.sources.zfs
+        if state is not None:
+            manifest['state_source'] = state
+            captured = datetime.fromtimestamp(state['created'], timezone.utc).isoformat()
+            captures.extend({'name': name, 'started_at': captured, 'finished_at': captured} for name in plan.state_names)
+        # A ready manifest is a crash-recovery promise: flush staged data first.
+        adapter.command(['/usr/bin/sync', '--file-system', str(stage)])
+        atomic_json(stage / 'manifest.json', manifest, 0o600)
+        return manifest, zfs, state
+
+    def _capture_online(self, adapter, stage, plan):
+        policy = self.policy
+        captures = []
+        online_clock = time.monotonic()
+        online_started = datetime.now(timezone.utc).isoformat()
+        excludes = rooted(policy['runner']['exclude_file_path'])
+        for step in plan.online:
+            started = time.monotonic()
             began = datetime.now(timezone.utc).isoformat()
-            cold_capture(policy, adapter, plan, stage)
-            finished = datetime.now(timezone.utc).isoformat()
-            captures.extend({'name': name, 'started_at': began, 'finished_at': finished} for name in plan.cold_names)
-            # Validate radio artifacts through the same selected view Restic will
-            # see. This happens after all previously running writers have resumed.
-            if sources.state:
-                state_ready(policy, adapter, stage, attachments, sources.state)
-            adapter.radio_check(stage / 'files', settings['radio_max_age_seconds'],
-                                snapshot_scratch=stage if sources.state else None)
-            manifest = {'version': 2, 'capture': token, 'captured_at': captured_at, 'artifact': artifact_hash(policy),
-                        'owner': policy.get('_owner'), 'policy': policy_hash, 'links': {}, 'captures': captures,
-                        'databases': plan.databases}
-            if sources.zfs:
-                manifest['zfs_source'] = zfs_state(policy, stage)['record']
-                manifest['zfs_paths'] = sources.zfs
-            if sources.state:
-                manifest['state_source'] = state_source(policy, adapter, stage)
-                captured = datetime.fromtimestamp(manifest['state_source']['created'], timezone.utc).isoformat()
-                captures.extend({'name': service, 'started_at': captured, 'finished_at': captured}
-                                for service in plan.state_names)
-            # A ready manifest is also a crash-recovery promise. Flush staged
-            # files/metadata on this filesystem before publishing that promise.
-            adapter.command(['/usr/bin/sync', '--file-system', str(stage)])
-            atomic_json(stage / 'manifest.json', manifest, 0o600)
-        if sources.zfs:
-            zfs_ready(policy, adapter, stage)
-        if sources.live_games:
-            # Unlike the state snapshots, these are deliberately live on retries.
-            attachments.enter_context(adapter.live_games_mounted(sources.live_games, stage))
+            if step.get('native') == 'postgres':
+                spec = step['databases'][0]
+                adapter.retry(lambda: adapter.online_postgres(
+                    step['paths'], stage / 'files', excludes,
+                    spec=spec, target=stage / 'databases' / spec['name']))
+            elif step.get('native') == 'mosquitto':
+                container = service_container(policy, step['service'])
+                running = service_running(policy, step['service'])
+                adapter.retry(lambda: adapter.mosquitto(
+                    step, stage / 'files', excludes, container=container, running=running))
+            else:
+                adapter.retry(lambda: adapter.online_tree(
+                    step['paths'], stage / 'files', excludes,
+                    sqlite_paths=step.get('sqlite', []), json_roots=step.get('json_roots', []),
+                    ephemeral=step.get('ephemeral', [])))
+            captures.append({'name': step['name'], 'started_at': began,
+                             'finished_at': datetime.now(timezone.utc).isoformat()})
+            report_phase('online_capture_' + step['name'], started)
+        for path in plan.online_stores:
+            adapter.stable_store(Path(path), stage / 'files' / path.lstrip('/'))
+        for path in plan.live_files:
+            adapter.retry(lambda: adapter.copy_paths(
+                [path], stage / 'files', excludes, online_sqlite=path.startswith(plan.jellyfin.rstrip('/') + '/')))
+        for path in plan.online_json:
+            adapter.acme_store(Path(path), stage / 'files' / path.lstrip('/'))
+        auth = plan.cli_auth
+        adapter.cli_auth(auth, stage / 'files' / auth.lstrip('/'))
+        jelly = Path(plan.jellyfin)
+        adapter.jellyfin(jelly, stage / 'native/jellyfin.zip')
+        # Auxiliary plugin databases also get online backup semantics.
+        for db in [*jelly.glob('data/*.db'), *jelly.glob('plugins/**/*.db')]:
+            if db.name != 'jellyfin.db':
+                adapter.retry(lambda: adapter.sqlite_backup(db, stage / 'files' / str(db).lstrip('/')))
+        report_phase('online_capture_total', online_clock)
+        captures.append({'name': 'online', 'started_at': online_started,
+                         'finished_at': datetime.now(timezone.utc).isoformat()})
+        return captures
+
+    def _pause_writers(self, adapter, plan, stage, token):
+        policy = self.policy
+        services = plan.pause_services
+        for path in (*plan.precopy, *plan.paused_copy, *plan.sources.zfs, *plan.sources.state):
+            adapter.safe_source(path)
+        excludes = rooted(policy['runner']['exclude_file_path'])
+        baseline = None
+        if plan.precopy:
+            started = time.monotonic()
+            baseline = adapter.retry(lambda: adapter.precopy(plan.precopy, stage / 'files', excludes))
+            report_phase('precopy_local', started)
+        running = [s for s in services if service_running(policy, s)]
+        if plan.sources.zfs:
+            if (stage / 'zfs-source.json').exists():
+                raise WorkflowError('snapshot_scope')
+            state = {'version': 1, 'capture': token, 'owner': hashlib.sha256(token.encode()).hexdigest(),
+                     'production_owner': policy.get('_owner'), 'running_services': running, 'record': None}
+        journal = {'version': 1, 'running_services': running, 'stop_order': services,
+                   'started_at': int(time.time()), 'owner': policy.get('_owner')}
+        atomic_json(journal_path(policy), journal, 0o600)
+        interrupted = time.monotonic()
+        try:
+            if running:
+                require_success(compose(policy, ['stop', '--timeout', '120', *running]), 'service_stop')
+            if any(service_running(policy, s) for s in services):
+                raise WorkflowError('writer_not_stopped')
+            report_phase('shutdown', interrupted)
+            started = time.monotonic()
+            if plan.precopy:
+                adapter.retry(lambda: adapter.finish_copy(plan.precopy, stage / 'files', excludes, baseline=baseline))
+            if plan.paused_copy:
+                adapter.retry(lambda: adapter.copy_paths(plan.paused_copy, stage / 'files', excludes))
+            report_phase('final_copy_local', started)
+            started = time.monotonic()
+            for dump in plan.cold_dumps:
+                adapter.retry(lambda: adapter.database_dump(dump, stage / 'databases' / dump['name']))
+            report_phase('sql_exports', started)
+            if plan.sources.zfs:
+                started = time.monotonic()
+                adapter.command(['/usr/bin/sync', '--file-system', '/mnt/storage'])
+                spec = adapter.zfs_spec(policy)
+                # Persist intent before the side effect. Lost acknowledgement retains
+                # it for inspection; never recapture from mutable live data.
+                atomic_json(stage / 'zfs-source.json', state)
+                state['record'] = adapter.zfs_record(spec, adapter.zfs_call(spec, {
+                    'action': 'create', 'capture': state['capture'], 'owner': state['owner'],
+                }), capture=state['capture'], owner=state['owner'])
+                atomic_json(stage / 'zfs-source.json', state)
+                report_phase('zfs_snapshot', started)
+                if plan.sources.state:
+                    started = time.monotonic()
+                    adapter.command(['/usr/bin/sync', '--file-system', '/srv/home-lab-state'])
+                    response = adapter.zfs_call(spec, {'action': 'state-create', 'capture': state['capture'],
+                                                      'owner': state['owner']})
+                    receipt = adapter.state_snapshot_record(policy, response, state['capture'], state['owner'])
+                    atomic_json(stage / 'state-source.json', receipt)
+                    report_phase('state_snapshot', started)
+        finally:
+            started = time.monotonic()
+            self._restart(journal)
+            report_phase('restart', started)
+            report_phase('interruption_shared', interrupted)
+
+    def _upload(self, adapter, stage, manifest, sources, zfs, state, attachments):
+        policy = self.policy
         captured_at = manifest['captured_at']
         args = ['backup', '--json', '--time', restic_backup_time(captured_at), '--tag', 'format=full-v2',
-                '--tag', 'cadence=daily', '--tag', 'capture=' + token,
-                '--tag', 'policy=' + policy_hash, '--tag', 'artifact=' + manifest['artifact']]
-        if policy.get('_owner'):
-            args.extend(['--tag', 'owner=' + policy['_owner']])
+                '--tag', 'cadence=daily', '--tag', 'capture=' + manifest['capture'],
+                '--tag', 'policy=' + manifest['policy'], '--tag', 'artifact=' + manifest['artifact']]
+        if manifest['owner']:
+            args.extend(['--tag', 'owner=' + manifest['owner']])
         if sources.state or sources.live_games:
             args.extend('--exclude=' + pattern for pattern in adapter.state_snapshot_exclusions(
                 stage, rooted(policy['runner']['exclude_file_path'])))
@@ -909,40 +868,112 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
         require_success(result, 'backup')
         snapshot = parse_backup_snapshot(result)
         report_phase('restic_backup', started)
-        if sources.zfs:
-            state = zfs_state(policy, stage)
-            adapter.zfs_verify_mounts(state['record'], stage)
-            current = adapter.zfs_record(adapter.zfs_spec(policy), adapter.zfs_call(adapter.zfs_spec(policy), {
-                'action': 'inspect', 'capture': state['capture'], 'owner': state['owner'],
-            }), capture=state['capture'], owner=state['owner'])
-            if current != state['record']:
+        if zfs is not None:
+            spec = adapter.zfs_spec(policy)
+            adapter.zfs_verify_mounts(zfs['record'], stage)
+            current = adapter.zfs_record(spec, adapter.zfs_call(spec, {
+                'action': 'inspect', 'capture': zfs['capture'], 'owner': zfs['owner'],
+            }), capture=zfs['capture'], owner=zfs['owner'])
+            if current != zfs['record']:
                 raise WorkflowError('snapshot_replaced')
-        if sources.state:
-            state_request(policy, adapter, stage, 'state-inspect')
+        if state is not None:
+            self._state_request(adapter, state, 'state-inspect')
         # Drop the local overlay and all live binds before granting completion.
         attachments.close()
-        # Only verified exit-0 captures are eligible. Tagging changes the ID before
-        # replication; a crash here leaves ineligible snapshots, never false success.
-        # Copies hold shared source locks for up to their 12h service budget.
-        # Wait natively within this invocation, not through rate-limited restarts;
-        # allow subprocess headroom beyond the lock wait. All writers are resumed.
+        # Tagging changes the ID. Wait natively for healthy shared copy locks;
+        # a failure retains the ready capture for a retry, with writers running.
         require_success(restic_result(policy, 'games', [
             'tag', '--retry-lock', '12h', '--add', 'complete=full-v2', snapshot,
         ], timeout=13 * 3600), 'capture_completion')
-        completed = [r for r in qualified(inventory(policy, 'games')) if 'capture=' + token in r.get('tags', [])]
-        if len(completed) != 1:
+        backup = self._completed(inventory(policy, 'games'), manifest['capture'], manifest)
+        if not backup:
             raise WorkflowError('completion_mapping')
-        zfs_release(policy, adapter, stage, completed[0]['id'])
-        shutil.rmtree(stage)
-        print(f"restic_backup=local snapshot={completed[0]['id']}")
-    except adapter.CaptureError as error:
-        raise WorkflowError(str(error)) from None
-    finally:
-        try:
-            attachments.close()
-        finally:
-            if settings.get('zfs'):
-                adapter.zfs_unmount(stage)
+        return backup
+
+    def expire(self) -> None:
+        """Reconcile completed or expired sources without adopting any owner."""
+        policy = self.policy
+        if rooted(policy['runner']['deploy_lock_path']).exists():
+            raise WorkflowError('snapshot_owner_requires_inspection')
+        adapter = capture_adapter(policy)
+        spec = adapter.zfs_spec(policy)
+        verify_sources(policy)
+        stage = rooted(policy['capture']['stage'])
+        if stage.exists():
+            metadata = stage.lstat()
+            if stage.is_symlink() or not stage.is_dir() or metadata.st_uid != os.geteuid() or metadata.st_mode & 0o777 != 0o700:
+                raise WorkflowError('snapshot_stage_metadata')
+        if not testing():
+            active = run(['/usr/bin/systemctl', 'show', 'home-lab-restic-daily-local.service',
+                          '--property=ActiveState', '--value'], timeout=20)
+            if (active.returncode or active.stdout.strip() not in {'inactive', 'failed'} or
+                    self._snapshot_readers_present(stage, adapter)):
+                raise WorkflowError('snapshot_job_active')
+        self.recover()
+        path = stage / 'manifest.json'
+        manifest = self._read_manifest(stage) if path.exists() or path.is_symlink() else None
+        state_record = None
+        if manifest is not None:
+            zfs, state_record = self._ready_receipts(adapter, stage, manifest)
+        else:
+            path = stage / 'zfs-source.json'
+            zfs = self._zfs_intent(adapter, stage) if path.exists() or path.is_symlink() else None
+        rows = inventory(policy, 'games')
+        records = adapter.zfs_inventory(spec)
+        if zfs and not any(row['capture'] == zfs['capture'] for row in records):
+            backup = self._completed(rows, zfs['capture'], manifest)
+            if not backup:
+                raise WorkflowError('snapshot_missing_requires_inspection')
+            if zfs['record'] is None:
+                raise WorkflowError('snapshot_receipt_missing')
+            if manifest is None and policy['capture'].get('state_snapshot'):
+                state_record = self._state_receipt(adapter, stage, zfs)
+            # A lost destroy acknowledgement can finish without reopening the source.
+            self._release_sources(adapter, stage, zfs['record'], state_record, backup=backup)
+            shutil.rmtree(stage)
+            zfs, manifest, state_record = None, None, None
+            print('restic_backup=snapshot_cleanup outcome=complete')
+        for record in records:
+            token = record['capture']
+            if record['owner'] != hashlib.sha256(token.encode()).hexdigest():
+                raise WorkflowError('snapshot_owner_requires_inspection')
+            if stage.exists() and (zfs is None or zfs['capture'] != token):
+                raise WorkflowError('previous_capture_requires_inspection')
+            backup = self._completed(rows, token, manifest)
+            if not backup and time.time() - record['created'] < spec['expiry_seconds']:
+                continue
+            # Without local intent, require every known paused writer healthy.
+            running = zfs['running_services'] if zfs else policy['stop_groups']['applications']
+            if (any(not service_healthy(policy, service) for service in running) or
+                    ('nextcloud' in running and not nextcloud_healthy(policy))):
+                raise WorkflowError('snapshot_recovery_not_verified')
+            if zfs and zfs['record'] is not None and zfs['record'] != record:
+                raise WorkflowError('snapshot_replaced')
+            if manifest is None and policy['capture'].get('state_snapshot'):
+                state_record = self._state_receipt(adapter, stage, zfs)
+            self._release_sources(adapter, stage, record, state_record, backup=backup)
+            if zfs:
+                shutil.rmtree(stage)
+                zfs, manifest, state_record = None, None, None
+            print('restic_backup=snapshot_cleanup outcome=' + ('complete' if backup else 'abandoned'))
+
+    @staticmethod
+    def _snapshot_readers_present(stage, adapter):
+        targets = set(map(str, adapter.snapshot_mounts(stage)))
+        for process in Path('/proc').iterdir():
+            if not process.name.isdigit():
+                continue
+            try:
+                # Do not read arbitrary process arguments/environments. Only native
+                # Restic mount namespaces are relevant; replica readers do not mount
+                # this source. This also catches orphaned manual-backup children.
+                if (process / 'comm').read_text().strip() != 'restic':
+                    continue
+                if any(line.split()[4] in targets for line in (process / 'mountinfo').read_text().splitlines()):
+                    return True
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        return False
 
 
 def inventory(policy, name):
@@ -1181,24 +1212,23 @@ def main() -> None:
                 policy['_owner'] = owner
             elif owner is not None:
                 raise WorkflowError('owner_missing')
-            command = sys.argv[1]
-            if command == 'recover':
-                recover_interruption(policy)
-            elif command == "preflight":
-                recover_interruption(policy)
-                preflight(policy, ["games"])
-                verify_sources(policy)
-                print("restic_backup=preflight_passed")
-            elif command == "daily-local":
-                daily_local(policy, policy_hash)
+            if command in {'recover', 'preflight', 'daily-local', 'expire-snapshots'}:
+                capture = LocalCapture(policy)
+                if command == 'recover':
+                    capture.recover()
+                elif command == 'preflight':
+                    capture.preflight()
+                    print('restic_backup=preflight_passed')
+                elif command == 'daily-local':
+                    capture.run(policy_hash)
+                else:
+                    capture.expire()
             elif command == "daily-nfs":
                 reconcile(policy, 'nfs')
             elif command == "daily-proton":
                 reconcile(policy, 'proton')
             elif command == "maintenance":
                 maintenance(policy)
-            elif command == 'expire-snapshots':
-                expire_snapshots(policy)
             elif command == "diagnose-proton":
                 diagnose_proton(policy)
             else:

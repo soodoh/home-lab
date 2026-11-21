@@ -27,6 +27,15 @@ including refreshing the running consumers affected by those replacements.
 
 ## Backup
 
+**Local capture**:
+One recovery set assembled for the local Restic repository. Replica
+reconciliation is separate from the local capture.
+
+**Ready capture**:
+A local capture whose durable manifest binds its staged data and exact snapshot
+sources to the reviewed policy, artifact and any acquired owner identity.
+A retry reuses those snapshot sources and rereads explicitly live paths.
+
 **Restic capture plan**:
 The reviewed source selections and writer pause set for one fresh capture,
 checked against the declared Compose inventory. It describes what to capture,

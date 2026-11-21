@@ -1049,17 +1049,20 @@ RAM-backed staging. The conservative space budget still includes user data for
 encrypted repository growth even though that data is no longer physically copied
 into staging.
 
-Ready staging and its exact snapshot receipts are reusable for failed Restic
-retries without another application stop/copy/restart. Snapshot-backed paths
-reuse the same immutable sources, never live substitutes; the explicitly live
-Wolf and ROM paths are read again. A missing receipt/source or an owner/GUID
-mismatch refuses retry. Incomplete captures require inspection and are never
+A ready capture can retry Restic without another application stop/copy/restart.
+Before reopening or releasing snapshot-backed sources, the required ZFS and
+local-state receipts must match the ready manifest. A missing or mismatched
+receipt retains staging for inspection; no live substitute is allowed. The
+explicitly live Wolf and ROM paths are read again. Incomplete captures are never
 reused.
 Only an exit-0 backup whose immutable source identity still matches is marked
-complete. After the completed local snapshot is rediscovered, its temporary NFS
-mount/export and exact ZFS snapshot are removed before staging is deleted. A lost
-cleanup acknowledgement retains ready staging for idempotent cleanup, not another
-application capture. Restic's native final tagging briefly
+complete. Cleanup of a ready capture as complete requires one completed local
+snapshot matching the manifest's capture token, policy, artifact and any
+acquired owner identity. A conflicting or ambiguous completion retains staging
+for inspection. After exact completion is rediscovered, the temporary NFS
+mount/export and snapshots are removed before staging is deleted. A lost
+cleanup acknowledgement can be retried without reopening those sources.
+Restic's native final tagging briefly
 requires an exclusive repository lock; an active copy can defer it. The completion
 command waits natively for up to the full 12-hour transfer budget, with a 13-hour
 process timeout. The local unit allows 24 hours for capture/upload and completion,
