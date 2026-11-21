@@ -45,3 +45,18 @@ not what a completed backup has proved.
 The recorded format, completion, and copy lineage of a Restic snapshot. It
 identifies what the repository holds, not whether that snapshot is sufficient
 for the current deployment or recovery.
+
+**Owner-bound backup admission**:
+A current-run decision that backup protection is sufficient under an acquired
+owner identity. A successful strict operation sets a post-change capture cutoff
+before releasing that owner, even if the operation reports no changes.
+
+**Replica-safe expiry**:
+Removal of retained daily backup history after the exact copy of each eligible
+capture has been identified in both replica destinations. Copies are removed only
+after their local source snapshot is gone.
+
+**Full-v2 capture archive**:
+The recovery representation of a local capture: files organized by their original paths,
+explicit database and native exports, and a manifest. It can be staged without
+the installed controller or the original snapshot sources.

@@ -37,8 +37,7 @@
   post_tasks:
     - name: Release exact production ownership after successful configuration
       ansible.builtin.import_role:
-        name: apply_lock
+        name: compose_native
+        tasks_from: release
       vars:
-        apply_lock_action: release
-        apply_lock_path: "{{ compose_native_apply_lock_path }}"
-        apply_lock_operation: compose-schedule-convergence
+        compose_native_apply_operation: compose-schedule-convergence

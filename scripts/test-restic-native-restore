@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real Restic and unchanged recovery helpers in a private Linux mount namespace.
+# Real capture archive production and Restic recovery in a private Linux mount namespace.
 # CI/disposable Linux only; never a production-host validation command.
 set -euo pipefail
 umask 077
@@ -78,11 +78,46 @@ for scope in books all; do
   fi
   [[ ! -e $RECOVERY_TARGET.proof-lock ]]
 done
-# The same caller-facing helper also normalizes a complete staged capture.
-capture=/mnt/games/home-lab-backup/capture
-mkdir -p "$capture/files/srv/home-lab-state" "$capture/native" "$capture/databases"
-cp -a /srv/home-lab-state/{common,books,unselected} "$capture/files/srv/home-lab-state/"
-ln -s ../common/value "$capture/files/srv/home-lab-state/books/link"
+# Use real staging and ready-manifest publication, substituting only application
+# and writer I/O. The frozen views are projected before native Restic reads.
+artifact_file="$work/artifact.sha256"
+printf '%s\n' "$artifact_sha" >"$artifact_file"
+capture=$(python3 - "$repo_root" "$artifact_file" "$policy_sha" <<'PY'
+from contextlib import ExitStack
+import json
+from pathlib import Path
+import runpy
+import shutil
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+
+repo, artifact_file = map(Path, sys.argv[1:3])
+runner = runpy.run_path(str(repo / 'scripts/restic-backup'))
+adapter = SimpleNamespace(**runpy.run_path(str(repo / 'scripts/restic-capture-files.py')))
+settings = json.loads((repo / 'services/data/restic/policy.json').read_text())['capture']
+stage = Path(settings['stage'])
+stage.parent.mkdir(mode=0o700)
+adapter.fresh_stage(stage, 0)
+policy = {'runner': {'artifact_hash_path': str(artifact_file)}, 'capture': {'radio_max_age_seconds': 0}}
+capture = runner['LocalCapture'](policy)
+plan = SimpleNamespace(sources=SimpleNamespace(zfs=(), state=()), cold_names=['books'],
+                       databases=[{'name': 'example.sql', 'engine': 'mariadb'}])
+
+def capture_fixture(_adapter, workspace, _plan):
+    files = workspace / 'files/srv/home-lab-state'
+    shutil.copytree('/srv/home-lab-state', files)
+    (files / 'books/link').symlink_to('../common/value')
+    (workspace / 'databases/example.sql').write_bytes(b'synthetic-logical-export')
+    (workspace / 'native/example.archive').write_bytes(b'synthetic-opaque-native-export')
+    return []
+
+with patch.object(capture, '_capture_online', capture_fixture), patch.object(capture, '_pause_writers'), \
+        patch.object(adapter, 'radio_check'), ExitStack() as attachments:
+    capture._stage_fresh(adapter, stage, plan, sys.argv[3], attachments)
+print(stage)
+PY
+)
 # Simulate three immutable views from one source snapshot at the archive paths.
 # The broker tests cover NFS identity; here read-only bind mounts prove that
 # real Restic includes separately mounted roots and can restore without them.
@@ -99,9 +134,7 @@ for root in tachidesk books frigate/exports; do
   mount --bind "$frozen" "$target"
   mount -o remount,bind,ro "$target"
 done
-printf '%s\n' '{"version":2,"links":{},"zfs_paths":["/mnt/storage/media/tachidesk","/mnt/storage/media/books","/mnt/storage/media/frigate/exports"]}' >"$capture/manifest.json"
-printf '%s\n' 'synthetic-logical-export' >"$capture/databases/example.sql"
-python3 - "$repo_root" "$capture" "policy=$policy_sha" "artifact=$artifact_sha" <<'PY'
+python3 - "$repo_root" "$capture" <<'PY'
 import json, pathlib, runpy, subprocess, sys
 repo, stage = map(pathlib.Path, sys.argv[1:3])
 adapter = runpy.run_path(str(repo / 'scripts/restic-capture-files.py'))
@@ -140,8 +173,10 @@ with adapter['live_games_mounted'](roots, stage):
     (rom / 'fixture').write_bytes(b'new live bytes')
     flags = ['--exclude=' + pattern for pattern in adapter['state_snapshot_exclusions'](
         stage, repo / 'services/data/restic/excludes')]
+    manifest = json.loads((stage / 'manifest.json').read_text())
+    tags = [f'--tag={name}={manifest[name]}' for name in ('capture', 'policy', 'artifact')]
     subprocess.run(['restic', 'backup', str(stage), '--tag', 'cadence=daily', '--tag', 'format=full-v2',
-                    '--tag', sys.argv[3], '--tag', sys.argv[4], *flags], check=True, capture_output=True)
+                    *tags, *flags], check=True, capture_output=True)
 assert not any(projection.iterdir()), 'temporary view still mounted or contains a copy'
 (rom / 'fixture').unlink()
 PY
@@ -165,10 +200,13 @@ for scope in books all; do
   [[ $output == recovery_restore=verified* ]]
   cmp /srv/home-lab-state/common/value "$RECOVERY_TARGET/srv/home-lab-state/common/value"
   cmp /srv/home-lab-state/books/value "$RECOVERY_TARGET/srv/home-lab-state/books/value"
-  [[ -f $RECOVERY_TARGET/recovery-exports/databases/example.sql ]]
+  cmp "$capture/databases/example.sql" "$RECOVERY_TARGET/recovery-exports/databases/example.sql"
+  cmp "$capture/native/example.archive" "$RECOVERY_TARGET/recovery-exports/native/example.archive"
   [[ ! -L $RECOVERY_TARGET/srv/home-lab-state/books/link ]]
-  jq -e '.symlinks["/srv/home-lab-state/books/link"] == "../common/value"' \
-    "$RECOVERY_TARGET/recovery-exports/manifest.json" >/dev/null
+  jq -e --arg policy "$policy_sha" --arg artifact "$artifact_sha" '
+    .policy == $policy and .artifact == $artifact and .databases[0].name == "example.sql"
+    and .symlinks["/srv/home-lab-state/books/link"] == "../common/value"
+  ' "$RECOVERY_TARGET/recovery-exports/manifest.json" >/dev/null
   [[ ! -e $RECOVERY_TARGET/mnt/games/home-lab-backup/capture ]]
   for root in tachidesk books; do
     printf 'frozen %s\n' "$root" | cmp - "$RECOVERY_TARGET/mnt/storage/media/$root/value"

@@ -44,7 +44,3 @@
       - --wait
   become: true
   changed_when: true
-
-- name: Reuse fresh protection only within this acquired owner
-  ansible.builtin.set_fact:
-    restic_backup_fresh_owner: "{{ restic_backup_observation_apply_owner_sha256 }}"

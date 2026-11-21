@@ -15,6 +15,15 @@
         or apply_lock_expected_owner_sha256 is match('^[0-9a-f]{64}$')
     fail_msg: "apply_lock_action and optional expected owner SHA-256 must be valid."
 
+- name: Require exact ownership when publishing a release marker
+  ansible.builtin.assert:
+    that:
+      - apply_lock_action == 'release'
+      - apply_lock_expected_owner_sha256 | length > 0
+      - apply_lock_release_marker_path is match('^/')
+    fail_msg: A release marker requires an absolute path and exact expected owner SHA-256.
+  when: apply_lock_release_marker_path | length > 0
+
 - name: Ensure the Proxmox shared operation-lock directory exists
   ansible.builtin.file:
     path: "{{ apply_lock_guard_path | dirname }}"
@@ -180,11 +189,10 @@
         if test -n "$expected_owner_sha256"; then
         test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = "$expected_owner_sha256";
         fi;
-        {% if restic_backup_fresh_owner | default('') | length > 0 %}
-        if test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = {{ restic_backup_fresh_owner | quote }}; then
-        /usr/bin/install -m 0600 /dev/null {{ apply_lock_recovery_cutoff_path | quote }};
+        release_marker=$5;
+        if test -n "$release_marker"; then
+        /usr/bin/install -m 0600 -- /dev/null "$release_marker";
         fi;
-        {% endif %}
         tombstone="${lock}.released.$$";
         test ! -e "$tombstone";
         /usr/bin/mv --no-target-directory -- "$lock" "$tombstone";
@@ -195,6 +203,7 @@
       - "{{ ansible_user | default('unknown') }}"
       - "{{ apply_lock_operation | default(iac_apply_tag | default('unspecified')) }}"
       - "{{ apply_lock_expected_owner_sha256 }}"
+      - "{{ apply_lock_release_marker_path }}"
   become: true
   changed_when: false
   when:

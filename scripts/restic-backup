@@ -1040,63 +1040,109 @@ def reconcile(policy, destination):
                     time.sleep(10)
 
 
-def finish_retention(policy):
-    """Resume exact replica deletions only after their source IDs disappeared.
+class ReplicaExpiry:
+    """Expire replicated daily history while holding the exclusive repository gate."""
 
-    The caller holds the exclusive repository gate. Persisted IDs are bound to
-    repository identities; no retention decision is reconstructed from ancestry
-    after the source snapshot has been removed.
-    """
-    path = journal_path(policy).with_name('retention.json')
-    pending = read_json(path, None)
-    if pending is None and not path.exists():
-        return
-    names = ('games', 'nfs', 'proton')
-    repositories = {name: policy['repositories'][name]['id'] for name in names}
-    if (not isinstance(pending, dict) or pending.get('version') != 1
-            or pending.get('repositories') != repositories
-            or not isinstance(pending.get('snapshots'), list)):
-        raise WorkflowError('retention_journal_schema')
-    seen = {name: set() for name in names}
-    for row in pending['snapshots']:
-        if (not isinstance(row, dict) or set(row) != set(names)
-                or any(not isinstance(row[name], str) or not SNAPSHOT_ID.fullmatch(row[name])
-                       or row[name] in seen[name] for name in names)):
+    destinations = ('nfs', 'proton')
+    repositories = ('games', *destinations)
+
+    def __init__(self, policy):
+        self.policy = policy
+        self.journal = journal_path(policy).with_name('retention.json')
+
+    def run(self):
+        self._finish_pending()
+        records = inventory(self.policy, 'games')
+        sources = replication_sources(records)
+        replicas = {name: inventory(self.policy, name) for name in self.destinations}
+        bindings = []
+        for source in sources:
+            selected = {'games': source['id']}
+            for name, rows in replicas.items():
+                matches = [row for row in rows if same_capture(source, row)]
+                if len(matches) != 1:
+                    raise WorkflowError('retention_replication_pending')
+                selected[name] = matches[0]['id']
+            bindings.append(selected)
+        # Bind exact IDs before native expiry, using the same one-to-one check
+        # on publication and replay. After expiry ancestry cannot reconstruct them.
+        pending = {'version': 1, 'repositories': self._repository_ids(), 'snapshots': bindings}
+        self._bound_snapshots(pending)
+        atomic_json(self.journal, pending)
+        self._expire_local(records, sources)
+        self._finish_pending()
+
+    def _repository_ids(self):
+        return {name: self.policy['repositories'][name]['id'] for name in self.repositories}
+
+    def _bound_snapshots(self, pending):
+        names = self.repositories
+        if (not isinstance(pending, dict) or pending.get('version') != 1
+                or pending.get('repositories') != self._repository_ids()
+                or not isinstance(pending.get('snapshots'), list)):
             raise WorkflowError('retention_journal_schema')
-        for name in names:
-            seen[name].add(row[name])
-    remaining = {row['id'] for row in inventory(policy, 'games')}
-    removed = [row for row in pending['snapshots'] if row['games'] not in remaining]
-    for name in names[1:]:
-        present = {row['id'] for row in inventory(policy, name)}
-        ids = [row[name] for row in removed if row[name] in present]
-        if ids:
-            require_success(restic_result(policy, name, ['forget', *ids]), 'forget_copy')
-            if set(ids) & {row['id'] for row in inventory(policy, name)}:
-                raise WorkflowError('forget_copy_verify')
-    durable_unlink(path)
+        seen = {name: set() for name in names}
+        for row in pending['snapshots']:
+            if (not isinstance(row, dict) or set(row) != set(names)
+                    or any(not isinstance(row[name], str) or not SNAPSHOT_ID.fullmatch(row[name])
+                           or row[name] in seen[name] for name in names)):
+                raise WorkflowError('retention_journal_schema')
+            for name in names:
+                seen[name].add(row[name])
+        return pending['snapshots']
 
+    def _finish_pending(self):
+        pending = read_json(self.journal, None)
+        if pending is None and not self.journal.exists():
+            return
+        bindings = self._bound_snapshots(pending)
+        remaining = {row['id'] for row in inventory(self.policy, 'games')}
+        removed = [row for row in bindings if row['games'] not in remaining]
+        for name in self.destinations:
+            present = {row['id'] for row in inventory(self.policy, name)}
+            ids = [row[name] for row in removed if row[name] in present]
+            if ids:
+                require_success(restic_result(self.policy, name, ['forget', *ids]), 'forget_copy')
+                if set(ids) & {row['id'] for row in inventory(self.policy, name)}:
+                    raise WorkflowError('forget_copy_verify')
+        durable_unlink(self.journal)
 
-def forget_capture_class(policy, arguments, sources, conflicts, reason):
-    if not conflicts:
-        require_success(restic_result(policy, 'games', arguments), reason)
-        return
-    # The native tag filter is inclusive. A conflict must not be deleted or
-    # consume a group's retention quota. Keep that group intact; expire only
-    # journaled IDs from other groups, using the native retention decisions.
-    result = restic_result(policy, 'games', [*arguments, '--dry-run', '--json'])
-    require_success(result, reason)
-    removals = []
-    for group in json.loads(result.stdout) or []:
-        keep = group['keep'] or []
-        remove = group['remove'] or []
-        if any(row['id'] in conflicts for row in keep + remove):
-            continue
-        removals.extend(row['id'] for row in remove)
-    if not set(removals) <= sources:
-        raise WorkflowError('retention_unbound_removal')
-    if removals:
-        require_success(restic_result(policy, 'games', ['forget', *removals]), reason)
+    def _expire_local(self, records, sources):
+        keep = self.policy['retention']
+        retention = ['--group-by', keep['group_by'], '--keep-daily', str(keep['keep_daily']),
+                     '--keep-weekly', str(keep['keep_weekly']), '--keep-monthly', str(keep['keep_monthly'])]
+        evidence = snapshot_evidence()
+        tags_by_id = {row['id']: evidence.tags(row) for row in records}
+        conflicts = {sid for sid, tags in tags_by_id.items()
+                     if evidence.DAILY in tags and len(evidence.format_tags(tags)) > 1}
+        legacy = ['forget', '--tag', evidence.DAILY, *retention]
+        # Native keep-tag protects every formatted capture during the legacy pass.
+        for tag in sorted({tag for tags in tags_by_id.values() for tag in evidence.format_tags(tags)}):
+            legacy.extend(['--keep-tag', tag])
+        complete = ['forget', '--tag', ','.join((evidence.DAILY, evidence.FULL, evidence.COMPLETE)), *retention]
+        for kind, args, reason in (('legacy', legacy, 'forget_legacy'), ('complete', complete, 'forget_games')):
+            eligible = {row['id'] for row in sources if evidence.daily_kind(tags_by_id[row['id']]) == kind}
+            self._forget_class(args, eligible, conflicts, reason)
+
+    def _forget_class(self, arguments, eligible, conflicts, reason):
+        if not conflicts:
+            require_success(restic_result(self.policy, 'games', arguments), reason)
+            return
+        # A conflicting tag must not cause deletion or consume retention quota.
+        # Keep that group intact and use native decisions for the other groups.
+        result = restic_result(self.policy, 'games', [*arguments, '--dry-run', '--json'])
+        require_success(result, reason)
+        removals = []
+        for group in json.loads(result.stdout) or []:
+            keep = group['keep'] or []
+            remove = group['remove'] or []
+            if any(row['id'] in conflicts for row in keep + remove):
+                continue
+            removals.extend(row['id'] for row in remove)
+        if not set(removals) <= eligible:
+            raise WorkflowError('retention_unbound_removal')
+        if removals:
+            require_success(restic_result(self.policy, 'games', ['forget', *removals]), reason)
 
 
 def maintenance(policy: dict[str, Any]) -> None:
@@ -1105,45 +1151,12 @@ def maintenance(policy: dict[str, Any]) -> None:
         raise WorkflowError('capture_pending')
     if scope not in {"local", "proton"}:
         raise WorkflowError("maintenance_scope")
-    names = ['games', 'nfs', 'proton'] if scope == 'local' else ['proton']
+    names = ReplicaExpiry.repositories if scope == 'local' else ('proton',)
     preflight(policy, names)
-    subset = policy['retention']['read_data_subset']
+    keep = policy['retention']
+    subset = keep['read_data_subset']
     if scope == 'local':
-        finish_retention(policy)
-        records = inventory(policy, 'games')
-        sources = replication_sources(records)
-        replicas = {name: inventory(policy, name) for name in ('nfs', 'proton')}
-        snapshots = []
-        for source in sources:
-            selected = {'games': source['id']}
-            for name, rows in replicas.items():
-                matches = [r for r in rows if same_capture(source, r)]
-                if len(matches) != 1:
-                    raise WorkflowError('retention_replication_pending')
-                selected[name] = matches[0]['id']
-            snapshots.append(selected)
-        # Publish exact replica IDs before native source expiry. A crash before
-        # expiry preserves every copy; a crash afterwards can resume deletion.
-        atomic_json(journal_path(policy).with_name('retention.json'), {
-            'version': 1, 'repositories': {name: policy['repositories'][name]['id'] for name in names},
-            'snapshots': snapshots,
-        })
-        keep = policy['retention']
-        retention = ['--group-by', keep['group_by'], '--keep-daily', str(keep['keep_daily']),
-                     '--keep-weekly', str(keep['keep_weekly']), '--keep-monthly', str(keep['keep_monthly'])]
-        evidence = snapshot_evidence()
-        tags_by_id = {row['id']: evidence.tags(row) for row in records}
-        conflicts = {sid for sid, tags in tags_by_id.items()
-                     if evidence.DAILY in tags and len(evidence.format_tags(tags)) > 1}
-        # Native keep-tag protects every formatted capture during the legacy pass.
-        legacy = ['forget', '--tag', evidence.DAILY, *retention]
-        for tag in sorted({tag for tags in tags_by_id.values() for tag in evidence.format_tags(tags)}):
-            legacy.extend(['--keep-tag', tag])
-        complete = ['forget', '--tag', ','.join((evidence.DAILY, evidence.FULL, evidence.COMPLETE)), *retention]
-        for kind, args, reason in (('legacy', legacy, 'forget_legacy'), ('complete', complete, 'forget_games')):
-            eligible = {row['id'] for row in sources if evidence.daily_kind(tags_by_id[row['id']]) == kind}
-            forget_capture_class(policy, args, eligible, conflicts, reason)
-        finish_retention(policy)
+        ReplicaExpiry(policy).run()
         for name in names:
             require_success(restic_result(policy, name, ['prune', '--max-repack-size', keep['prune_max_repack_size'],
                                                         '--max-unused', keep['prune_max_unused']]), 'prune')
