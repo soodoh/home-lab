@@ -58,6 +58,8 @@ def owner_observation():
     with (work / "backup.guard").open("a+") as guard:
         fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         observer.validate_owners(work / "journal", digest)
+    with (work / "admission-count").open("a") as count:
+        count.write("observed\n")
     (work / "admission.json").write_text(json.dumps({
         "digest": digest, "admission": admission, "scheduled": scheduled == "True",
     }))
@@ -109,11 +111,13 @@ class DeploymentInterfaces(unittest.TestCase):
             {"name": "Record the bound fresh-protection request", "ansible.builtin.copy": {
                 "dest": str(self.work / "fresh-protection"),
                 "content": "{{ restic_backup_observation_apply_owner_sha256 }}", "mode": "0600"}},
-            {"name": "Publish fixture fresh protection", "ansible.builtin.set_fact": {
-                "restic_backup_fresh_owner": "{{ restic_backup_observation_apply_owner_sha256 }}"}},
+            {"name": "Count fixture captures", "ansible.builtin.shell": "echo captured >> {{ fixture_capture_count | quote }}"},
+            {"name": "Simulate NFS reconciliation failure", "ansible.builtin.fail": {
+                "msg": "synthetic NFS failure"}, "when": "fixture_fail_nfs | default(false)"},
         ])
         self.variables = {
-            "apply_lock_recovery_cutoff_path": str(self.work / "capture-cutoff"),
+            "compose_native_post_change_capture_cutoff_path": str(self.work / "capture-cutoff"),
+            "fixture_capture_count": str(self.work / "capture-count"),
             "ansible_connection": "local", "ansible_become": False,
             "ansible_python_interpreter": sys.executable, "ansible_user": "ansible-deploy",
             "ansible_facts": {"date_time": {"iso8601": STARTED}},
@@ -154,6 +158,9 @@ class DeploymentInterfaces(unittest.TestCase):
 
     def release(self, operation="fixture"):
         return role("apply_lock", apply_lock_action="release", apply_lock_operation=operation)
+
+    def release_admitted(self, operation="fixture"):
+        return role("compose_native", "release", compose_native_apply_operation=operation)
 
     def observe(self, *, change_class="data", automated=False):
         return role("compose_native", "admission", compose_native_change_class=change_class,
@@ -402,12 +409,37 @@ else:
                 (self.work / "mutated").unlink()
 
     def test_shared_apply_retains_owner_on_backup_or_mutation_failure(self):
-        for failure in ("fixture_refuse_backup", "fixture_fail_mutation"):
+        for failure in ("fixture_fail_nfs", "fixture_refuse_backup", "fixture_fail_mutation"):
             with self.subTest(failure=failure):
                 result = self.run_tasks([role("compose_native", "apply")], variables={failure: True})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertTrue(self.owner.is_file())
                 self.assertFalse((self.work / "mutated").exists())
+                self.assertFalse((self.work / "capture-cutoff").exists())
+                self.owner.unlink()
+                self.lock.rmdir()
+
+    def test_second_admission_reuses_protection_but_reobserves(self):
+        self.success(self.run_tasks([self.acquire(), self.observe(), self.observe(), self.release_admitted()]))
+        self.assertEqual((self.work / "capture-count").read_text().splitlines(), ["captured"])
+        self.assertEqual((self.work / "admission-count").read_text().splitlines(), ["observed", "observed"])
+        self.assertFalse(self.lock.exists())
+        self.assertEqual((self.work / "capture-cutoff").stat().st_mode & 0o777, 0o600)
+
+    def test_cutoff_failure_or_replaced_owner_blocks_release(self):
+        for failure in ("cutoff", "owner"):
+            with self.subTest(failure=failure):
+                cutoff = self.work / "missing-parent" / "cutoff"
+                tasks = [self.acquire(), self.observe()]
+                if failure == "owner":
+                    cutoff = self.work / "unexpected-cutoff"
+                    tasks.append({"ansible.builtin.lineinfile": {
+                        "path": str(self.owner), "regexp": "^started=", "line": "started=2001-01-01T00:00:00Z"}})
+                result = self.run_tasks([*tasks, self.release_admitted()], variables={
+                    "compose_native_post_change_capture_cutoff_path": str(cutoff)})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(cutoff.exists())
+                self.assertTrue(self.owner.is_file())
                 self.owner.unlink()
                 self.lock.rmdir()
 
@@ -417,13 +449,16 @@ else:
                       "grimmory-authentication", "wolf-security")
         tasks = []
         for operation in operations:
-            tasks += [self.acquire(static=True, operation=operation), self.observe(), self.release(operation)]
-        tasks += [self.acquire(), self.observe(change_class="routine", automated=True), self.release()]
+            tasks += [self.acquire(static=True, operation=operation), self.observe(), self.release_admitted(operation)]
+        cutoff = self.work / "capture-cutoff"
+        tasks += [{"ansible.builtin.file": {"path": str(cutoff), "state": "absent"}},
+                  self.acquire(), self.observe(change_class="routine", automated=True), self.release_admitted()]
         self.success(self.run_tasks(tasks, variables={"ansible_user": "root"}))
         observed = json.loads((self.work / "admission.json").read_text())
         self.assertEqual(observed["admission"], "routine")
         self.assertTrue(observed["scheduled"])
         self.assertFalse(self.lock.exists())
+        self.assertFalse(cutoff.exists())
 
     def test_actual_wolf_playbook_uses_shared_identity_and_strict_policy(self):
         playbook = self.playbook.parent / "converge-wolf-security.yml"

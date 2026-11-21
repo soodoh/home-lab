@@ -153,10 +153,15 @@ def require_repository_identity(config: dict[str, Any], expected: str) -> None:
         raise ObservationError("repository_identity")
 
 
-def require_fresh(snapshot: dict[str, Any], now: datetime) -> None:
-    age = (now - snapshot_time(snapshot)).total_seconds()
+def require_fresh(snapshot: dict[str, Any], now: datetime, *, cutoff: Path | None = None) -> None:
+    captured = snapshot_time(snapshot)
+    age = (now - captured).total_seconds()
     if age < 0 or age >= 172800:
         raise ObservationError("snapshot_freshness")
+    if cutoff is not None and (cutoff.exists() or cutoff.is_symlink()):
+        require_regular(cutoff, 0o600)
+        if captured.timestamp() <= cutoff.stat().st_mtime:
+            raise ObservationError('post_change_capture_required')
 
 
 def match_copy(evidence, source, destination):
@@ -397,12 +402,9 @@ def main() -> None:
         for name, copy in (('nfs', selected_nfs), ('proton', selected_proton)):
             if copy is None or match_copy(evidence, selected_games, [copy]) is None:
                 warnings.append(name + '_replication_lag')
-        require_fresh(selected_games, datetime.now(timezone.utc))
-        cutoff = Path('/var/lib/home-lab-restic/require-post-change-capture')
-        if arguments.admission == 'routine' and (cutoff.exists() or cutoff.is_symlink()):
-            require_regular(cutoff, 0o600)
-            if snapshot_time(selected_games).timestamp() <= cutoff.stat().st_mtime:
-                raise ObservationError('post_change_capture_required')
+        cutoff = (Path('/var/lib/home-lab-restic/require-post-change-capture')
+                  if arguments.admission == 'routine' else None)
+        require_fresh(selected_games, datetime.now(timezone.utc), cutoff=cutoff)
 
         result = {
             "admission": arguments.admission,

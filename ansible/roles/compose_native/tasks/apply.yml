@@ -28,9 +28,4 @@
   ansible.builtin.import_tasks: deploy.yml
 
 - name: Release exact ownership only after complete success
-  ansible.builtin.include_role:
-    name: apply_lock
-  vars:
-    apply_lock_action: release
-    apply_lock_path: "{{ compose_native_apply_lock_path }}"
-    apply_lock_operation: "{{ compose_native_apply_operation }}"
+  ansible.builtin.import_tasks: release.yml

@@ -1230,7 +1230,7 @@ g['main']()
                     self.assertEqual({row['id'] for row in records[name]}, {'d' * 64, 'e' * 64})
 
     def test_retention_journal_refuses_invalid_or_rebound_deletions(self):
-        finish = RUNNER['finish_retention']
+        maintenance = RUNNER['maintenance']
         repositories = {name: str(i + 1) * 64 for i, name in enumerate(('games', 'nfs', 'proton'))}
         row = {'games': 'a' * 64, 'nfs': 'b' * 64, 'proton': 'c' * 64}
         good = {'version': 1, 'repositories': repositories, 'snapshots': [row]}
@@ -1241,20 +1241,23 @@ g['main']()
             root = Path(directory).resolve()
             pending = root / 'retention.json'
             writes = mock.Mock(side_effect=AssertionError('invalid journal must never delete'))
-            with mock.patch.dict(finish.__globals__, {
+            policy = {'capture': {'stage': str(root / 'stage')}, 'retention': {'read_data_subset': '10%'},
+                      'repositories': {name: {'id': rid} for name, rid in repositories.items()}}
+            with mock.patch.dict(maintenance.__globals__, {
                 'journal_path': lambda _: root / 'interruption.json', 'restic_result': writes,
-            }):
+                'rooted': Path, 'preflight': mock.Mock(),
+            }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'):
                 for value in bad:
                     with self.subTest(value=value):
                         pending.write_text(json.dumps(value))
                         pending.chmod(0o600)
                         with self.assertRaisesRegex(RUNNER['WorkflowError'], 'retention_journal_schema'):
-                            finish({'repositories': {name: {'id': rid} for name, rid in repositories.items()}})
+                            maintenance(policy)
                         self.assertTrue(pending.exists())
             writes.assert_not_called()
 
     def test_retention_keeps_journal_until_replica_absence_is_verified(self):
-        finish = RUNNER['finish_retention']
+        maintenance = RUNNER['maintenance']
         repositories = {name: str(i + 1) * 64 for i, name in enumerate(('games', 'nfs', 'proton'))}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -1263,12 +1266,34 @@ g['main']()
                 {'games': 'a' * 64, 'nfs': 'b' * 64, 'proton': 'c' * 64}]}))
             pending.chmod(0o600)
             records = {'games': [], 'nfs': [{'id': 'b' * 64}], 'proton': [{'id': 'c' * 64}]}
-            with mock.patch.dict(finish.__globals__, {
+            policy = {'capture': {'stage': str(root / 'stage')}, 'retention': {'read_data_subset': '10%'},
+                      'repositories': {name: {'id': rid} for name, rid in repositories.items()}}
+            with mock.patch.dict(maintenance.__globals__, {
                 'journal_path': lambda _: root / 'interruption.json', 'inventory': lambda _, n: records[n],
-                'restic_result': lambda *_: OK,
-            }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'forget_copy_verify'):
-                finish({'repositories': {name: {'id': rid} for name, rid in repositories.items()}})
+                'restic_result': lambda *_: OK, 'rooted': Path, 'preflight': mock.Mock(),
+            }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'), \
+                    self.assertRaisesRegex(RUNNER['WorkflowError'], 'forget_copy_verify'):
+                maintenance(policy)
             self.assertTrue(pending.exists())
+
+    def test_retention_refuses_shared_replica_binding_before_local_expiry(self):
+        maintenance = RUNNER['maintenance']
+        source = {'id': 'a' * 64, 'original': 'f' * 64, 'tags': ['cadence=daily']}
+        records = {'games': [source, {**source, 'id': 'b' * 64}],
+                   'nfs': [{**source, 'id': 'c' * 64}], 'proton': [{**source, 'id': 'd' * 64}]}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            writes = mock.Mock(side_effect=AssertionError('unreplayable expiry must never delete'))
+            policy = {'capture': {'stage': str(root / 'stage')}, 'retention': {'read_data_subset': '10%'},
+                      'repositories': {name: {'id': str(i + 1) * 64} for i, name in enumerate(records)}}
+            with mock.patch.dict(maintenance.__globals__, {
+                'journal_path': lambda _: root / 'interruption.json', 'inventory': lambda _, n: records[n],
+                'restic_result': writes, 'rooted': Path, 'preflight': mock.Mock(),
+            }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'), \
+                    self.assertRaisesRegex(RUNNER['WorkflowError'], 'retention_journal_schema'):
+                maintenance(policy)
+            writes.assert_not_called()
+            self.assertFalse((root / 'retention.json').exists())
 
     def test_retention_never_forgets_uncopied_legacy_sources(self):
         maintenance = RUNNER['maintenance']

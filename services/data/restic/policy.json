@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "787fae36cf51edb574ff8bca0bc40d1b753b546517dc9189e6b622cf83711858",
+    "sha256": "7c6eb1c3c17436436f75d0ae3051008720ea261f36f3cf8339be270563f4866f",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",

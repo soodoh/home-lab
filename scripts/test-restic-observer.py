@@ -2,6 +2,7 @@
 """Admission behavior: complete local recovery, capture-time lag, and ownership."""
 from datetime import datetime, timedelta, timezone
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import subprocess
@@ -76,6 +77,24 @@ class Admission(unittest.TestCase):
         for bad in invalid:
             with self.subTest(bad=bad), self.assertRaises(OBSERVER.ObservationError):
                 self.select([bad], [copied(bad, '2')], [copied(bad, '3')])
+
+    def test_routine_requires_capture_strictly_newer_than_cutoff(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        cutoff_time = now - timedelta(minutes=1)
+        with tempfile.TemporaryDirectory() as directory:
+            cutoff = Path(directory) / 'post-change-cutoff'
+            cutoff.touch(mode=0o600)
+            os.utime(cutoff, (cutoff_time.timestamp(), cutoff_time.timestamp()))
+            with mock.patch.object(OBSERVER, 'require_regular') as protected:
+                for seconds in (-1, 0, 1):
+                    with self.subTest(seconds=seconds):
+                        captured = {'time': (cutoff_time + timedelta(seconds=seconds)).isoformat()}
+                        if seconds <= 0:
+                            with self.assertRaisesRegex(OBSERVER.ObservationError, 'post_change_capture_required'):
+                                OBSERVER.require_fresh(captured, now, cutoff=cutoff)
+                        else:
+                            OBSERVER.require_fresh(captured, now, cutoff=cutoff)
+                self.assertEqual(protected.call_args_list, [mock.call(cutoff, 0o600)] * 3)
 
     def test_conflicting_format_cannot_replace_a_valid_baseline(self):
         valid = snapshot('2', age=1)

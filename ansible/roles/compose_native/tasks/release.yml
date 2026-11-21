@@ -1,0 +1,26 @@
+---
+- name: Complete owner-bound backup admission before releasing production ownership
+  when: not ansible_check_mode
+  block:
+    - name: Require successful admission for the current acquired owner
+      ansible.builtin.assert:
+        that:
+          - apply_lock_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - (compose_native_admission_result | default({})).get('owner') == apply_lock_owner_sha256
+        fail_msg: Release requires successful backup admission for the acquired owner.
+
+    - name: Publish any post-change cutoff inside the guarded release
+      ansible.builtin.include_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: "{{ compose_native_apply_operation }}"
+        apply_lock_expected_owner_sha256: "{{ compose_native_admission_result.owner }}"
+        apply_lock_release_marker_path: >-
+          {{ compose_native_post_change_capture_cutoff_path if compose_native_admission_result.strict else '' }}
+
+    - name: Discard completed admission
+      ansible.builtin.set_fact:
+        compose_native_admission_result: {}
+        cacheable: false
