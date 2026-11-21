@@ -710,10 +710,10 @@ sys.exit(int(os.environ['DUMP_RESULT']))
             args += ['--tag', tag]
         restic('games', args)
         incomplete = json.loads(restic('games', ['snapshots', '--json']))
-        self.assertEqual(RUNNER['qualified'](incomplete), [])
+        self.assertEqual(RUNNER['replication_sources'](incomplete), [])
         restic('games', ['tag', '--add', 'complete=full-v2', incomplete[0]['id']])
         sources = json.loads(restic('games', ['snapshots', '--json']))
-        source = RUNNER['qualified'](sources)[0]
+        source = RUNNER['replication_sources'](sources)[0]
         self.assertEqual(OBSERVER.snapshot_time(source), captured_at.replace(microsecond=0))
         self.assertNotEqual(source['id'], source['original'])
         for _ in range(2):  # Retrying an interrupted/acknowledgment-lost copy is native-idempotent.
@@ -721,7 +721,7 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         copies = json.loads(restic('nfs', ['snapshots', '--json']))
         self.assertEqual(len(copies), 1)
         self.assertTrue(RUNNER['same_capture'](source, copies[0]))
-        self.assertEqual(OBSERVER.match_copy(source, copies), copies[0])
+        self.assertEqual(OBSERVER.match_copy(RUNNER['snapshot_evidence'](), source, copies), copies[0])
         target = self.root / 'restored'
         target.mkdir()
         restic('nfs', ['restore', copies[0]['id'], '--target', str(target), '--verify'])
@@ -757,8 +757,9 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         restic(None, 'games', ['init'])
         for name in ('nfs', 'proton'):
             restic(None, name, ['init', '--from-repo', str(self.root / 'games'), '--copy-chunker-params'])
-        legacy, full = self.root / 'legacy', self.root / 'full'
-        legacy.mkdir(); full.mkdir()
+        legacy, full, held = (self.root / name for name in ('legacy', 'full', 'held'))
+        for path in (legacy, full, held):
+            path.mkdir()
         rows = {}
         for name, path, date, tags in (
             ('old-legacy', legacy, '2020-01-01', ['cadence=daily']),
@@ -768,6 +769,8 @@ sys.exit(int(os.environ['DUMP_RESULT']))
             ('partial', full, '2026-11-03', ['cadence=daily', 'format=full-v2']),
             ('unknown', full, '2026-11-04', ['cadence=daily', 'format=future']),
             ('unrelated', legacy, '2026-11-05', ['manual']),
+            ('held-full', held, '2026-11-01', ['cadence=daily', 'format=full-v2']),
+            ('conflict', held, '2026-11-06', ['cadence=daily', 'format=full-v2', 'complete=full-v2', 'format=future']),
         ):
             (path / 'value').write_text(name)
             args = ['backup', '--json', '--time', date + ' 00:00:00', str(path)]
@@ -787,8 +790,10 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'):
             for destination in ('nfs', 'proton'):
                 reconcile({}, destination)
+                self.assertFalse(any(RUNNER['same_capture'](rows['conflict'], row)
+                                     for row in inventory(None, destination)))
                 # Previously copied noneligible history must not be deleted either.
-                for name in ('partial', 'unknown', 'unrelated'):
+                for name in ('partial', 'unknown', 'unrelated', 'conflict'):
                     restic(None, destination, ['copy', rows[name]['id']], source='games')
             policy = {'capture': {'stage': str(self.root / 'pending')}, 'retention': {
                 'keep_daily': 1, 'keep_weekly': 0, 'keep_monthly': 0, 'group_by': 'host,paths',
@@ -813,7 +818,9 @@ sys.exit(int(os.environ['DUMP_RESULT']))
                 self.assertTrue(any(RUNNER['same_capture'](rows[name], row) for row in inventory(None, 'proton')))
             maintenance(policy)
             self.assertFalse(pending.exists())
-        expected = [rows[name] for name in ('latest-legacy', 'latest-full', 'partial', 'unknown', 'unrelated')]
+        expected = [rows[name] for name in (
+            'latest-legacy', 'latest-full', 'partial', 'unknown', 'unrelated', 'held-full', 'conflict',
+        )]
         self.assertEqual({r['id'] for r in inventory(None, 'games')}, {r['id'] for r in expected})
         for destination in ('nfs', 'proton'):
             copies = inventory(None, destination)

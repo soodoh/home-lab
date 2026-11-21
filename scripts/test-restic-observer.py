@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('observer', ROOT / 'scripts/observe-restic-backups.py')
 OBSERVER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(OBSERVER)
+EVIDENCE_SPEC = importlib.util.spec_from_file_location('evidence', ROOT / 'scripts/restic_snapshot_evidence.py')
+EVIDENCE = importlib.util.module_from_spec(EVIDENCE_SPEC)
+EVIDENCE_SPEC.loader.exec_module(EVIDENCE)
 POLICY, ARTIFACT, OWNER = 'a' * 64, 'b' * 64, 'c' * 64
 STAGE = '/mnt/games/home-lab-backup/capture'
 
@@ -30,7 +33,7 @@ def copied(source, identifier):
 
 class Admission(unittest.TestCase):
     def select(self, games, nfs, proton, routine=True, owner=None):
-        return OBSERVER.select_full({'games': games, 'nfs': nfs, 'proton': proton},
+        return OBSERVER.select_full(EVIDENCE, {'games': games, 'nfs': nfs, 'proton': proton},
                                     POLICY, ARTIFACT, STAGE, routine=routine, owner=owner)
 
     def test_routine_can_use_an_earlier_artifact_with_bounded_replica_lag(self):
@@ -74,14 +77,35 @@ class Admission(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(OBSERVER.ObservationError):
                 self.select([bad], [copied(bad, '2')], [copied(bad, '3')])
 
+    def test_conflicting_format_cannot_replace_a_valid_baseline(self):
+        valid = snapshot('2', age=1)
+        conflict = snapshot()
+        conflict['tags'].append('format=future')
+        self.assertEqual(self.select([conflict, valid], [copied(conflict, '3'), copied(valid, '4')],
+                                     [copied(conflict, '5'), copied(valid, '6')])[0], valid)
+        with self.assertRaisesRegex(OBSERVER.ObservationError, 'complete_local_missing'):
+            self.select([conflict], [copied(conflict, '3')], [copied(conflict, '5')])
+
+    def test_rejects_changed_evidence_before_executing_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'restic_snapshot_evidence.py'
+            path.write_text('raise AssertionError("unreviewed evidence executed")')
+            path.chmod(0o644)
+            # Isolate the checksum check from root-owned file metadata.
+            with mock.patch.object(OBSERVER, 'require_regular') as metadata:
+                with self.assertRaisesRegex(OBSERVER.ObservationError, 'reviewed_source_drift'):
+                    OBSERVER.load_snapshot_evidence(path, 'a' * 64)
+                metadata.assert_called_once_with(path, 0o644)
+
     def test_native_retagged_copy_must_match_origin_tree_paths_time_and_tags(self):
         source = {**snapshot(), 'original': 'f' * 64}
         good = copied(source, '2')
-        self.assertEqual(OBSERVER.match_copy(source, [good]), good)
-        for field, value in (('tree', 'e' * 64), ('paths', ['/wrong']), ('time', snapshot(age=1)['time']), ('tags', [])):
-            self.assertIsNone(OBSERVER.match_copy(source, [{**good, field: value}]))
+        self.assertEqual(OBSERVER.match_copy(EVIDENCE, source, [good]), good)
+        for field, value in (('original', source['id']), ('tree', 'e' * 64), ('paths', ['/wrong']),
+                             ('time', snapshot(age=1)['time']), ('tags', [])):
+            self.assertIsNone(OBSERVER.match_copy(EVIDENCE, source, [{**good, field: value}]))
         with self.assertRaisesRegex(OBSERVER.ObservationError, 'ambiguous'):
-            OBSERVER.match_copy(source, [good, {**good, 'id': '3' * 64}])
+            OBSERVER.match_copy(EVIDENCE, source, [good, {**good, 'id': '3' * 64}])
 
     def test_unknown_owner_and_interruption_never_receive_routine_exception(self):
         with tempfile.TemporaryDirectory() as directory:

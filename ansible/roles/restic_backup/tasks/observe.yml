@@ -16,6 +16,7 @@
     cmd: >-
       {{ playbook_dir }}/../../scripts/observe-restic-backups.py
       --runner-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic-backup', rstrip=false, lstrip=false) | hash('sha256') }}
+      --evidence-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic_snapshot_evidence.py', rstrip=false, lstrip=false) | hash('sha256') }}
       --policy-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/policy.json', rstrip=false, lstrip=false) | hash('sha256') }}
       --files-from-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/files-from', rstrip=false, lstrip=false) | hash('sha256') }}
       --excludes-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/excludes', rstrip=false, lstrip=false) | hash('sha256') }}

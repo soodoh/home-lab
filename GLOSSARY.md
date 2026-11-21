@@ -40,3 +40,8 @@ A retry reuses those snapshot sources and rereads explicitly live paths.
 The reviewed source selections and writer pause set for one fresh capture,
 checked against the declared Compose inventory. It describes what to capture,
 not what a completed backup has proved.
+
+**Restic snapshot evidence**:
+The recorded format, completion, and copy lineage of a Restic snapshot. It
+identifies what the repository holds, not whether that snapshot is sufficient
+for the current deployment or recovery.

@@ -7,6 +7,9 @@
     group: "{{ item.group | default('root') }}"
     mode: "{{ item.mode }}"
   loop:
+    - src: "{{ playbook_dir }}/../../scripts/restic_snapshot_evidence.py"
+      dest: /usr/local/libexec/home-lab/restic_snapshot_evidence.py
+      mode: '0644'
     - src: "{{ playbook_dir }}/../../scripts/restic-backup"
       dest: /usr/local/libexec/home-lab/restic-backup
       mode: '0755'

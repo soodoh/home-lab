@@ -14,10 +14,12 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
 POLICY_PATH = Path("/etc/home-lab/restic-policy.json")
+EVIDENCE_PATH = Path('/usr/local/libexec/home-lab/restic_snapshot_evidence.py')
 LOCK_PATH = Path("/run/lock/home-lab-backup.lock")
 LOCAL_PASSWORD = Path("/etc/home-lab/restic/credentials/local-password")
 PROTON_PASSWORD = Path("/etc/home-lab/restic/credentials/proton-password")
@@ -116,11 +118,14 @@ def parse_properties(raw: str) -> dict[str, str]:
     return result
 
 
-def snapshot_tags(snapshot: dict[str, Any]) -> set[str]:
-    tags = snapshot.get("tags")
-    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
-        raise ObservationError("snapshot_tags")
-    return set(tags)
+def load_snapshot_evidence(path, expected_sha256):
+    require_regular(path, 0o644)
+    source = path.read_bytes()
+    if hashlib.sha256(source).hexdigest() != expected_sha256:
+        raise ObservationError('reviewed_source_drift')
+    module = SimpleNamespace()
+    exec(compile(source, str(path), 'exec', dont_inherit=True), vars(module))
+    return module
 
 
 def snapshot_time(snapshot: dict[str, Any]) -> datetime:
@@ -154,32 +159,33 @@ def require_fresh(snapshot: dict[str, Any], now: datetime) -> None:
         raise ObservationError("snapshot_freshness")
 
 
-def match_copy(source, destination):
-    mapped = [item for item in destination
-              if item.get('original') == source.get('original', snapshot_id(source))
-              and snapshot_tags(item) == snapshot_tags(source)
-              and all(item.get(k) == source.get(k) for k in ('time', 'tree', 'paths'))]
+def match_copy(evidence, source, destination):
+    snapshot_id(source)
+    mapped = [item for item in destination if evidence.same_copy(source, item)]
     if len(mapped) > 1:
         raise ObservationError('snapshot_mapping_ambiguous')
     return mapped[0] if mapped else None
 
 
-def select_full(inventories, policy_sha, artifact, stage, *, routine, owner=None, max_lag=172800):
-    required = {'cadence=daily', 'format=full-v2', 'complete=full-v2', 'policy=' + policy_sha}
-    sources = [s for s in inventories['games'] if required <= snapshot_tags(s)
-               and stage in s.get('paths', [])
-               and any(re.fullmatch(r'artifact=[0-9a-f]{64}', tag) for tag in snapshot_tags(s))]
-    all_sources = sources
-    if not routine:
-        sources = [s for s in sources if 'artifact=' + artifact in snapshot_tags(s)
-                   and (owner is None or 'owner=' + owner in snapshot_tags(s))]
+def select_full(evidence, inventories, policy_sha, artifact, stage, *, routine, owner=None, max_lag=172800):
+    sources = []
+    all_sources = []
+    for source in inventories['games']:
+        tags = evidence.tags(source)
+        if (evidence.daily_kind(tags) != 'complete' or 'policy=' + policy_sha not in tags
+                or stage not in source.get('paths', [])
+                or not any(re.fullmatch(r'artifact=[0-9a-f]{64}', tag) for tag in tags)):
+            continue
+        all_sources.append(source)
+        if routine or ('artifact=' + artifact in tags and (owner is None or 'owner=' + owner in tags)):
+            sources.append(source)
     if not sources:
         raise ObservationError('complete_local_missing')
     latest = max(sources, key=snapshot_time)
     require_fresh(latest, datetime.now(timezone.utc))
     copies = {}
     for destination in ('nfs', 'proton'):
-        matches = [(s, match_copy(s, inventories[destination])) for s in all_sources]
+        matches = [(s, match_copy(evidence, s, inventories[destination])) for s in all_sources]
         matches = [(s, c) for s, c in matches if c is not None]
         if not matches:
             raise ObservationError(destination + '_baseline_missing')
@@ -307,6 +313,7 @@ def validate_units(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runner-sha256", required=True)
+    parser.add_argument("--evidence-sha256", required=True)
     parser.add_argument("--policy-sha256", required=True)
     parser.add_argument("--files-from-sha256", required=True)
     parser.add_argument("--excludes-sha256", required=True)
@@ -356,6 +363,7 @@ def main() -> None:
             require_regular(path, mode, expected)
         if policy["runner"]["sha256"] != arguments.runner_sha256:
             raise ObservationError("runner_policy_identity")
+        evidence = load_snapshot_evidence(EVIDENCE_PATH, arguments.evidence_sha256)
 
         artifact_path = Path(policy["runner"]["artifact_hash_path"])
         require_regular(artifact_path, 0o444)
@@ -383,11 +391,11 @@ def main() -> None:
                 inventories[name] = []
                 warnings.append(f"{name}_unavailable")
         selected_games, selected_nfs, selected_proton = select_full(
-            inventories, policy_sha256, artifact_sha256, policy['capture']['stage'],
+            evidence, inventories, policy_sha256, artifact_sha256, policy['capture']['stage'],
             routine=arguments.admission == 'routine', owner=arguments.apply_owner_sha256,
             max_lag=policy['replication']['max_lag_seconds'])
         for name, copy in (('nfs', selected_nfs), ('proton', selected_proton)):
-            if copy is None or match_copy(selected_games, [copy]) is None:
+            if copy is None or match_copy(evidence, selected_games, [copy]) is None:
                 warnings.append(name + '_replication_lag')
         require_fresh(selected_games, datetime.now(timezone.utc))
         cutoff = Path('/var/lib/home-lab-restic/require-post-change-capture')

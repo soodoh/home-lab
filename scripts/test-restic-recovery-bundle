@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-work=$(mktemp -d)
+work=$(mktemp -d "${TMPDIR:-/tmp}/restic-bundle-fixture.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 mkdir -m 0700 "$work/out"
 
@@ -13,17 +13,18 @@ echo $name
 SH
   chmod 0755 "$work/$name"
 done
-cat >"$work/restore-critical-backup" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
+fixture_repository=${RECOVERY_FIXTURE_REPOSITORY:-rclone:proton_backup:Backups/home-lab-restic}
+{
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+  printf '%s %q ]]\n' "[[ \$RECOVERY_RESTIC_REPOSITORY ==" "$fixture_repository"
+  cat <<'SH'
 [[ $1 == --restic-snapshot-id && $3 == --confirmed-empty-target && $4 == --all ]]
-[[ $RECOVERY_RESTIC_REPOSITORY == rclone:proton_backup:Backups/home-lab-restic ||
-   $RECOVERY_RESTIC_REPOSITORY == "rclone::chunker,remote='proton_backup:Backups/home-lab-restic',chunk_size=3MiB,hash_type=sha1,meta_format=simplejson,start_from=1,name_format=*.rclone_chunk.###,transactions=rename,fail_hard=true:" ]]
 if [[ $RECOVERY_TARGET == *interrupt* ]]; then sleep 60; fi
 mkdir -p "$RECOVERY_TARGET/srv/home-lab-state"
 printf verified >"$RECOVERY_TARGET/srv/home-lab-state/fixture"
 printf 'recovery_restore=verified backend=restic snapshot=%s groups=applications,books,gaming,home-automation,identity,infrastructure,media,nextcloud\n' "$2"
 SH
+} >"$work/restore-critical-backup"
 chmod 0755 "$work/restore-critical-backup"
 cat >"$work/age" <<'SH'
 #!/usr/bin/env bash
@@ -40,7 +41,6 @@ restic_sha=$(sha "$work/restic")
 rclone_sha=$(sha "$work/rclone")
 runner_sha=$(sha "$work/restore-critical-backup")
 age_sha=$(sha "$work/age")
-fixture_repository=${RECOVERY_FIXTURE_REPOSITORY:-rclone:proton_backup:Backups/home-lab-restic}
 cat >"$work/metadata.json" <<JSON
 {"artifact_sha256":"$(printf 'a%.0s' {1..64})","original_snapshot_id":"edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2","policy_sha256":"09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6","rclone_sha256":"$rclone_sha","repository":"$fixture_repository","repository_id":"d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e","restic_sha256":"$restic_sha","restore_runner_sha256":"$runner_sha","snapshot_id":"95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e","version":1}
 JSON
@@ -57,9 +57,9 @@ scope_args=(
   --scope-config "$repo_root/recovery/groups.json"
 )
 build() {
-  local recipient=$1 output=$2
+  local recipient=$1 output=$2 metadata=${3:-$work/metadata.json}
   env "${common[@]}" "$repo_root/scripts/build-restic-recovery-bundle" \
-    --metadata "$work/metadata.json" --restic "$work/restic" --rclone "$work/rclone" \
+    --metadata "$metadata" --restic "$work/restic" --rclone "$work/rclone" \
     --restore-runner "$work/restore-critical-backup" "${scope_args[@]}" --age "$work/age" --age-sha256 "$age_sha" \
     --recipient "$recipient" --output "$output"
 }
@@ -106,13 +106,66 @@ target.chmod(0o755)
 PY
 tail -n +2 "$work/out/a.age" >"$work/plaintext.tar"
 plaintext_sha=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$work/plaintext.tar")
-consumer_output=$(umask 077; RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens \
-  "$work/run-restic-recovery-bundle" --expected-plaintext-sha256 "$plaintext_sha" \
+consume() (
+  umask 077
+  RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens \
+  "$work/run-restic-recovery-bundle" --expected-plaintext-sha256 "$2" \
   --expected-snapshot-id 95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e \
   --expected-original-snapshot-id edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2 \
   --expected-repository-id d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e \
   --expected-policy-sha256 09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6 \
-  --expected-artifact-sha256 "$(printf 'a%.0s' {1..64})" --target "$recovery_target" <"$work/plaintext.tar")
+  --expected-artifact-sha256 "$(printf 'a%.0s' {1..64})" --target "$recovery_target" <"$1"
+)
+
+if [[ -n ${RECOVERY_FIXTURE_INSTALLED_REPOSITORY:-} ]]; then
+  # The consumer must reject the format even when the archive and member hashes match.
+  mkdir -m 0700 "$work/drift"
+  python3 - "$work" <<'PY'
+import hashlib, io, json, os, sys, tarfile
+from pathlib import Path
+
+work = Path(sys.argv[1])
+invalid = os.environ['RECOVERY_FIXTURE_INVALID_REPOSITORIES'].splitlines()
+invalid.append(os.environ['RECOVERY_FIXTURE_INSTALLED_REPOSITORY'])
+
+
+def canonical(value):
+    return (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
+
+
+for index, repository in enumerate(invalid):
+    base = work / 'drift' / str(index)
+    with tarfile.open(work / 'plaintext.tar') as source, tarfile.open(base.with_suffix('.tar'), 'w') as target:
+        metadata = json.load(source.extractfile('metadata.json'))
+        metadata['repository'] = repository
+        raw = canonical(metadata)
+        standalone = base.with_suffix('.json')
+        standalone.write_bytes(raw)
+        standalone.chmod(0o600)
+        manifest = json.load(source.extractfile('MANIFEST.json'))
+        manifest['metadata.json'].update(sha256=hashlib.sha256(raw).hexdigest(), size=len(raw))
+        changed = {'metadata.json': raw, 'MANIFEST.json': canonical(manifest)}
+        for member in source.getmembers():
+            data = changed[member.name] if member.name in changed else source.extractfile(member).read()
+            member.size = len(data)
+            target.addfile(member, io.BytesIO(data))
+PY
+  for metadata in "$work"/drift/*.json; do
+    if output=$(build "$recipient_a" "$work/out/drift.age" "$metadata" 2>&1); then
+      echo 'bundle builder accepted Proton format drift' >&2
+      exit 1
+    fi
+    [[ $output == *'bundle repository differs'* && ! -e $work/out/drift.age ]]
+    archive=${metadata%.json}.tar
+    if output=$(consume "$archive" "$(sha "$archive")" 2>&1); then
+      echo 'bundle runner accepted Proton format drift' >&2
+      exit 1
+    fi
+    [[ $output == *'recovery bundle repository differs'* ]]
+    [[ -z $(find "$recovery_target" "$workspace_parent" -mindepth 1 -print -quit) ]]
+  done
+fi
+consumer_output=$(consume "$work/plaintext.tar" "$plaintext_sha")
 CONSUMER_OUTPUT="$consumer_output" python3 - <<'PY'
 import json,os
 value=json.loads(os.environ["CONSUMER_OUTPUT"])
