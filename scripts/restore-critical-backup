@@ -48,17 +48,6 @@ else
   done
 fi
 scope_json=$(python3 "${scope_arguments[@]}") || exit 1
-recovery_paths=()
-while IFS= read -r recovery_path; do
-  recovery_paths+=("$recovery_path")
-done < <(
-  SCOPE_JSON="$scope_json" python3 - <<'PY'
-import json
-import os
-for path in json.loads(os.environ["SCOPE_JSON"])["paths"]:
-    print(path)
-PY
-)
 
 [[ $confirmed_empty == true ]]
 [[ -d $RECOVERY_TARGET && ! -L $RECOVERY_TARGET ]]
@@ -202,29 +191,30 @@ else:
     print('legacy')
 PY
 )
-  restore_arguments=(restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify)
-  if [[ $recovery_all != true ]]; then
-    if [[ $capture_format == full-v2 ]]; then
-      capture_root=/mnt/games/home-lab-backup/capture
-      restore_arguments+=(--include "$capture_root/manifest.json" --include "$capture_root/databases" --include "$capture_root/native")
-      for path in "${recovery_paths[@]}"; do
-        restore_arguments+=(--include "$capture_root/files$path")
-      done
-    else
-      for path in "${recovery_paths[@]}"; do
-        restore_arguments+=(--include "$path")
-      done
-    fi
-  fi
-  if ! "$restic_path" "${restore_arguments[@]}" >/dev/null 2>&1; then
-    echo "Restic restore verification failed" >&2
-    exit 1
-  fi
   if [[ $capture_format == full-v2 ]]; then
-    [[ -f $runner_dir/prepare-restic-files.py && ! -L $runner_dir/prepare-restic-files.py ]] || exit 1
-    # This helper is reviewed/installed alongside the runner, and covered by the
-    # externally verified bundle manifest during independent recovery.
-    python3 "$runner_dir/prepare-restic-files.py" "$RECOVERY_TARGET" >/dev/null
+    preparer="$runner_dir/prepare-restic-files.py"
+    [[ -f $preparer && ! -L $preparer ]] || exit 1
+    # Reviewed with the runner and covered by the independent bundle manifest.
+    restore_arguments=("$RECOVERY_TARGET" --restore "$restic_path" "$restic_snapshot_id")
+    [[ $recovery_all != true ]] || restore_arguments+=(--all)
+    python3 "$preparer" "${restore_arguments[@]}" <<<"$scope_json" >/dev/null
+  else
+    restore_arguments=(restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify)
+    if [[ $recovery_all != true ]]; then
+      while IFS= read -r path; do
+        restore_arguments+=(--include "$path")
+      done < <(
+        SCOPE_JSON="$scope_json" python3 - <<'PY'
+import json
+import os
+print(*json.loads(os.environ["SCOPE_JSON"])["paths"], sep="\n")
+PY
+      )
+    fi
+    if ! "$restic_path" "${restore_arguments[@]}" >/dev/null 2>&1; then
+      echo "Restic restore verification failed" >&2
+      exit 1
+    fi
   fi
   selected_groups=$(SCOPE_JSON="$scope_json" python3 - <<'PY'
 import json

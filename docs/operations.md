@@ -193,9 +193,11 @@ Writer exclusion, interruption journals, unknown ownership, tool identities,
 policy/scope and freshness checks remain blockers in both modes. Convergence
 revalidates admission under the exact acquired production owner; that exception
 never admits another owner's lock. A fresh observation is current-run input,
-not standing approval. Successful strict changes invalidate pre-change routine
-coverage until a new complete capture protects the changed state. Matching copies
-prove coverage of a capture, not of subsequent application writes. Git revert restores configuration,
+not standing approval. A successful strict operation publishes the post-change
+capture cutoff before releasing its exact acquired owner, even if no changes
+were reported. Routine admission then requires a newer complete local capture.
+Matching copies prove coverage of a capture, not of subsequent application writes.
+Git revert restores configuration,
 **not data**.
 
 Unknown locks, interruption journals, mounts, keys, owners, service counts or
@@ -1081,7 +1083,8 @@ device policy and capability restrictions deny raw-device access and creation. S
 retention is deferred while any eligible snapshot lacks either copy; investigate
 capacity pressure rather than discarding the only copy. Native retention applies
 bounded daily/weekly/monthly counts to legacy and complete history, deleting only
-removed sources' exact destination copies. Before source expiry, a protected
+removed sources' exact destination copies. A copy cannot stand for two sources.
+Before source expiry, a protected
 `/var/lib/home-lab-restic/retention.json` journal binds exact source/copy IDs to
 all three repository identities. Local maintenance resumes pending deletions
 first, preserving copies whose sources still exist and skipping already absent

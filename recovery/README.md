@@ -29,9 +29,11 @@ scripts/test-recovery-tools
 ```
 
 CI additionally runs `scripts/test-restic-native-restore` with the checksum-pinned
-Restic binary in a disposable Linux mount namespace. It exercises the unchanged
-restore helper against a real local repository, checks restored bytes and verifies
-that group selection includes common paths but excludes unrelated data. The
+Restic binary in a disposable Linux mount namespace. It publishes a ready
+capture with the capture implementation and synthetic application inputs, then
+exercises the independent restore helper against a real local repository. It
+checks restored bytes, explicit exports and common paths while verifying that
+selective restore excludes unrelated data. The
 synthetic guard/bundle fixtures do not themselves qualify Restic or Proton.
 Never run the native fixture directly on a managed host.
 

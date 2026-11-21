@@ -12,6 +12,7 @@ compose_native_source_candidate_path: /var/lib/docker-compose/source-candidate.t
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
 compose_native_runtime_env_path: /etc/docker-compose/production.env
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
+compose_native_post_change_capture_cutoff_path: /var/lib/home-lab-restic/require-post-change-capture
 compose_native_expected_service_count: 0
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600

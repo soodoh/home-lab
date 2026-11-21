@@ -48,8 +48,7 @@
   post_tasks:
     - name: Release production ownership only on complete success
       ansible.builtin.import_role:
-        name: apply_lock
+        name: compose_native
+        tasks_from: release
       vars:
-        apply_lock_action: release
-        apply_lock_path: "{{ compose_native_apply_lock_path }}"
-        apply_lock_operation: shelfmark-connections
+        compose_native_apply_operation: shelfmark-connections
