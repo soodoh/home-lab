@@ -6,11 +6,24 @@ python3 -m py_compile "$repo_root/scripts/recovery-scope.py"
 python3 -B "$repo_root/scripts/test-recovery-scope.py"
 "$repo_root/scripts/test-restic-restore-branch"
 "$repo_root/scripts/test-restic-recovery-bundle"
-chunked_repository=$(python3 - "$repo_root/services/data/restic/policy.json" <<'PY'
+installed_repository=$(python3 - "$repo_root/services/data/restic/policy.json" <<'PY'
 import json, sys
-print(json.load(open(sys.argv[1]))["repositories"]["proton"]["path"].replace("proton-backup:", "proton_backup:"))
+print(json.load(open(sys.argv[1]))["repositories"]["proton"]["path"])
 PY
 )
-RECOVERY_FIXTURE_REPOSITORY="$chunked_repository" "$repo_root/scripts/test-restic-restore-branch"
-RECOVERY_FIXTURE_REPOSITORY="$chunked_repository" "$repo_root/scripts/test-restic-recovery-bundle"
+export RECOVERY_FIXTURE_REPOSITORY=${installed_repository/proton-backup:/proton_backup:}
+chunker=$RECOVERY_FIXTURE_REPOSITORY
+export RECOVERY_FIXTURE_INVALID_REPOSITORIES
+RECOVERY_FIXTURE_INVALID_REPOSITORIES=$(printf '%s\n' \
+  "${chunker/chunk_size=3MiB/chunk_size=4MiB}" \
+  "${chunker/hash_type=sha1/hash_type=md5}" \
+  "${chunker/meta_format=simplejson/meta_format=none}" \
+  "${chunker/start_from=1/start_from=0}" \
+  "${chunker/name_format=\*.rclone_chunk.###/name_format=*.chunk.###}" \
+  "${chunker/transactions=rename/transactions=auto}" \
+  "${chunker/fail_hard=true/fail_hard=false}" \
+  "${chunker/home-lab-restic/foreign}")
+export RECOVERY_FIXTURE_INSTALLED_REPOSITORY="$installed_repository"
+"$repo_root/scripts/test-restic-restore-branch"
+"$repo_root/scripts/test-restic-recovery-bundle"
 echo "recovery tool safety fixtures passed"

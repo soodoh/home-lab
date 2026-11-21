@@ -39,6 +39,16 @@ class Runtime(unittest.TestCase):
         for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
             self.assertNotIn(service, policy['stop_groups']['applications'])
 
+    def test_runner_rechecks_evidence_before_executing_it(self):
+        load = RUNNER['snapshot_evidence']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'restic_snapshot_evidence.py').write_text('raise AssertionError("unreviewed evidence executed")')
+            load.cache_clear()
+            with mock.patch.dict(load.__wrapped__.__globals__, {'__file__': str(root / 'restic-backup')}):
+                with self.assertRaisesRegex(RUNNER['WorkflowError'], 'snapshot_evidence_identity'):
+                    load()
+
     def test_frozen_radio_check_reads_wal_without_requiring_snapshot_sidecar_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory).resolve()
@@ -1281,9 +1291,11 @@ g['main']()
         partial = {'id': 'b' * 64, 'tags': ['cadence=daily', 'format=full-v2']}
         unknown = {'id': 'c' * 64, 'tags': ['cadence=daily', 'format=future']}
         unrelated = {'id': 'd' * 64, 'tags': []}
+        conflict = {'id': 'e' * 64, 'tags': ['cadence=daily', 'format=full-v2', 'complete=full-v2', 'format=future']}
         copy = mock.Mock()
         with mock.patch.dict(reconcile.__globals__, {
-            'preflight': mock.Mock(), 'inventory': lambda _, n: [legacy, partial, unknown, unrelated] if n == 'games' else [],
+            'preflight': mock.Mock(),
+            'inventory': lambda _, n: [legacy, partial, unknown, unrelated, conflict] if n == 'games' else [],
             'copy_snapshot': copy,
         }):
             reconcile({}, 'nfs')

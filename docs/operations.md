@@ -926,6 +926,9 @@ The complete recovery set is defined by
 not application generations or mixed-age admission. Online captures have their
 own times; the remaining writers share a capture window and one ZFS snapshot.
 The manifest records those windows, not a globally atomic recovery point.
+The runner and read-only observer verify the installed Restic snapshot evidence
+module before using it. Independent restore still verifies snapshot metadata
+without the installed runtime.
 The runner resolves one Restic capture plan per fresh capture from the installed
 controller's policy and declared Compose inventory. Conflicting scope refuses
 before staging or writer interruption. Capacity estimates, copy and mount
@@ -1084,8 +1087,12 @@ all three repository identities. Local maintenance resumes pending deletions
 first, preserving copies whose sources still exist and skipping already absent
 copies. It removes the journal only after verifying replica deletion; failures
 retain it, and tool convergence refuses replacement until maintenance completes
-or live inspection resolves the journal. Incomplete and unknown formatted
-captures remain protected for inspection, not eligible for replication or expiry.
+or live inspection resolves the journal. Incomplete, unknown and conflicting
+formatted captures remain protected for inspection, not eligible for replication
+or expiry. Conflicting format tags also exclude a capture from admission and
+block completed cleanup of its exact staging. During retention, a conflict
+suspends expiry in its native snapshot group for that pass so it cannot take
+the place of a valid capture; unrelated groups remain eligible.
 Maintenance waits for the exclusive repository gate instead of failing on healthy
 readers; capture/copy use its shared side. Its 24-hour native systemd timeout
 budgets an existing 12-hour copy plus maintenance. Admission remains blocked while

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import fcntl
 from contextlib import ExitStack
+from functools import cache
 import hashlib
 import json
 import importlib.util
@@ -20,12 +21,14 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 SUBCOMMANDS = {"preflight", "daily-local", "daily-nfs", "daily-proton", "diagnose-proton", "maintenance", "status", "recover", "expire-snapshots"}
 # Leave headroom for the replica unit's authoritative five-minute stop budget.
 COPY_STOP_GRACE_SECONDS = 240
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
+SNAPSHOT_EVIDENCE_SHA256 = 'adda400082d8dee921feb1221b7de4e013e83610f1aab43d0578453081fc4dda'
 
 
 class WorkflowError(RuntimeError):
@@ -400,11 +403,21 @@ def parse_backup_snapshot(result: subprocess.CompletedProcess[str]) -> str:
     return snapshot
 
 
+@cache
+def snapshot_evidence():
+    path = Path(__file__).with_name('restic_snapshot_evidence.py')
+    if __name__ == '__main__' and not testing():
+        require_regular(path, {0o644}, {0})
+    source = path.read_bytes()
+    if hashlib.sha256(source).hexdigest() != SNAPSHOT_EVIDENCE_SHA256:
+        raise WorkflowError('snapshot_evidence_identity')
+    module = SimpleNamespace()
+    exec(compile(source, str(path), 'exec', dont_inherit=True), vars(module))
+    return module
+
+
 def same_capture(source, candidate):
-    # Native Restic tag rewrites IDs; copy preserves the earliest original ID.
-    return (candidate.get('original') == source.get('original', source['id'])
-            and set(candidate.get('tags', [])) == set(source.get('tags', []))
-            and all(candidate.get(k) == source.get(k) for k in ('time', 'tree', 'paths')))
+    return snapshot_evidence().same_copy(source, candidate)
 
 
 def copy_snapshot(policy, source, destination, snapshot):
@@ -534,7 +547,16 @@ class LocalCapture:
     @staticmethod
     def _completed(rows, token, manifest=None):
         # Do not turn a conflicting or ambiguous completion into absence.
-        matches = [row for row in qualified(rows) if 'capture=' + token in row.get('tags', [])]
+        evidence = snapshot_evidence()
+        matches = []
+        for row in rows:
+            tags = evidence.tags(row)
+            if 'capture=' + token not in tags:
+                continue
+            if len(evidence.format_tags(tags)) > 1:
+                raise WorkflowError('snapshot_completion_identity')
+            if evidence.daily_kind(tags) == 'complete':
+                matches.append(row)
         if len(matches) > 1:
             raise WorkflowError('completion_mapping')
         if not matches:
@@ -630,10 +652,14 @@ class LocalCapture:
             if adapter.zfs_call(adapter.zfs_spec(self.policy), request).get('deleted') is not True:
                 raise WorkflowError('snapshot_retained')
 
+    def _finish_completed(self, adapter, stage, zfs_record, state_record, backup, *, discard_stage=True):
+        self._release_sources(adapter, stage, zfs_record, state_record, backup=backup)
+        if discard_stage:
+            shutil.rmtree(stage)
+
     def _finish_ready(self, adapter, stage, manifest, backup):
         zfs, state = self._ready_receipts(adapter, stage, manifest)
-        self._release_sources(adapter, stage, zfs['record'] if zfs else None, state, backup=backup)
-        shutil.rmtree(stage)
+        self._finish_completed(adapter, stage, zfs['record'] if zfs else None, state, backup)
 
     def run(self, policy_hash: str) -> None:
         self.preflight()
@@ -845,9 +871,10 @@ class LocalCapture:
 
     def _upload(self, adapter, stage, manifest, sources, zfs, state, attachments):
         policy = self.policy
+        evidence = snapshot_evidence()
         captured_at = manifest['captured_at']
-        args = ['backup', '--json', '--time', restic_backup_time(captured_at), '--tag', 'format=full-v2',
-                '--tag', 'cadence=daily', '--tag', 'capture=' + manifest['capture'],
+        args = ['backup', '--json', '--time', restic_backup_time(captured_at), '--tag', evidence.FULL,
+                '--tag', evidence.DAILY, '--tag', 'capture=' + manifest['capture'],
                 '--tag', 'policy=' + manifest['policy'], '--tag', 'artifact=' + manifest['artifact']]
         if manifest['owner']:
             args.extend(['--tag', 'owner=' + manifest['owner']])
@@ -883,7 +910,7 @@ class LocalCapture:
         # Tagging changes the ID. Wait natively for healthy shared copy locks;
         # a failure retains the ready capture for a retry, with writers running.
         require_success(restic_result(policy, 'games', [
-            'tag', '--retry-lock', '12h', '--add', 'complete=full-v2', snapshot,
+            'tag', '--retry-lock', '12h', '--add', evidence.COMPLETE, snapshot,
         ], timeout=13 * 3600), 'capture_completion')
         backup = self._completed(inventory(policy, 'games'), manifest['capture'], manifest)
         if not backup:
@@ -929,8 +956,7 @@ class LocalCapture:
             if manifest is None and policy['capture'].get('state_snapshot'):
                 state_record = self._state_receipt(adapter, stage, zfs)
             # A lost destroy acknowledgement can finish without reopening the source.
-            self._release_sources(adapter, stage, zfs['record'], state_record, backup=backup)
-            shutil.rmtree(stage)
+            self._finish_completed(adapter, stage, zfs['record'], state_record, backup)
             zfs, manifest, state_record = None, None, None
             print('restic_backup=snapshot_cleanup outcome=complete')
         for record in records:
@@ -951,9 +977,13 @@ class LocalCapture:
                 raise WorkflowError('snapshot_replaced')
             if manifest is None and policy['capture'].get('state_snapshot'):
                 state_record = self._state_receipt(adapter, stage, zfs)
-            self._release_sources(adapter, stage, record, state_record, backup=backup)
+            if backup:
+                self._finish_completed(adapter, stage, record, state_record, backup, discard_stage=zfs is not None)
+            else:
+                self._release_sources(adapter, stage, record, state_record, backup=None)
+                if zfs:
+                    shutil.rmtree(stage)
             if zfs:
-                shutil.rmtree(stage)
                 zfs, manifest, state_record = None, None, None
             print('restic_backup=snapshot_cleanup outcome=' + ('complete' if backup else 'abandoned'))
 
@@ -985,15 +1015,10 @@ def inventory(policy, name):
     return rows
 
 
-def qualified(records):
-    return [r for r in records if {'complete=full-v2', 'format=full-v2', 'cadence=daily'} <= set(r.get('tags', []))]
-
-
 def replication_sources(records):
-    # Historical daily snapshots predate format tags. Preserve their replica-safe
-    # lifecycle without ever admitting incomplete or unknown formatted captures.
-    return qualified(records) + [r for r in records if 'cadence=daily' in r.get('tags', [])
-                                 and not any(t.startswith('format=') for t in r.get('tags', []))]
+    # Historical daily snapshots remain eligible for replicas and expiry, not admission.
+    evidence = snapshot_evidence()
+    return [row for row in records if evidence.daily_kind(evidence.tags(row)) is not None]
 
 
 def reconcile(policy, destination):
@@ -1052,6 +1077,28 @@ def finish_retention(policy):
     durable_unlink(path)
 
 
+def forget_capture_class(policy, arguments, sources, conflicts, reason):
+    if not conflicts:
+        require_success(restic_result(policy, 'games', arguments), reason)
+        return
+    # The native tag filter is inclusive. A conflict must not be deleted or
+    # consume a group's retention quota. Keep that group intact; expire only
+    # journaled IDs from other groups, using the native retention decisions.
+    result = restic_result(policy, 'games', [*arguments, '--dry-run', '--json'])
+    require_success(result, reason)
+    removals = []
+    for group in json.loads(result.stdout) or []:
+        keep = group['keep'] or []
+        remove = group['remove'] or []
+        if any(row['id'] in conflicts for row in keep + remove):
+            continue
+        removals.extend(row['id'] for row in remove)
+    if not set(removals) <= sources:
+        raise WorkflowError('retention_unbound_removal')
+    if removals:
+        require_success(restic_result(policy, 'games', ['forget', *removals]), reason)
+
+
 def maintenance(policy: dict[str, Any]) -> None:
     scope = os.environ.get("HOME_LAB_RESTIC_MAINTENANCE_SCOPE")
     if journal_path(policy).exists() or rooted(policy['capture']['stage']).exists():
@@ -1084,14 +1131,18 @@ def maintenance(policy: dict[str, Any]) -> None:
         keep = policy['retention']
         retention = ['--group-by', keep['group_by'], '--keep-daily', str(keep['keep_daily']),
                      '--keep-weekly', str(keep['keep_weekly']), '--keep-monthly', str(keep['keep_monthly'])]
-        # Native keep-tag protects every formatted capture during the legacy
-        # pass, including incomplete/unknown formats that require inspection.
-        legacy = ['forget', '--tag', 'cadence=daily', *retention]
-        for tag in sorted({t for r in records for t in r.get('tags', []) if t.startswith('format=')}):
+        evidence = snapshot_evidence()
+        tags_by_id = {row['id']: evidence.tags(row) for row in records}
+        conflicts = {sid for sid, tags in tags_by_id.items()
+                     if evidence.DAILY in tags and len(evidence.format_tags(tags)) > 1}
+        # Native keep-tag protects every formatted capture during the legacy pass.
+        legacy = ['forget', '--tag', evidence.DAILY, *retention]
+        for tag in sorted({tag for tags in tags_by_id.values() for tag in evidence.format_tags(tags)}):
             legacy.extend(['--keep-tag', tag])
-        require_success(restic_result(policy, 'games', legacy), 'forget_legacy')
-        require_success(restic_result(policy, 'games', [
-            'forget', '--tag', 'cadence=daily,format=full-v2,complete=full-v2', *retention]), 'forget_games')
+        complete = ['forget', '--tag', ','.join((evidence.DAILY, evidence.FULL, evidence.COMPLETE)), *retention]
+        for kind, args, reason in (('legacy', legacy, 'forget_legacy'), ('complete', complete, 'forget_games')):
+            eligible = {row['id'] for row in sources if evidence.daily_kind(tags_by_id[row['id']]) == kind}
+            forget_capture_class(policy, args, eligible, conflicts, reason)
         finish_retention(policy)
         for name in names:
             require_success(restic_result(policy, name, ['prune', '--max-repack-size', keep['prune_max_repack_size'],
@@ -1212,6 +1263,8 @@ def main() -> None:
                 policy['_owner'] = owner
             elif owner is not None:
                 raise WorkflowError('owner_missing')
+            if command in {'daily-local', 'daily-nfs', 'daily-proton', 'expire-snapshots', 'maintenance'}:
+                snapshot_evidence()
             if command in {'recover', 'preflight', 'daily-local', 'expire-snapshots'}:
                 capture = LocalCapture(policy)
                 if command == 'recover':

@@ -627,12 +627,14 @@ class SnapshotCapture(unittest.TestCase):
             # Daily can run as the exact acquired production owner; expiry cannot.
             self.policy['_owner'] = None if expiry else 'd' * 64
             self.ready()
-            for identity in ('policy', 'artifact', 'owner', 'conflicting-tag', 'ambiguous'):
+            for identity in ('policy', 'artifact', 'owner', 'conflicting-tag', 'conflicting-format', 'ambiguous'):
                 with self.subTest(expiry=expiry, identity=identity):
                     snapshots = [self.completed(**{identity: 'e' * 64})] if identity in {
                         'policy', 'artifact', 'owner'} else [self.completed()]
                     if identity == 'conflicting-tag':
                         snapshots[0]['tags'].append('policy=' + 'e' * 64)
+                    elif identity == 'conflicting-format':
+                        snapshots[0]['tags'].append('format=future')
                     elif identity == 'ambiguous':
                         snapshots.append({**self.completed(policy='e' * 64), 'id': 'f' * 64})
                     self.globals['inventory'].return_value = snapshots
