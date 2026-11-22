@@ -81,6 +81,11 @@ class ComposeDelivery(unittest.TestCase):
         self.assertEqual(services["zwave"]["secrets"][0]["target"], "/usr/src/app/store/.session-secret")
         self.assertNotIn("SESSION_SECRET", services["zwave"]["environment"])
         self.assertEqual(services["recyclarr"]["secrets"][0]["target"], "/config/secrets.yml")
+        uchiyomi = services["uchiyomi"]
+        self.assertIn("--env-file=/run/secrets/uchiyomi_oidc", uchiyomi["command"])
+        self.assertNotIn("OIDC_CLIENT_SECRET", uchiyomi["environment"])
+        self.assertEqual([name for name, service in services.items()
+                          if any(s["source"] == "uchiyomi_oidc" for s in service.get("secrets", []))], ["uchiyomi"])
         private = services["traefik-tailnet"]
         self.assertEqual(private["environment"]["AWS_SHARED_CREDENTIALS_FILE"], "/run/secrets/traefik_tailnet_aws_credentials")
         self.assertNotIn("AWS_ACCESS_KEY_ID", private["environment"])
@@ -116,6 +121,37 @@ class ComposeDelivery(unittest.TestCase):
                           json.loads((ROOT / "recovery/groups.json").read_text())["common_paths"])
         self.assertNotIn("entrypoint", service)
         self.assertEqual(service["secrets"][0]["target"], "/config/secrets.yml")
+
+    def test_uchiyomi_uses_its_own_backed_up_state_and_keeps_vpn_egress(self):
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        books = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']['books']
+        step = next(s for s in policy['capture']['cold'] if s['name'] == 'uchiyomi')
+        self.assertEqual(set(step['services']), {'uchiyomi', 'uchiyomi-engine'})
+        self.assertTrue(set(step['services']) <= set(books['services']) & set(policy['stop_groups']['applications']))
+        self.assertTrue(set(step['paths']) <= set(books['paths']))
+        for name in step['services']:
+            service = self.model['services'][name]
+            self.assertEqual(service['network_mode'], 'service:gluetun')
+            self.assertNotIn('ports', service)
+            for volume in service['volumes']:
+                if volume['type'] == 'bind':
+                    self.assertTrue(any(Path(volume['source']).is_relative_to(path) for path in step['paths']))
+        engine = self.model['services']['uchiyomi-engine']['environment']
+        app = self.model['services']['uchiyomi']['environment']
+        self.assertEqual(engine['BIND_IP'], '127.0.0.1')
+        self.assertEqual(app['SUWAYOMI_URL'], f"http://127.0.0.1:{engine['BIND_PORT']}")
+        self.assertEqual(app['AUTH_MODE'], 'oidc-only')
+        self.assertEqual(app['OIDC_ALLOW_SIGNUP'], 'true')
+        self.assertEqual(app['LIBRARY_BACKEND'], 'owned')
+        desired = json.loads((ROOT / 'infrastructure/tofu/authentik/desired.json').read_text())
+        operators = desired['groups']['app-operators']
+        self.assertEqual(app['OIDC_ADMIN_GROUP'], operators['name'])
+        self.assertEqual(desired['membershipSets'][operators['membership_set']], ['paul'])
+        provider = desired['oauthProviders']['uchiyomi']
+        self.assertEqual(provider['allowed_redirect_uris'], [{
+            'matching_mode': 'strict', 'redirect_uri_type': 'authorization',
+            'url': app['PUBLIC_ORIGIN'] + '/auth/oidc/callback',
+        }])
 
     def test_tachidesk_mounts_are_captured_and_selected_for_books_recovery(self):
         services = yaml.safe_load((ROOT / 'services/servarr.yml').read_text())['services']
@@ -207,8 +243,10 @@ class NativeFileRendering(unittest.TestCase):
                     "ansible_python_interpreter": shutil.which("python3"),
                     "compose_native_controller_root": str(ROOT),
                     "compose_native_credentials": credentials,
-                    "compose_native_oidc_secrets": {"schemaVersion": 2, "oauthProviders": {"47": {"client_secret": "s" * 64}}},
-                    "compose_native_oidc_desired": {"oauthProviders": {"47": {"client_id": "synthetic-id"}}},
+                    "compose_native_oidc_secrets": {"schemaVersion": 2, "oauthProviders": {
+                        "47": {"client_secret": "s" * 64}, "uchiyomi": {"client_secret": "u" * 64}}},
+                    "compose_native_oidc_desired": {"oauthProviders": {
+                        "47": {"client_id": "synthetic-id"}, "uchiyomi": {"client_id": "synthetic-uchiyomi"}}},
                     "compose_native_cli_proxy_secrets": {"API_KEY": 'synthetic-"api"', "MANAGEMENT_KEY": "synthetic-$management"},
                     "compose_native_runtime_env_path": str(environment_path),
                 },
@@ -248,6 +286,8 @@ class NativeFileRendering(unittest.TestCase):
                     expected = {"VAULTWARDEN_SSO_CLIENT_SECRET": "s" * 64,
                                 "MAM_INITIAL_ID": "synthetic-mam-id"}.get(item["key"], production.get(item["key"]))
                     self.assertEqual(path.read_bytes(), expected.encode())
+            self.assertEqual((work / "uchiyomi-oidc.env").read_text(),
+                             "OIDC_CLIENT_ID=synthetic-uchiyomi\nOIDC_CLIENT_SECRET=" + "u" * 64 + "\n")
             aws = configparser.ConfigParser()
             aws.read(work / "traefik-tailnet-aws-credentials")
             self.assertEqual(aws["default"]["aws_access_key_id"], production["TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID"])

@@ -17,7 +17,7 @@ replace the live, remote-backed import plan.
 ## Directory and onboarding
 
 Application-access membership is Git-owned. `membershipSets` defines the shared
-`family`, `caro`, `personal` and `operators` username lists once; each `groups.*.membership_set`
+`family`, `caro`, `personal`, `uchiyomi` and `operators` username lists once; each `groups.*.membership_set`
 selects one list. Native provider data sources resolve independently owned users;
 the root never creates or changes those accounts, their passwords or their
 personal authenticators. These are flat groups with no parents or superuser status.
@@ -28,6 +28,7 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Karaoke Users | family | Karaoke Eternal |
 | Caro Library Users | caro | Caro Tachidesk |
 | Books Users | personal | Grimmory |
+| Uchiyomi Users | uchiyomi | Uchiyomi |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
 | App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
@@ -38,12 +39,16 @@ auto-provisioning directory users or mapping application access to admin roles.
 Its separate client secret uses the same Authentik SOPS authority; its signed OIDC
 client uses a dedicated create-only RSA signing certificate in the existing
 SOPS/OpenTofu signing authority, not a competing discovery-owned key writer.
+Uchiyomi has a separate create-only OIDC application, client and signer in the
+same authorities. `Uchiyomi Users` admits Paul, Carolyn and Eric; Uchiyomi
+reads `App Operators` (Paul only) from the signed `profile` claim for its own
+admin role. These grants do not alter Authentik administrator membership.
 Removing any managed application/provider requires explicit reviewed destroy
 actions, never orphaned state entries.
 
 `App Operators` grants application access, not in-application administrator roles,
-except Shelfmark explicitly maps its trusted proxy group header to its native admin
-role. Shelfmark is operator-only; no unauthenticated host port is published.
+except when Shelfmark maps its trusted proxy group header or Uchiyomi maps its
+signed OIDC group claim to its native admin role. Shelfmark is operator-only; no unauthenticated host port is published.
 `authentik Admins` and its independently administered membership grant Authentik
 administration only; application bindings do not reference that group. Shared
 applications combine their specific access group and `App Operators` using `any`
@@ -148,3 +153,29 @@ permissions and singleton system-setting permissions. This is not permission for
 provider identity to broaden its own access. Plan credentials also retain the
 explicit OAuth provider-change exception needed for secret reads; protect them as
 mutating credentials. See [security](security.md#opentofu-state-and-plans).
+
+### Group permissions in Authentik Admin
+
+An independent Authentik administrator owns these role assignments and native
+[Initial Permissions](https://docs.goauthentik.io/users-sources/access-control/initial_permissions/).
+The OpenTofu root still owns application-access groups, their membership, and
+application bindings.
+
+1. Assign the role `home-lab-opentofu-managed-group-read` to both
+   `home-lab-opentofu-plan` and `home-lab-opentofu-apply`. Give this role no global
+   permissions. Set its Initial Permissions to `authentik_core.view_group`.
+2. Keep the apply role `home-lab-opentofu-authentik-apply` restricted to the apply
+   account. Keep `authentik_core.add_group` global on that role because the group
+   doesn't exist yet. Set its Initial Permissions to the Group model's
+   `change_group`, `delete_group`, `add_user_to_group`, and
+   `remove_user_from_group`. Do not grant those permissions globally or grant
+   role assignment or superuser status for this setup.
+3. Initial Permissions apply to future creations, not existing groups. Assign
+   the same permissions to those roles **on** any independently reviewed
+   existing group being adopted; don't change that group's members or roles to
+   grant the automation access. Verify live read-back and intended membership
+   before importing the observed group UUID.
+
+Verify group creation and read-back with both controller identities before
+relying on Initial Permissions. Initial Permissions are not a deletion approval;
+review and authorize each destroy plan separately.

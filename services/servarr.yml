@@ -148,6 +148,105 @@ services:
       - /srv/home-lab-state/tachidesk-data:/home/suwayomi/.local/share/Tachidesk
       - ${MEDIA_PATH}/tachidesk:/home/suwayomi/.local/share/Tachidesk/downloads
 
+  uchiyomi:
+    image: ghcr.io/angelosha/uchiyomi:v0.108.1@sha256:bcb1c06d3f30d1330d579b6c3c48471683750a3739cda599879c4f0de806aef4
+    container_name: uchiyomi
+    restart: unless-stopped
+    stop_grace_period: 40s
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+      uchiyomi-engine:
+        condition: service_healthy
+    command: [node, --env-file=/run/secrets/uchiyomi_oidc, dist/server.js]
+    environment:
+      TZ: $TZ
+      PUID: "1000"
+      PGID: "1000"
+      PUBLIC_ORIGIN: https://comics.diloreto.com
+      LIBRARY_BACKEND: owned
+      SUWAYOMI_URL: http://127.0.0.1:4569
+      FLARESOLVERR_URL: http://127.0.0.1:8191
+      AUTH_MODE: oidc-only
+      OIDC_ISSUER: https://auth.diloreto.com/application/o/uchiyomi/
+      OIDC_NAME: Authentik
+      OIDC_ALLOW_SIGNUP: "true"
+      OIDC_ADMIN_GROUP: App Operators
+    secrets:
+      - uchiyomi_oidc
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi/data
+        target: /data
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi/config
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi/library
+        target: /library
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi/downloads
+        target: /library-dl
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi/backups
+        target: /backups
+        bind: {create_host_path: false}
+      - uchiyomi_cache:/cache
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:3000/healthz]
+      start_period: 90s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  uchiyomi-engine:
+    # Use Uchiyomi's qualified engine version and independent app state.
+    image: ghcr.io/suwayomi/suwayomi-server:v2.4.2366@sha256:1fac27c387dc2ea9949e1a01ad7f6d6de9d72d3988338a95476748e5c45c4582
+    container_name: uchiyomi-engine
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    mem_limit: 2g
+    environment:
+      TZ: $TZ
+      BIND_IP: 127.0.0.1
+      BIND_PORT: "4569"
+      JAVA_TOOL_OPTIONS: -Xmx768m -XX:+UseSerialGC
+      MALLOC_ARENA_MAX: "2"
+      WEB_UI_ENABLED: "false"
+      AUTO_DOWNLOAD_CHAPTERS: "false"
+      FLARESOLVERR_ENABLED: "true"
+      FLARESOLVERR_URL: http://127.0.0.1:8191
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-engine
+        target: /home/suwayomi/.local/share/Tachidesk
+        bind: {create_host_path: false}
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/4569;
+          printf 'GET /api/v1/settings/about HTTP/1.0\r\n\r\n' >&3;
+          head -1 <&3 | grep -q ' 200 '
+      start_period: 90s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   caro-tachidesk:
     # Same image on Dockerhub is outdated
     image: ghcr.io/suwayomi/tachidesk:v2.4.2511@sha256:ccb0de45fc37c67c46b1a467611eb9f4e8364951b8796cdd796d4a66943c6f8d
@@ -360,6 +459,11 @@ secrets:
     file: /etc/docker-compose/credentials/prowlarr-api-key
   recyclarr_credentials:
     file: /etc/docker-compose/credentials/recyclarr-secrets.yml
+  uchiyomi_oidc:
+    file: /etc/docker-compose/credentials/uchiyomi-oidc.env
+
+volumes:
+  uchiyomi_cache:
 
 networks:
   arr_network:

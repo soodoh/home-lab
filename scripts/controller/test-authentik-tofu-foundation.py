@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory"}
+OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory", "uchiyomi"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
@@ -143,9 +143,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             "jellyfin": family, "seerr": family, "karaoke-eternal": family,
             "caro-tachidesk": {"carodilo", "eabbado"},
             "grimmory": {"paul", "sarabeth"},
+            "uchiyomi": {"paul", "carodilo", "eabbado"},
             "frigate": {"paul", "sarabeth"}, "vaultwarden": {"paul", "sarabeth"},
         }
-        groups = {value["pk"]: value for value in DESIRED["groups"].values()}
+        groups = {value["pk"]: value for value in DESIRED["groups"].values() if value["pk"]}
         for slug, members in expected.items():
             bindings = [value for value in DESIRED["applicationPolicyBindings"].values()
                         if value["application_slug"] == slug]
@@ -154,8 +155,9 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
                 self.assertTrue(binding["enabled"])
                 self.assertFalse(binding["negate"])
                 self.assertIsNone(binding["user"], "Direct-user grants bypass membership revocation")
-                if binding["group"] in groups and binding["group"] != DESIRED["groups"]["app-operators"]["pk"]:
-                    group = groups[binding["group"]]
+                group = (DESIRED["groups"][binding["group_ref"]] if "group_ref" in binding
+                         else groups[binding["group"]])
+                if group != DESIRED["groups"]["app-operators"]:
                     granted.update(DESIRED["membershipSets"][group["membership_set"]])
             self.assertEqual(granted, members, slug)
             self.assertEqual(DESIRED["applications"][slug]["policy_engine_mode"], "any")
@@ -176,9 +178,14 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(group["roles"], [])
         self.assertEqual({binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()
                           if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","sabnzbd","shelfmark","sonarr","tachidesk","vaultwarden","zwave"})
-        owned_groups = {value["pk"] for value in DESIRED["groups"].values()}
-        self.assertTrue(all(binding["group"] in owned_groups and binding["user"] is None
-                            for binding in DESIRED["applicationPolicyBindings"].values()))
+        owned_ids = {value["pk"] for value in DESIRED["groups"].values() if value["pk"]}
+        for binding in DESIRED["applicationPolicyBindings"].values():
+            self.assertIsNone(binding["user"])
+            if "group_ref" in binding:
+                self.assertIsNone(binding["group"])
+                self.assertIn(binding["group_ref"], DESIRED["groups"])
+            else:
+                self.assertIn(binding["group"], owned_ids)
 
     def test_mindwtr_remains_a_web_only_forward_auth_gate(self) -> None:
         app = DESIRED["applications"]["mindwtr"]

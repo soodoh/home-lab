@@ -8,8 +8,11 @@ directory. Production activation is not yet qualified.
 The `books` group includes the NFS library roots `/mnt/storage/media/books` and
 `/mnt/storage/media/audiobooks`, both Tachidesk download roots
 (`/mnt/storage/media/tachidesk` and `/mnt/storage/media/caro-tachidesk`), and local
-Grimmory/Tachidesk database/application state. Restore checks must validate local
-state and the NFS content together. The NFS
+Grimmory/Tachidesk database/application state. It also includes Uchiyomi’s
+local database, config, chapter files and separate extension-engine state.
+Restore Uchiyomi with a release that enforces private libraries (v0.107.0 or
+later); a downgrade to an older release can expose private content. Restore
+checks must validate local state and the NFS content together. The NFS
 repository is on the same export as the live library; use games or Proton for
 independent recovery if that storage is lost.
 

@@ -11,14 +11,14 @@ const forwards = JSON.parse(fs.readFileSync('infrastructure/tofu/omada/desired.j
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.infrastructure;
 
 const authentikHosts = [
-  'auth', 'caromanga', 'comics', 'ddns', 'frigate', 'openfit',
+  'auth', 'caromanga', 'ddns', 'frigate', 'openfit',
   'prowlarr', 'qb', 'radarr', 'sabnzbd',
   'seerr', 'shelfmark', 'sonarr', 'gost',
 ];
 const directHosts = {
   hass: 'hass', vaultwarden: 'vaultwarden', watch: 'jellyfin', books: 'books',
   nextcloud: 'nextcloud', todo: 'mindwtr-app', 'todo-api': 'mindwtr-cloud',
-  'todo-auth': 'authentik', karaoke: 'karaoke',
+  'todo-auth': 'authentik', karaoke: 'karaoke', comics: 'uchiyomi',
 };
 
 test('the public host allowlist routes to the intended private backends', () => {
@@ -42,6 +42,7 @@ test('the public host allowlist routes to the intended private backends', () => 
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.23.0.1:8123');
   assert.equal(dynamic.services.books.loadBalancer.servers[0].url, 'http://grimmory:6060');
+  assert.equal(dynamic.services.uchiyomi.loadBalancer.servers[0].url, 'http://gluetun:3000');
 });
 
 test('Mindwtr web requires Authentik; sync API and calendar feeds keep native credentials', () => {

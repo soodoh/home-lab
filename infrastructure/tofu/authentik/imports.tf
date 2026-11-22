@@ -62,7 +62,7 @@ import {
 }
 
 import {
-  for_each = local.groups
+  for_each = local.existing_groups
   to       = authentik_group.managed[each.key]
   id       = each.value.pk
 }
