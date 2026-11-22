@@ -5,11 +5,11 @@ directory. Production activation is not yet qualified.
 
 ## Scope
 
-The `books` group includes the NFS library roots `/mnt/storage/media/books` and
-`/mnt/storage/media/audiobooks`, both Tachidesk download roots
-(`/mnt/storage/media/tachidesk` and `/mnt/storage/media/caro-tachidesk`), and local
-Grimmory/Tachidesk database/application state. It also includes Uchiyomi’s
-local database, config, chapter files and separate extension-engine state.
+The `books` group includes books, audiobooks, Grimmory state, and Carolyn's
+Tachidesk state and downloads. It also includes Paul's retired Tachidesk archive
+(`/srv/home-lab-state/tachidesk-data` and `/mnt/storage/media/tachidesk`) as
+files only, not as a service, and Uchiyomi's local database, config, chapter files
+and separate extension-engine state.
 Restore Uchiyomi with a release that enforces private libraries (v0.107.0 or
 later); a downgrade to an older release can expose private content. Restore
 checks must validate local state and the NFS content together. The NFS
@@ -173,8 +173,9 @@ are included as explicit recovery inputs, not automatically imported. A group is
 a recovery convenience, not an authorization boundary or an independent snapshot.
 The preparer does not unpack archives, connect databases or start containers.
 
-Coverage includes both Tachidesk download trees, karaoke database/configuration
-(not bulk karaoke media), Frigate exports (not rolling recordings/previews),
+Coverage includes Carolyn's Tachidesk downloads and the legacy comics archive,
+karaoke database/configuration (not bulk karaoke media), Frigate exports (not
+rolling recordings/previews),
 both production ACME stores/private keys and Wolf settings, pairing data, ROMs,
 and selected EmulationStation and emulator state. The `wolf` recovery group
 restores ROMs at `/mnt/games/roms` and Wolf data at `/mnt/games/wolf` beneath
@@ -185,8 +186,8 @@ save state before relying on this path. A new emulator data root needs an explic
 coverage review. Older backups may also contain formerly selected Steam/Proton
 state.
 
-Nextcloud data, Books and audiobooks, both Tachidesk libraries and Frigate exports
-retain their original archive paths when Restic reads them through temporary
+Nextcloud data, books and audiobooks, both comics download roots and Frigate
+exports retain their original archive paths when Restic reads them through temporary
 read-only NFS mounts of one ZFS snapshot. Selected local application state keeps
 its original paths on the read-only view of the local volume; ext4 replay writes
 only to an overlay, not into the archived source. Restore the corresponding

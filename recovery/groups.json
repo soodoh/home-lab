@@ -25,7 +25,6 @@
       "services": [
         "grimmory",
         "grimmory-db",
-        "tachidesk",
         "caro-tachidesk",
         "shelfmark",
         "uchiyomi",
