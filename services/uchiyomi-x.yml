@@ -1,0 +1,137 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  uchiyomi-x:
+    image: ghcr.io/angelosha/uchiyomi:v0.108.1@sha256:bcb1c06d3f30d1330d579b6c3c48471683750a3739cda599879c4f0de806aef4
+    container_name: uchiyomi-x
+    restart: unless-stopped
+    stop_grace_period: 40s
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+      uchiyomi-x-engine:
+        condition: service_healthy
+    command: [node, --env-file=/run/secrets/uchiyomi_x_oidc, dist/server.js]
+    environment:
+      TZ: $TZ
+      PUID: "1000"
+      PGID: "1000"
+      PORT: "3001"
+      PUBLIC_ORIGIN: https://x.ts.diloreto.com
+      LIBRARY_BACKEND: owned
+      SUWAYOMI_URL: http://127.0.0.1:4570
+      FLARESOLVERR_URL: http://127.0.0.1:8193
+      AUTH_MODE: oidc-only
+      OIDC_ISSUER: https://auth.diloreto.com/application/o/uchiyomi-x/
+      OIDC_NAME: Authentik
+      OIDC_ALLOW_SIGNUP: "true"
+      OIDC_ADMIN_GROUP: App Operators
+    secrets:
+      - uchiyomi_x_oidc
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-x/data
+        target: /data
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-x/config
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-x/library
+        target: /library
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-x/downloads
+        target: /library-dl
+        bind: {create_host_path: false}
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-x/backups
+        target: /backups
+        bind: {create_host_path: false}
+      - uchiyomi_x_cache:/cache
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:3001/healthz]
+      start_period: 90s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  uchiyomi-x-engine:
+    image: ghcr.io/suwayomi/suwayomi-server:v2.4.2512@sha256:27dd1b51c0497b8ed4ed7c22f8564483990ce04b376cacb73eab419e80022b75
+    container_name: uchiyomi-x-engine
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+      uchiyomi-x-solver:
+        condition: service_healthy
+    mem_limit: 2g
+    environment:
+      TZ: $TZ
+      BIND_IP: 127.0.0.1
+      BIND_PORT: "4570"
+      JAVA_TOOL_OPTIONS: -Xmx768m -XX:+UseSerialGC
+      MALLOC_ARENA_MAX: "2"
+      WEB_UI_ENABLED: "false"
+      AUTO_DOWNLOAD_CHAPTERS: "false"
+      FLARESOLVERR_ENABLED: "true"
+      FLARESOLVERR_URL: http://127.0.0.1:8193
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/uchiyomi-x/engine
+        target: /home/suwayomi/.local/share/Tachidesk
+        bind: {create_host_path: false}
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/4570;
+          printf 'GET /api/v1/settings/about HTTP/1.0\r\n\r\n' >&3;
+          head -1 <&3 | grep -q ' 200 '
+      start_period: 90s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  uchiyomi-x-solver:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
+    container_name: uchiyomi-x-solver
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: $TZ
+      HOST: 127.0.0.1
+      PORT: "8193"
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8193/health', timeout=5).close()"]
+      start_period: 60s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+secrets:
+  uchiyomi_x_oidc:
+    file: /etc/docker-compose/credentials/uchiyomi-x-oidc.env
+
+volumes:
+  uchiyomi_x_cache:

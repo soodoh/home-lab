@@ -7,5 +7,6 @@ include:
   - ./services/gaming.yml
   - ./services/nextcloud.yml
   - ./services/servarr.yml
+  - ./services/uchiyomi-x.yml
   - ./services/authentik.yml
   - ./services/infra.yml

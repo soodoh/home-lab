@@ -160,8 +160,8 @@
       "additionalProperties": {
         "$ref": "#/$defs/signingCertificatesEntry"
       },
-      "maxProperties": 3,
-      "minProperties": 3,
+      "maxProperties": 4,
+      "minProperties": 4,
       "type": "object"
     },
     "systemSettings": {
@@ -198,8 +198,8 @@
     },
     "applications": {
       "type": "object",
-      "minProperties": 21,
-      "maxProperties": 21,
+      "minProperties": 22,
+      "maxProperties": 22,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
@@ -217,14 +217,14 @@
     },
     "oauthProviders": {
       "type": "object",
-      "maxProperties": 5,
+      "maxProperties": 6,
       "propertyNames": {
         "pattern": "^([1-9][0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/oauthProvider"
       },
-      "minProperties": 5
+      "minProperties": 6
     },
     "customBlueprints": {
       "type": "object",
@@ -238,8 +238,8 @@
     },
     "applicationPolicyBindings": {
       "type": "object",
-      "minProperties": 24,
-      "maxProperties": 24,
+      "minProperties": 25,
+      "maxProperties": 25,
       "propertyNames": {
         "$ref": "#/$defs/uuid"
       },
@@ -1587,6 +1587,10 @@
         "timeout": {
           "type": "integer",
           "minimum": 0
+        },
+        "user_ref": {
+          "type": "string",
+          "minLength": 1
         },
         "user": {
           "oneOf": [

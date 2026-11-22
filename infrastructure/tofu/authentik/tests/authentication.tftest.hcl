@@ -61,6 +61,11 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   override_data {
+    target = data.authentik_user.application_users["paul"]
+    values = { pk = 5003 }
+  }
+
+  override_data {
     target = data.authentik_user.group_members["sarabeth"]
     values = { pk = 5004 }
   }
@@ -107,8 +112,20 @@ run "authentication_and_onboarding_preserve_behavior" {
 
   assert {
     condition = (
+      toset(keys(data.authentik_user.application_users)) == toset(["paul"]) &&
+      authentik_policy_binding.application_access["e9a17f74-73d4-4144-811a-81cdbfa3ba32"].user == 5003 &&
+      authentik_policy_binding.application_access["e9a17f74-73d4-4144-811a-81cdbfa3ba32"].group == null &&
+      authentik_policy_binding.application_access["e9a17f74-73d4-4144-811a-81cdbfa3ba32"].target == authentik_application.applications["uchiyomi-x"].uuid &&
+      tostring(authentik_application.applications["uchiyomi-x"].protocol_provider) == authentik_provider_oauth2.providers["uchiyomi-x"].id &&
+      authentik_provider_oauth2.providers["uchiyomi-x"].signing_key == authentik_certificate_key_pair.signing["uchiyomi-x-oidc"].id
+    )
+    error_message = "Uchiyomi X has its own signed provider and grants access to Paul directly, without a group."
+  }
+
+  assert {
+    condition = (
       length(local.existing_signing_certificates) == 1 &&
-      length(authentik_certificate_key_pair.signing) == 3 &&
+      length(authentik_certificate_key_pair.signing) == 4 &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].certificate_data == "${trimspace(file("${path.module}/grimmory-oidc.pem"))}\n" &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["grimmory-oidc"].private_key)}\n"
@@ -198,8 +215,12 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = alltrue([for binding in authentik_policy_binding.application_access : contains([for group in authentik_group.managed : group.id], binding.group) && binding.user == null])
-    error_message = "Human application access must depend only on owned non-superuser groups."
+    condition = alltrue([
+      for key, binding in authentik_policy_binding.application_access :
+      contains([for group in authentik_group.managed : group.id], binding.group) && binding.user == null
+      if local.application_policy_bindings[key].application_slug != "uchiyomi-x"
+    ])
+    error_message = "Other human applications must retain their group-only access grants."
   }
 
   assert {

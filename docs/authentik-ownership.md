@@ -42,7 +42,11 @@ SOPS/OpenTofu signing authority, not a competing discovery-owned key writer.
 Uchiyomi has a separate create-only OIDC application, client and signer in the
 same authorities. `Uchiyomi Users` admits Paul, Carolyn and Eric; Uchiyomi
 reads `App Operators` (Paul only) from the signed `profile` claim for its own
-admin role. These grants do not alter Authentik administrator membership.
+admin role. Uchiyomi X has a separate OIDC client and signer, and a single
+standalone binding to the independently owned `paul` user. `App Operators`
+maps Paul's in-app admin role, not access; neither another operator nor an
+Authentik administrator gains access by group membership. These grants do not
+alter Authentik administrator membership.
 Removing any managed application/provider requires explicit reviewed destroy
 actions, never orphaned state entries.
 

@@ -42,6 +42,13 @@ compose_native_runtime_paths:
   - {path: /srv/home-lab-state/uchiyomi/downloads, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/uchiyomi/backups, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/uchiyomi-engine, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x/data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x/config, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x/library, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x/downloads, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x/backups, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-x/engine, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/traefik-data, kind: directory, uid: 0, gid: 0, mode: '0700'}
   - {path: /srv/home-lab-state/traefik-tailnet-data, kind: directory, uid: 0, gid: 0, mode: '0700'}
   - {path: /srv/home-lab-state/traefik-data/acme.json, kind: file, uid: 0, gid: 0, mode: '0600'}

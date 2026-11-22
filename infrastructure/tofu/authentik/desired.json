@@ -1,6 +1,19 @@
 {
   "$schema": "./desired.schema.json",
   "applicationPolicyBindings": {
+    "e9a17f74-73d4-4144-811a-81cdbfa3ba32": {
+      "application_slug": "uchiyomi-x",
+      "enabled": true,
+      "failure_result": false,
+      "group": null,
+      "negate": false,
+      "order": 0,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null,
+      "user_ref": "paul"
+    },
     "e46b4d46-4c10-4351-8a21-0f473c558813": {
       "application_slug": "uchiyomi",
       "enabled": true,
@@ -292,6 +305,23 @@
     }
   },
   "applications": {
+    "uchiyomi-x": {
+      "name": "Uchiyomi X",
+      "slug": "uchiyomi-x",
+      "uuid": null,
+      "group": "Media",
+      "provider_id": "uchiyomi-x",
+      "provider_type": "oauth2",
+      "backchannel_provider_ids": [],
+      "meta_launch_url": "https://x.ts.diloreto.com/",
+      "meta_icon": "",
+      "meta_description": "",
+      "meta_publisher": "",
+      "policy_engine_mode": "any",
+      "open_in_new_tab": false,
+      "meta_hide": true,
+      "import_existing": false
+    },
     "uchiyomi": {
       "name": "Uchiyomi",
       "slug": "uchiyomi",
@@ -874,6 +904,44 @@
     }
   },
   "oauthProviders": {
+    "uchiyomi-x": {
+      "pk": null,
+      "name": "Uchiyomi X OIDC",
+      "authentication_flow": null,
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "client_id": "uchiyomi-x",
+      "client_type": "confidential",
+      "allowed_redirect_uris": [
+        {
+          "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
+          "url": "https://x.ts.diloreto.com/auth/oidc/callback"
+        }
+      ],
+      "access_code_validity": "minutes=1",
+      "access_token_validity": "minutes=5",
+      "refresh_token_validity": "days=30",
+      "refresh_token_threshold": "seconds=0",
+      "include_claims_in_id_token": true,
+      "issuer_mode": "per_provider",
+      "sub_mode": "user_uuid",
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "signing_key": null,
+      "signing_certificate_ref": "uchiyomi-x-oidc",
+      "encryption_key": null,
+      "grant_types": [
+        "authorization_code"
+      ],
+      "logout_method": "frontchannel",
+      "logout_uri": "",
+      "jwt_federation_sources": [],
+      "jwt_federation_providers": []
+    },
     "uchiyomi": {
       "pk": null,
       "name": "Uchiyomi OIDC",
@@ -1937,6 +2005,11 @@
     }
   },
   "signingCertificates": {
+    "uchiyomi-x-oidc": {
+      "certificate_file": "uchiyomi-x-oidc.pem",
+      "name": "Uchiyomi X OIDC",
+      "pk": null
+    },
     "uchiyomi-oidc": {
       "certificate_file": "uchiyomi-oidc.pem",
       "name": "Uchiyomi OIDC",
