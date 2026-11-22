@@ -1035,9 +1035,9 @@ backup scope when adding an emulator or changing its data directory.
 
 All recorded writers resume before Restic mounts or reads the snapshot. Nextcloud
 must also pass native `occ status`. Only the approved Nextcloud data, Books and
-audiobooks, both Tachidesk libraries and Frigate export subtrees are mounted
-read-only at their existing archive paths, alongside the selected application
-state paths on the local snapshot. These roots are not counted toward staging
+audiobooks, Carolyn's Tachidesk downloads, the legacy comics archive and Frigate
+export subtrees are mounted read-only at their existing archive paths, alongside
+the selected application state paths on the local snapshot. These roots are not counted toward staging
 capacity. Missing or unexpected sources fail closed. The shared pause can
 lengthen an individual application's outage even if total backup time falls.
 Compare `shutdown`,

@@ -153,24 +153,20 @@ class ComposeDelivery(unittest.TestCase):
             'url': app['PUBLIC_ORIGIN'] + '/auth/oidc/callback',
         }])
 
-    def test_tachidesk_mounts_are_captured_and_selected_for_books_recovery(self):
+    def test_carolyn_comics_mounts_are_captured_and_selected_for_books_recovery(self):
+        name = 'caro-tachidesk'
         services = yaml.safe_load((ROOT / 'services/servarr.yml').read_text())['services']
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         books = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']['books']
-        for name in ('tachidesk', 'caro-tachidesk'):
-            step = next(s for s in policy['capture']['cold'] if s['name'] == name)
-            self.assertIn(name, step['services'])
-            self.assertIn(name, books['services'])
-            for mount in services[name]['volumes']:
-                source = mount['source'] if isinstance(mount, dict) else mount.split(':', 1)[0]
-                # Resolve the reviewed host media root, never production secrets.
-                source = source.replace('${MEDIA_PATH}', '/mnt/storage/media')
-                with self.subTest(service=name, source=source):
-                    self.assertTrue(Path(source).is_absolute())
-                    self.assertTrue(any(Path(source).is_relative_to(p) for p in step['paths']),
-                                    'capture must include the actual host-side bind source')
-                    self.assertTrue(any(Path(source).is_relative_to(p) for p in books['paths']),
-                                    'books recovery must select the same host-side files')
+        step = next(s for s in policy['capture']['cold'] if name in s['services'])
+        self.assertIn(name, books['services'])
+        for mount in services[name]['volumes']:
+            source = mount['source'] if isinstance(mount, dict) else mount.split(':', 1)[0]
+            # Resolve the reviewed host media root, never production secrets.
+            source = source.replace('${MEDIA_PATH}', '/mnt/storage/media')
+            with self.subTest(source=source):
+                self.assertTrue(any(Path(source).is_relative_to(p) for p in step['paths']))
+                self.assertTrue(any(Path(source).is_relative_to(p) for p in books['paths']))
 
     def test_backup_and_every_recovery_group_include_the_credential_directory(self):
         policy = json.loads((ROOT / "services/data/restic/policy.json").read_text())

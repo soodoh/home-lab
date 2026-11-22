@@ -115,39 +115,6 @@ services:
       - proxy
       - arr_network
 
-  tachidesk:
-    # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2511@sha256:ccb0de45fc37c67c46b1a467611eb9f4e8364951b8796cdd796d4a66943c6f8d
-    container_name: tachidesk
-    restart: unless-stopped
-    logging: *default-logging
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
-    environment:
-      TZ: $TZ
-      DOWNLOAD_AS_CBZ: true
-      WEB_UI_ENABLED: true
-      WEB_UI_FLAVOR: WebUI
-      WEB_UI_CHANNEL: preview
-      WEB_UI_UPDATE_INTERVAL: 12
-      AUTO_DOWNLOAD_CHAPTERS: true
-      AUTO_DOWNLOAD_EXCLUDE_UNREAD: false
-      AUTO_DOWNLOAD_AHEAD_LIMIT: 20
-      UPDATE_EXCLUDE_UNREAD: false
-      UPDATE_EXCLUDE_STARTED: false
-      UPDATE_EXCLUDE_COMPLETED: true
-      UPDATE_INTERVAL: 12
-      UPDATE_MANGA_INFO: true
-      FLARESOLVERR_ENABLED: true
-      FLARESOLVERR_URL: http://gluetun:8191
-      BIND_PORT: 4567
-    volumes:
-      - /srv/home-lab-state/tachidesk-data:/home/suwayomi/.local/share/Tachidesk
-      - ${MEDIA_PATH}/tachidesk:/home/suwayomi/.local/share/Tachidesk/downloads
-
   uchiyomi:
     image: ghcr.io/angelosha/uchiyomi:v0.108.1@sha256:bcb1c06d3f30d1330d579b6c3c48471683750a3739cda599879c4f0de806aef4
     container_name: uchiyomi

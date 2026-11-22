@@ -86,7 +86,6 @@
       "nextcloud",
       "frigate",
       "sabnzbd",
-      "tachidesk",
       "caro-tachidesk",
       "uchiyomi",
       "uchiyomi-engine"
@@ -212,11 +211,8 @@
         ]
       },
       {
-        "name": "tachidesk",
-        "precopy": true,
-        "services": [
-          "tachidesk"
-        ],
+        "name": "legacy-comics-archive",
+        "services": [],
         "paths": [
           "/srv/home-lab-state/tachidesk-data",
           "/mnt/storage/media/tachidesk"
