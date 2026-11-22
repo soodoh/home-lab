@@ -153,6 +153,31 @@ class ComposeDelivery(unittest.TestCase):
             'url': app['PUBLIC_ORIGIN'] + '/auth/oidc/callback',
         }])
 
+    def test_uchiyomi_x_uses_distinct_credentials_state_and_backends(self):
+        services = self.model['services']
+        x_names = ('uchiyomi-x', 'uchiyomi-x-engine', 'uchiyomi-x-solver')
+        x, engine, solver = (services[name] for name in x_names)
+        original = services['uchiyomi']
+        self.assertEqual(x['environment']['AUTH_MODE'], 'oidc-only')
+        self.assertNotEqual(x['environment']['OIDC_ISSUER'], original['environment']['OIDC_ISSUER'])
+        self.assertNotEqual(x['environment']['SUWAYOMI_URL'], original['environment']['SUWAYOMI_URL'])
+        self.assertNotEqual(x['environment']['FLARESOLVERR_URL'], original['environment']['FLARESOLVERR_URL'])
+        self.assertEqual(x['environment']['SUWAYOMI_URL'], f"http://127.0.0.1:{engine['environment']['BIND_PORT']}")
+        self.assertEqual(x['environment']['FLARESOLVERR_URL'], f"http://127.0.0.1:{solver['environment']['PORT']}")
+        self.assertEqual(engine['environment']['BIND_IP'], '127.0.0.1')
+        self.assertEqual(solver['environment']['HOST'], '127.0.0.1')
+        for service in (x, engine, solver):
+            self.assertEqual(service['network_mode'], 'service:gluetun')
+            self.assertFalse(service.get('ports'))
+            for mount in service.get('volumes', []):
+                if mount['type'] == 'bind':
+                    self.assertTrue(Path(mount['source']).is_relative_to('/srv/home-lab-state/uchiyomi-x'))
+                    self.assertFalse(mount['bind']['create_host_path'])
+        self.assertEqual({item['source'] for item in x['volumes'] if item['type'] == 'volume'}, {'uchiyomi_x_cache'})
+        for name, service in services.items():
+            sources = {entry['source'] for entry in service.get('secrets', [])}
+            self.assertEqual('uchiyomi_x_oidc' in sources, name == 'uchiyomi-x')
+
     def test_carolyn_comics_mounts_are_captured_and_selected_for_books_recovery(self):
         name = 'caro-tachidesk'
         services = yaml.safe_load((ROOT / 'services/servarr.yml').read_text())['services']
@@ -240,9 +265,11 @@ class NativeFileRendering(unittest.TestCase):
                     "compose_native_controller_root": str(ROOT),
                     "compose_native_credentials": credentials,
                     "compose_native_oidc_secrets": {"schemaVersion": 2, "oauthProviders": {
-                        "47": {"client_secret": "s" * 64}, "uchiyomi": {"client_secret": "u" * 64}}},
+                        "47": {"client_secret": "s" * 64}, "uchiyomi": {"client_secret": "u" * 64},
+                        "uchiyomi-x": {"client_secret": "x" * 64}}},
                     "compose_native_oidc_desired": {"oauthProviders": {
-                        "47": {"client_id": "synthetic-id"}, "uchiyomi": {"client_id": "synthetic-uchiyomi"}}},
+                        "47": {"client_id": "synthetic-id"}, "uchiyomi": {"client_id": "synthetic-uchiyomi"},
+                        "uchiyomi-x": {"client_id": "synthetic-uchiyomi-x"}}},
                     "compose_native_cli_proxy_secrets": {"API_KEY": 'synthetic-"api"', "MANAGEMENT_KEY": "synthetic-$management"},
                     "compose_native_runtime_env_path": str(environment_path),
                 },
@@ -284,6 +311,8 @@ class NativeFileRendering(unittest.TestCase):
                     self.assertEqual(path.read_bytes(), expected.encode())
             self.assertEqual((work / "uchiyomi-oidc.env").read_text(),
                              "OIDC_CLIENT_ID=synthetic-uchiyomi\nOIDC_CLIENT_SECRET=" + "u" * 64 + "\n")
+            self.assertEqual((work / "uchiyomi-x-oidc.env").read_text(),
+                             "OIDC_CLIENT_ID=synthetic-uchiyomi-x\nOIDC_CLIENT_SECRET=" + "x" * 64 + "\n")
             aws = configparser.ConfigParser()
             aws.read(work / "traefik-tailnet-aws-credentials")
             self.assertEqual(aws["default"]["aws_access_key_id"], production["TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID"])

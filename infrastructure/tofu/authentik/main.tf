@@ -46,12 +46,12 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 6 &&
-      length(local.desired.applications) == 21 &&
+      length(local.desired.applications) == 22 &&
       length(local.desired.proxyProviders) == 16 &&
       (!var.authentik_enable_management || (
-        length(local.desired.oauthProviders) == 5 &&
+        length(local.desired.oauthProviders) == 6 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
-        length(local.desired.applicationPolicyBindings) == 24 &&
+        length(local.desired.applicationPolicyBindings) == 25 &&
         length(local.desired.authenticatorValidateStages) == 2 &&
         length(local.desired.certificates) == 1 &&
         length(local.desired.customFlows) == 3 &&
@@ -288,13 +288,18 @@ resource "authentik_application" "applications" {
   meta_hide             = each.value.meta_hide
 }
 
+data "authentik_user" "application_users" {
+  for_each = toset(compact([for binding in values(local.application_policy_bindings) : try(binding.user_ref, null)]))
+  username = each.key
+}
+
 resource "authentik_policy_binding" "application_access" {
   for_each = local.application_policy_bindings
 
   target         = authentik_application.applications[each.value.application_slug].uuid
   policy         = each.value.policy
   group          = try(each.value.group_ref, null) != null ? authentik_group.managed[each.value.group_ref].id : try(local.group_ids_by_pk[each.value.group], each.value.group)
-  user           = each.value.user
+  user           = try(each.value.user_ref, null) != null ? data.authentik_user.application_users[each.value.user_ref].pk : each.value.user
   order          = each.value.order
   enabled        = each.value.enabled
   negate         = each.value.negate
@@ -305,9 +310,16 @@ resource "authentik_policy_binding" "application_access" {
     precondition {
       condition = try(each.value.group_ref, null) == null ? true : (
         each.value.group == null && each.value.policy == null && each.value.user == null &&
-        contains(keys(local.groups), each.value.group_ref)
+        try(each.value.user_ref, null) == null && contains(keys(local.groups), each.value.group_ref)
       )
       error_message = "A symbolic group binding must target exactly one managed group."
+    }
+    precondition {
+      condition = try(each.value.user_ref, null) == null ? true : (
+        each.value.group == null && each.value.policy == null && each.value.user == null &&
+        try(each.value.group_ref, null) == null
+      )
+      error_message = "An exact-user binding must not grant access through a group or policy."
     }
   }
 }

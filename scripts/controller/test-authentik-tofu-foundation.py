@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory", "uchiyomi"}
+OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory", "uchiyomi", "uchiyomi-x"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
@@ -181,11 +181,36 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         owned_ids = {value["pk"] for value in DESIRED["groups"].values() if value["pk"]}
         for binding in DESIRED["applicationPolicyBindings"].values():
             self.assertIsNone(binding["user"])
+            if binding["application_slug"] == "uchiyomi-x":
+                continue  # Checked separately as an exact standalone binding.
+            self.assertNotIn("user_ref", binding)
             if "group_ref" in binding:
                 self.assertIsNone(binding["group"])
                 self.assertIn(binding["group_ref"], DESIRED["groups"])
             else:
                 self.assertIn(binding["group"], owned_ids)
+
+    def test_uchiyomi_x_uses_one_exact_binding_and_one_strict_callback(self) -> None:
+        slug = "uchiyomi-x"
+        bindings = [b for b in DESIRED["applicationPolicyBindings"].values()
+                    if b["application_slug"] == slug]
+        self.assertEqual(len(bindings), 1)
+        binding = bindings[0]
+        self.assertTrue(binding["enabled"])
+        self.assertFalse(binding["negate"] or binding["failure_result"])
+        self.assertEqual(binding["user_ref"], "paul")
+        self.assertNotIn("group_ref", binding)
+        self.assertTrue(all(binding[key] is None for key in ("group", "policy", "user")))
+        self.assertTrue(all(b["application_slug"] != slug for b in DESIRED["serviceApplicationBindings"].values()))
+        app = DESIRED["applications"][slug]
+        self.assertEqual(app["provider_id"], slug)
+        self.assertTrue(app["meta_hide"])
+        provider = DESIRED["oauthProviders"][slug]
+        self.assertEqual(provider["allowed_redirect_uris"], [{
+            "matching_mode": "strict", "redirect_uri_type": "authorization",
+            "url": "https://x.ts.diloreto.com/auth/oidc/callback",
+        }])
+        self.assertEqual(provider["signing_certificate_ref"], "uchiyomi-x-oidc")
 
     def test_mindwtr_remains_a_web_only_forward_auth_gate(self) -> None:
         app = DESIRED["applications"]["mindwtr"]
