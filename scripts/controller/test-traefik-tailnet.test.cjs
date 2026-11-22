@@ -83,9 +83,9 @@ test('the private router allowlist has no catch-all backend or public routes', (
   assert.equal(publicConfig.providers.file.filename, '/etc/traefik/routes.yml');
 });
 
-test('Uchiyomi X requires a direct Tailscale peer, not the Docker-host relay', () => {
+test('Uchiyomi X uses the private listener and its separate backend', () => {
   const router = routes.routers['uchiyomi-x'];
-  assert.equal(router.rule, 'Host(`x.ts.diloreto.com`) && ClientIP(`100.64.0.0/10`) && !ClientIP(`' + ingressIp + '`)');
+  assert.equal(router.rule, 'Host(`x.ts.diloreto.com`)');
   assert.deepEqual(router.entryPoints, ['tailnet']);
   assert.deepEqual(router.tls, { certResolver: 'tailnet', domains: [{ main: '*.ts.diloreto.com' }] });
   assert.equal(router.service, 'uchiyomi-x');

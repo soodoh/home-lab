@@ -163,8 +163,9 @@ any-port MagicDNS matcher is removed from the running host config. Authentik
 gates the proxy handshake with the existing service-account app password; the
 API and management keys remain separate service credentials. The proxy
 credential permits attempts to reach all listed private routes, including
-Omada, Proxmox and Z-Wave. Omada and Proxmox use their native logins; Z-Wave's
-private UI stays behind its existing Authentik application and group binding.
+Omada, Proxmox, Z-Wave and Uchiyomi X. Omada and Proxmox use native logins;
+Z-Wave retains its Authentik group binding, and Uchiyomi X admits only `paul`
+through its own OIDC client.
 The relay handshake does not authenticate a backend. Tailscale evaluates
 relay egress as the Docker-host node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. The
 operator reports work-Mac first-hop LLM/Omada application access and Tailscale
@@ -245,8 +246,8 @@ authenticated client without a local bypass; source alone does not prove what
 that server currently denies. A stolen relay credential can attempt all listed
 private application routes through the Docker host's identity, subject to
 application authentication and Tailscale policy. Proxmox needs its native
-login; Z-Wave remains Authentik-protected. The bridged private Traefik reaches
-Authentik's embedded proxy at `authentik-server:9000` without a host port;
+login; Z-Wave and Uchiyomi X remain Authentik-protected. The bridged private
+Traefik reaches Authentik's embedded proxy at `authentik-server:9000` without a host port;
 Z-Wave's UI port 8091 has no published host binding. Docker publishes private
 Traefik's TCP 443 only on the reviewed Docker-host Tailscale IPv4.
 

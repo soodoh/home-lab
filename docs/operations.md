@@ -345,10 +345,11 @@ for reader settings, update/download rules, offline reading and tracker options.
 
 ### Uchiyomi X on the tailnet
 
-Uchiyomi X at `https://x.ts.diloreto.com` uses the existing tailnet DNS and TLS
-route but trusts the connecting Tailscale peer, not forwarded client headers.
-Do not add a public router or allow the Docker host's off-tailnet GOST relay.
-Verify direct tailnet reachability and denial from the relay and public ingress.
+Uchiyomi X at `https://x.ts.diloreto.com` uses the existing tailnet DNS and
+private TLS listener. Like the other private sites, its listener can also be
+reached through the authenticated GOST relay; that does not authenticate to
+Uchiyomi. Do not add a public router. Verify reachability on the private
+listener and denial at public ingress.
 
 This instance starts empty. It shares VPN egress only; its OIDC client, library,
 user state, cache, solver and engine are independent. Authentik binds access only

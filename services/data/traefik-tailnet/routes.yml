@@ -20,11 +20,7 @@ http:
         domains:
           - main: "*.ts.diloreto.com"
     uchiyomi-x:
-      # Match the connecting peer, not forwarded headers. The off-tailnet
-      # GOST relay runs on this Docker host and must not reach this app.
-      rule: >-
-        Host(`x.ts.diloreto.com`) && ClientIP(`100.64.0.0/10`) &&
-        !ClientIP(`100.116.163.42`)
+      rule: "Host(`x.ts.diloreto.com`)"
       entryPoints: [tailnet]
       service: uchiyomi-x
       tls:
