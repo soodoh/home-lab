@@ -35,6 +35,13 @@ compose_native_secret_files: []
 compose_native_runtime_paths:
   - {path: /srv/home-lab-state/shelfmark-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/mindwtr-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi/data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi/config, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi/library, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi/downloads, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi/backups, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/uchiyomi-engine, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/traefik-data, kind: directory, uid: 0, gid: 0, mode: '0700'}
   - {path: /srv/home-lab-state/traefik-tailnet-data, kind: directory, uid: 0, gid: 0, mode: '0700'}
   - {path: /srv/home-lab-state/traefik-data/acme.json, kind: file, uid: 0, gid: 0, mode: '0600'}

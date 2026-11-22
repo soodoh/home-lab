@@ -91,8 +91,24 @@ run "authentication_and_onboarding_preserve_behavior" {
 
   assert {
     condition = (
+      !contains(keys(local.existing_oauth_providers), "uchiyomi") &&
+      !contains(keys(local.existing_signing_certificates), "uchiyomi-oidc") &&
+      local.existing_groups["uchiyomi-users"].pk == "4106b8a4-8f89-474a-89c2-401fb860a409" &&
+      tostring(authentik_application.applications["uchiyomi"].protocol_provider) == authentik_provider_oauth2.providers["uchiyomi"].id &&
+      authentik_policy_binding.application_access["e46b4d46-4c10-4351-8a21-0f473c558813"].group == authentik_group.managed["uchiyomi-users"].id &&
+      toset(authentik_group.managed["uchiyomi-users"].users) == toset([5000, 5001, 5003]) &&
+      authentik_provider_oauth2.providers["uchiyomi"].include_claims_in_id_token &&
+      authentik_provider_oauth2.providers["uchiyomi"].signing_key == authentik_certificate_key_pair.signing["uchiyomi-oidc"].id &&
+      authentik_certificate_key_pair.signing["uchiyomi-oidc"].certificate_data == "${trimspace(file("${path.module}/uchiyomi-oidc.pem"))}\n" &&
+      toset(authentik_provider_oauth2.providers["uchiyomi"].grant_types) == toset(["authorization_code"])
+    )
+    error_message = "Uchiyomi must use a signed authorization-code client gated to its existing three-member group."
+  }
+
+  assert {
+    condition = (
       length(local.existing_signing_certificates) == 1 &&
-      length(authentik_certificate_key_pair.signing) == 2 &&
+      length(authentik_certificate_key_pair.signing) == 3 &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].certificate_data == "${trimspace(file("${path.module}/grimmory-oidc.pem"))}\n" &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["grimmory-oidc"].private_key)}\n"

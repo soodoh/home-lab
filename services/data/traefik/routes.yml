@@ -13,7 +13,7 @@ http:
     comics:
       rule: "Host(`comics.diloreto.com`)"
       entryPoints: [websecure]
-      service: authentik
+      service: uchiyomi
     ddns:
       rule: "Host(`ddns.diloreto.com`)"
       entryPoints: [websecure]
@@ -117,6 +117,10 @@ http:
       loadBalancer:
         servers:
           - url: http://authentik-server:9000
+    uchiyomi:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:3000
     hass:
       loadBalancer:
         servers:

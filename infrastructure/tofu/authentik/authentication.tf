@@ -1,5 +1,6 @@
 locals {
   groups                        = var.authentik_enable_management ? local.desired.groups : {}
+  existing_groups               = { for key, group in local.groups : key => group if group.pk != null }
   identification_stages         = var.authentik_enable_management ? local.desired.identificationStages : {}
   webauthn_stages               = var.authentik_enable_management ? local.desired.webauthnStages : {}
   invitation_stages             = var.authentik_enable_management ? local.desired.invitationStages : {}
@@ -19,7 +20,7 @@ locals {
 
   group_usernames_by_key = { for key, group in local.groups : key => local.desired.membershipSets[group.membership_set] }
   group_member_usernames = toset(flatten(values(local.group_usernames_by_key)))
-  group_ids_by_pk        = { for key, group in local.groups : group.pk => authentik_group.managed[key].id }
+  group_ids_by_pk        = { for key, group in local.existing_groups : group.pk => authentik_group.managed[key].id }
   flow_ids_by_pk         = { for key, flow in local.custom_flows : flow.pk => authentik_flow.custom[key].uuid if try(flow.pk, null) != null }
   referenced_flow_slugs = toset(concat(
     [for stage in values(local.webauthn_stages) : stage.configure_flow_slug],
@@ -44,7 +45,7 @@ locals {
 check "authentication_ownership" {
   assert {
     condition = (
-      length(local.desired.groups) == 7 &&
+      length(local.desired.groups) == 8 &&
       length(local.desired.identificationStages) == 1 &&
       length(local.desired.webauthnStages) == 1 &&
       length(local.desired.invitationStages) == 1 &&
@@ -55,7 +56,7 @@ check "authentication_ownership" {
       length(local.desired.passwordPolicies) == 1 &&
       length(local.desired.brands) == 1 &&
       length(local.desired.systemSettings) == 1 &&
-      length(local.desired.signingCertificates) == 2 &&
+      length(local.desired.signingCertificates) == 3 &&
       alltrue([for group in values(local.desired.groups) :
         !group.is_superuser && length(group.parents) == 0 &&
         contains(keys(local.desired.membershipSets), group.membership_set)

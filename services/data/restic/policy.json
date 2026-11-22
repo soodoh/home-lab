@@ -87,7 +87,9 @@
       "frigate",
       "sabnzbd",
       "tachidesk",
-      "caro-tachidesk"
+      "caro-tachidesk",
+      "uchiyomi",
+      "uchiyomi-engine"
     ],
     "databases": []
   },
@@ -229,6 +231,17 @@
         "paths": [
           "/srv/home-lab-state/caro-tachidesk-data",
           "/mnt/storage/media/caro-tachidesk"
+        ]
+      },
+      {
+        "name": "uchiyomi",
+        "services": [
+          "uchiyomi",
+          "uchiyomi-engine"
+        ],
+        "paths": [
+          "/srv/home-lab-state/uchiyomi",
+          "/srv/home-lab-state/uchiyomi-engine"
         ]
       }
     ],

@@ -46,12 +46,12 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 6 &&
-      length(local.desired.applications) == 20 &&
+      length(local.desired.applications) == 21 &&
       length(local.desired.proxyProviders) == 16 &&
       (!var.authentik_enable_management || (
-        length(local.desired.oauthProviders) == 4 &&
+        length(local.desired.oauthProviders) == 5 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
-        length(local.desired.applicationPolicyBindings) == 23 &&
+        length(local.desired.applicationPolicyBindings) == 24 &&
         length(local.desired.authenticatorValidateStages) == 2 &&
         length(local.desired.certificates) == 1 &&
         length(local.desired.customFlows) == 3 &&
@@ -293,13 +293,23 @@ resource "authentik_policy_binding" "application_access" {
 
   target         = authentik_application.applications[each.value.application_slug].uuid
   policy         = each.value.policy
-  group          = try(local.group_ids_by_pk[each.value.group], each.value.group)
+  group          = try(each.value.group_ref, null) != null ? authentik_group.managed[each.value.group_ref].id : try(local.group_ids_by_pk[each.value.group], each.value.group)
   user           = each.value.user
   order          = each.value.order
   enabled        = each.value.enabled
   negate         = each.value.negate
   failure_result = each.value.failure_result
   timeout        = each.value.timeout
+
+  lifecycle {
+    precondition {
+      condition = try(each.value.group_ref, null) == null ? true : (
+        each.value.group == null && each.value.policy == null && each.value.user == null &&
+        contains(keys(local.groups), each.value.group_ref)
+      )
+      error_message = "A symbolic group binding must target exactly one managed group."
+    }
+  }
 }
 
 resource "authentik_rbac_role" "roles" {

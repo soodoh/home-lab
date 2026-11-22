@@ -310,6 +310,39 @@ The dedicated Grimmory signing certificate follows the same create-only boundary
 rediscover it by exact name and independently admit its private-key read before
 subsequent plans. Do not grant provider identities their own permissions.
 
+### Uchiyomi authentication, libraries and imports
+
+Uchiyomi uses Authentik OIDC only and creates accounts on the first successful
+sign-in for members of `Uchiyomi Users`. Local signup, password sign-in, and
+manual user creation by an Uchiyomi admin are disabled. Grant new user access
+through the Git-owned Authentik group, not the Uchiyomi admin panel.
+
+Paul signs in first so the `App Operators` claim can bootstrap the administrator,
+then sets **Admin → Members → New accounts** to no shared libraries before the
+other users sign in. For existing members, revoke shared library access
+individually; changing the signup default does not update them. Private
+libraries remain available to their owners.
+
+Each account enables **Profile → General → Privacy → Add to my private library
+by default** before adding content. This preference starts off and cannot be
+set for everyone through a server setting. Leave shared libraries empty: the
+pinned release does not have a global shared-library off switch and administrators
+retain shared access. Verify privacy with separate member sessions, not just the
+admin console. OIDC-only accounts depend on Authentik for recovery and MFA.
+
+For a Suwayomi import, first reinstall the required extensions from reviewed
+repositories in **Admin → Sources**. Import the `.tachibk` or `.proto.gz` as the
+intended owner, select **Private library** and **Mark chapters I’ve read**, and
+review exact-source matches before committing the batch. Read markers are not
+full history or page-level resume. The native import does not ingest downloaded
+chapters. Do not mount a legacy download tree under `/library`: normal scans
+can publish it as shared. Test attaching a copied archive to the correct private
+series, or use Uchiyomi to fetch the chapter. Check local-state free space before
+any bulk copy or download; do not fill the shared state filesystem.
+
+See the pinned [usage guide](https://github.com/AngeloSha/uchiyomi/blob/v0.108.1/docs/USAGE.md#private-libraries)
+for reader settings, update/download rules, offline reading and tracker options.
+
 ### Grimmory native authentication and library ownership
 
 [`converge-grimmory.yml`](../ansible/playbooks/converge-grimmory.yml) converges only

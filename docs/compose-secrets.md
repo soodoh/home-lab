@@ -18,10 +18,9 @@ Shared Arr keys have one authority but separately scoped consumer delivery.
 Openfit's admin password is bootstrap-only. `ZWAVE_SECRET` is not consumed by the
 pinned application; its encrypted source is not a declaration of runtime use.
 
-Credential-file inputs other than Vaultwarden's OIDC secret originate in
-[`production.sops.yaml`](../secrets/production.sops.yaml). Its OIDC secret comes
-from the separately authoritative
-[`Authentik client secrets`](../infrastructure/tofu/authentik/client-secrets.sops.json).
+Production credentials originate in [`production.sops.yaml`](../secrets/production.sops.yaml)
+except where a separate authority is explicitly declared. Vaultwarden and Uchiyomi
+OIDC secrets come from the [`Authentik client secrets`](../infrastructure/tofu/authentik/client-secrets.sops.json).
 [`credentials.json`](../services/credentials.json) now declares native file
 delivery, actual host permissions and explicit interpolation inputs. Ansible
 renders these through protected `copy`/`template` tasks. Vaultwarden's secret
@@ -110,6 +109,7 @@ without an extra trailing newline. [L1, L2]
 
 | Service | Source → legacy container variable | File-delivery interface |
 | --- | --- | --- |
+| `uchiyomi` | Authentik `uchiyomi` client → `OIDC_CLIENT_SECRET` | Keep the image entrypoint; use `node --env-file=/run/secrets/uchiyomi_oidc dist/server.js` as its command. The app process reads a dotenv file, not Compose or an app-specific `_FILE` variable. |
 | `sonarr` | `SONARR_API_KEY` → `SONARR__AUTH__APIKEY` | `FILE__SONARR__AUTH__APIKEY=/run/secrets/sonarr_api_key` |
 | `radarr` | `RADARR_API_KEY` → `RADARR__AUTH__APIKEY` | `FILE__RADARR__AUTH__APIKEY=/run/secrets/radarr_api_key` |
 | `prowlarr` | `PROWLARR_API_KEY` → `PROWLARR__AUTH__APIKEY` | `FILE__PROWLARR__AUTH__APIKEY=/run/secrets/prowlarr_api_key` |
