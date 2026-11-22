@@ -175,7 +175,7 @@ services:
 
   uchiyomi-engine:
     # Use Uchiyomi's qualified engine version and independent app state.
-    image: ghcr.io/suwayomi/suwayomi-server:v2.4.2511@sha256:ccb0de45fc37c67c46b1a467611eb9f4e8364951b8796cdd796d4a66943c6f8d
+    image: ghcr.io/suwayomi/suwayomi-server:v2.4.2512@sha256:27dd1b51c0497b8ed4ed7c22f8564483990ce04b376cacb73eab419e80022b75
     container_name: uchiyomi-engine
     restart: unless-stopped
     logging: *default-logging
@@ -216,7 +216,7 @@ services:
 
   caro-tachidesk:
     # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2511@sha256:ccb0de45fc37c67c46b1a467611eb9f4e8364951b8796cdd796d4a66943c6f8d
+    image: ghcr.io/suwayomi/tachidesk:v2.4.2512@sha256:27dd1b51c0497b8ed4ed7c22f8564483990ce04b376cacb73eab419e80022b75
     container_name: caro-tachidesk
     restart: unless-stopped
     logging: *default-logging
