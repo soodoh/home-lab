@@ -343,6 +343,19 @@ any bulk copy or download; do not fill the shared state filesystem.
 See the pinned [usage guide](https://github.com/AngeloSha/uchiyomi/blob/v0.108.1/docs/USAGE.md#private-libraries)
 for reader settings, update/download rules, offline reading and tracker options.
 
+### Uchiyomi X on the tailnet
+
+Uchiyomi X at `https://x.ts.diloreto.com` uses the existing tailnet DNS and TLS
+route but trusts the connecting Tailscale peer, not forwarded client headers.
+Do not add a public router or allow the Docker host's off-tailnet GOST relay.
+Verify direct tailnet reachability and denial from the relay and public ingress.
+
+This instance starts empty. It shares VPN egress only; its OIDC client, library,
+user state, cache, solver and engine are independent. Authentik binds access only
+to `paul`. `App Operators` maps in-app admin privileges and is not a login grant.
+Verify Paul's OIDC login and a non-member denial without changing the public
+comics access group. Recovery uses the separate `comics-x` group.
+
 ### Grimmory native authentication and library ownership
 
 [`converge-grimmory.yml`](../ansible/playbooks/converge-grimmory.yml) converges only

@@ -22,7 +22,7 @@ fixture_repository=${RECOVERY_FIXTURE_REPOSITORY:-rclone:proton_backup:Backups/h
 if [[ $RECOVERY_TARGET == *interrupt* ]]; then sleep 60; fi
 mkdir -p "$RECOVERY_TARGET/srv/home-lab-state"
 printf verified >"$RECOVERY_TARGET/srv/home-lab-state/fixture"
-printf 'recovery_restore=verified backend=restic snapshot=%s groups=applications,books,gaming,home-automation,identity,infrastructure,media,nextcloud\n' "$2"
+printf 'recovery_restore=verified backend=restic snapshot=%s groups=applications,books,comics-x,gaming,home-automation,identity,infrastructure,media,nextcloud\n' "$2"
 SH
 } >"$work/restore-critical-backup"
 chmod 0755 "$work/restore-critical-backup"

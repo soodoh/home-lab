@@ -19,6 +19,18 @@ http:
         certResolver: tailnet
         domains:
           - main: "*.ts.diloreto.com"
+    uchiyomi-x:
+      # Match the connecting peer, not forwarded headers. The off-tailnet
+      # GOST relay runs on this Docker host and must not reach this app.
+      rule: >-
+        Host(`x.ts.diloreto.com`) && ClientIP(`100.64.0.0/10`) &&
+        !ClientIP(`100.116.163.42`)
+      entryPoints: [tailnet]
+      service: uchiyomi-x
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
     proxmox:
       rule: "Host(`proxmox.ts.diloreto.com`)"
       entryPoints: [tailnet]
@@ -83,6 +95,10 @@ http:
       loadBalancer:
         servers:
           - url: http://cli-proxy-api:8317
+    uchiyomi-x:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:3001
     proxmox:
       loadBalancer:
         serversTransport: proxmox-lan

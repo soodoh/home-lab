@@ -177,6 +177,14 @@ class ComposeDelivery(unittest.TestCase):
         for name, service in services.items():
             sources = {entry['source'] for entry in service.get('secrets', [])}
             self.assertEqual('uchiyomi_x_oidc' in sources, name == 'uchiyomi-x')
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        step = next(step for step in policy['capture']['cold'] if 'uchiyomi-x' in step['services'])
+        groups = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']
+        self.assertEqual(set(step['services']), set(x_names[:2]))
+        self.assertTrue(set(step['services']) <= set(policy['stop_groups']['applications']))
+        self.assertEqual(step['paths'], groups['comics-x']['paths'])
+        self.assertEqual(set(groups['comics-x']['services']), set(x_names))
+        self.assertTrue(set(groups['comics-x']['paths']).isdisjoint(groups['books']['paths']))
 
     def test_carolyn_comics_mounts_are_captured_and_selected_for_books_recovery(self):
         name = 'caro-tachidesk'

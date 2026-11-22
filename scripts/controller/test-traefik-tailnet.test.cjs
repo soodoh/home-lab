@@ -63,7 +63,7 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
 test('the private router allowlist has no catch-all backend or public routes', () => {
   const expected = { omada: 'omada', llm: 'cli-proxy-api', proxmox: 'proxmox', zwave: 'authentik' };
   const apiRoutes = { 'sonarr-api': 'v3', 'radarr-api': 'v3', 'prowlarr-api': 'v1' };
-  assert.deepEqual(Object.keys(routes.routers).sort(), [...Object.keys(expected), ...Object.keys(apiRoutes)].sort());
+  assert.deepEqual(Object.keys(routes.routers).sort(), [...Object.keys(expected), ...Object.keys(apiRoutes), 'uchiyomi-x'].sort());
   for (const [name, service] of Object.entries(expected)) {
     const router = routes.routers[name];
     assert.equal(router.rule, `Host(\`${name}.ts.diloreto.com\`)`);
@@ -83,11 +83,21 @@ test('the private router allowlist has no catch-all backend or public routes', (
   assert.equal(publicConfig.providers.file.filename, '/etc/traefik/routes.yml');
 });
 
+test('Uchiyomi X requires a direct Tailscale peer, not the Docker-host relay', () => {
+  const router = routes.routers['uchiyomi-x'];
+  assert.equal(router.rule, 'Host(`x.ts.diloreto.com`) && ClientIP(`100.64.0.0/10`) && !ClientIP(`' + ingressIp + '`)');
+  assert.deepEqual(router.entryPoints, ['tailnet']);
+  assert.deepEqual(router.tls, { certResolver: 'tailnet', domains: [{ main: '*.ts.diloreto.com' }] });
+  assert.equal(router.service, 'uchiyomi-x');
+  const port = readYaml('services/uchiyomi-x.yml').services['uchiyomi-x'].environment.PORT;
+  assert.deepEqual(routes.services[router.service].loadBalancer.servers, [{ url: 'http://gluetun:' + port }]);
+});
+
 test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   const transport = routes.serversTransports['omada-backend'];
   const cert = new X509Certificate(fs.readFileSync('services/data/traefik-tailnet/omada.pem'));
   assert.deepEqual(Object.keys(routes.services).sort(), [
-    'authentik', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'prowlarr-api',
+    'authentik', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'prowlarr-api', 'uchiyomi-x',
   ].sort());
   assert.deepEqual(Object.keys(routes.serversTransports).sort(), ['omada-backend', 'proxmox-lan']);
   assert.equal(routes.services.omada.loadBalancer.serversTransport, 'omada-backend');

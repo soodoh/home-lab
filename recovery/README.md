@@ -14,7 +14,9 @@ Restore Uchiyomi with a release that enforces private libraries (v0.107.0 or
 later); a downgrade to an older release can expose private content. Restore
 checks must validate local state and the NFS content together. The NFS
 repository is on the same export as the live library; use games or Proton for
-independent recovery if that storage is lost.
+independent recovery if that storage is lost. The separate `comics-x` group
+selects Uchiyomi X state, including its independent engine, without the public
+comics library. The solver has no durable files.
 
 [`groups.json`](groups.json) maps named service groups to managed paths. The common
 protected Compose interpolation environment and credential-file directory are
