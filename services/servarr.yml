@@ -175,7 +175,7 @@ services:
 
   uchiyomi-engine:
     # Use Uchiyomi's qualified engine version and independent app state.
-    image: ghcr.io/suwayomi/suwayomi-server:v2.4.2366@sha256:1fac27c387dc2ea9949e1a01ad7f6d6de9d72d3988338a95476748e5c45c4582
+    image: ghcr.io/suwayomi/suwayomi-server:v2.4.2511@sha256:ccb0de45fc37c67c46b1a467611eb9f4e8364951b8796cdd796d4a66943c6f8d
     container_name: uchiyomi-engine
     restart: unless-stopped
     logging: *default-logging
