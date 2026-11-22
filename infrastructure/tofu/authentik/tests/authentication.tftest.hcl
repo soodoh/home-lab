@@ -117,7 +117,8 @@ run "authentication_and_onboarding_preserve_behavior" {
       authentik_policy_binding.application_access["e9a17f74-73d4-4144-811a-81cdbfa3ba32"].group == null &&
       authentik_policy_binding.application_access["e9a17f74-73d4-4144-811a-81cdbfa3ba32"].target == authentik_application.applications["uchiyomi-x"].uuid &&
       tostring(authentik_application.applications["uchiyomi-x"].protocol_provider) == authentik_provider_oauth2.providers["uchiyomi-x"].id &&
-      authentik_provider_oauth2.providers["uchiyomi-x"].signing_key == authentik_certificate_key_pair.signing["uchiyomi-x-oidc"].id
+      authentik_provider_oauth2.providers["uchiyomi-x"].signing_key == authentik_certificate_key_pair.signing["uchiyomi-x-oidc"].id &&
+      authentik_certificate_key_pair.signing["uchiyomi-x-oidc"].certificate_data == "${trimspace(file("${path.module}/uchiyomi-x-oidc.pem"))}\n"
     )
     error_message = "Uchiyomi X has its own signed provider and grants access to Paul directly, without a group."
   }
