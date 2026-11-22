@@ -45,6 +45,16 @@
         "/srv/home-lab-state/uchiyomi-engine"
       ]
     },
+    "comics-x": {
+      "services": [
+        "uchiyomi-x",
+        "uchiyomi-x-engine",
+        "uchiyomi-x-solver"
+      ],
+      "paths": [
+        "/srv/home-lab-state/uchiyomi-x"
+      ]
+    },
     "media": {
       "services": [
         "jellyfin",

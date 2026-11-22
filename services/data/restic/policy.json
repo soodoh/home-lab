@@ -88,7 +88,9 @@
       "sabnzbd",
       "caro-tachidesk",
       "uchiyomi",
-      "uchiyomi-engine"
+      "uchiyomi-engine",
+      "uchiyomi-x",
+      "uchiyomi-x-engine"
     ],
     "databases": []
   },
@@ -238,6 +240,16 @@
         "paths": [
           "/srv/home-lab-state/uchiyomi",
           "/srv/home-lab-state/uchiyomi-engine"
+        ]
+      },
+      {
+        "name": "uchiyomi-x",
+        "services": [
+          "uchiyomi-x",
+          "uchiyomi-x-engine"
+        ],
+        "paths": [
+          "/srv/home-lab-state/uchiyomi-x"
         ]
       }
     ],
