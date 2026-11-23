@@ -154,6 +154,16 @@ class SnapshotAuthority(unittest.TestCase):
             self.assertFalse(self.call({'action': 'list'}, '123456')['capture_admissible'])
             self.assertTrue(self.request('complete', guid='789', backup='c' * 64)['deleted'])
 
+    def test_uchiyomi_downloads_are_offered_at_the_same_narrow_snapshot_path_the_client_mounts(self):
+        paths = self.call({'action': 'scope'}, '123456')['paths']
+        self.assertIn('media/uchiyomi/downloads', paths)
+        self.assertEqual([f'/mnt/storage/{path}' for path in paths], CAPTURE['zfs_paths']())
+        self.request('create')
+        ensure = mock.Mock()
+        with mock.patch.dict(self.call.__globals__, {'ensure_export': ensure}):
+            self.request('ready', guid='789')
+        ensure.assert_any_call(self.identity['capture'], 'media/uchiyomi/downloads')
+
     def test_creation_and_inventory_use_root_configured_degraded_approval_without_claiming_health(self):
         status = lambda **kwargs: {'pool_healthy': False, 'capture_admissible': kwargs['allow_degraded']}
         with mock.patch.dict(self.call.__globals__, {'pool_status': status}):

@@ -136,8 +136,14 @@ class ComposeDelivery(unittest.TestCase):
             for volume in service['volumes']:
                 if volume['type'] == 'bind':
                     self.assertTrue(any(Path(volume['source']).is_relative_to(path) for path in step['paths']))
+        service = self.model['services']['uchiyomi']
+        mounts = {volume['target']: volume for volume in service['volumes']}
+        self.assertEqual(mounts['/library-dl']['source'], '/mnt/storage/media/uchiyomi/downloads')
+        self.assertFalse(mounts['/library-dl']['bind']['create_host_path'])
+        self.assertEqual(mounts['/data']['source'], '/srv/home-lab-state/uchiyomi/data')
+        self.assertEqual(mounts['/library']['source'], '/srv/home-lab-state/uchiyomi/library')
         engine = self.model['services']['uchiyomi-engine']['environment']
-        app = self.model['services']['uchiyomi']['environment']
+        app = service['environment']
         self.assertEqual(engine['BIND_IP'], '127.0.0.1')
         self.assertEqual(app['SUWAYOMI_URL'], f"http://127.0.0.1:{engine['BIND_PORT']}")
         self.assertEqual(app['AUTH_MODE'], 'oidc-only')

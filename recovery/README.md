@@ -8,8 +8,9 @@ directory. Production activation is not yet qualified.
 The `books` group includes books, audiobooks, Grimmory state, and Carolyn's
 Tachidesk state and downloads. It also includes Paul's retired Tachidesk archive
 (`/srv/home-lab-state/tachidesk-data` and `/mnt/storage/media/tachidesk`) as
-files only, not as a service, and Uchiyomi's local database, config, chapter files
-and separate extension-engine state.
+files only, not as a service. Public Uchiyomi's database, config, local library and
+separate extension-engine state are local; managed downloads are captured from
+`/mnt/storage/media/uchiyomi/downloads` on the same NFS snapshot as the other media.
 Restore Uchiyomi with a release that enforces private libraries (v0.107.0 or
 later); a downgrade to an older release can expose private content. Restore
 checks must validate local state and the NFS content together. The NFS

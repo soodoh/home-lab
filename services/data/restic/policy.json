@@ -96,7 +96,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "274a01e56535f1a8a8bb6ac2d8c54945529a5d6092efb8aa5e6fedef2a67a390",
+    "adapter_sha256": "61715a3a9c8f1f1c030070c513e13685a4a7ba99a3495c0464326a86cf68e13a",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -239,7 +239,8 @@
         ],
         "paths": [
           "/srv/home-lab-state/uchiyomi",
-          "/srv/home-lab-state/uchiyomi-engine"
+          "/srv/home-lab-state/uchiyomi-engine",
+          "/mnt/storage/media/uchiyomi/downloads"
         ]
       },
       {
