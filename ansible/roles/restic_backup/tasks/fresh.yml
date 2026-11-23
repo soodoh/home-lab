@@ -27,20 +27,3 @@
       - "{{ restic_backup_observation_apply_owner_sha256 }}"
   become: true
   changed_when: true
-
-- name: Reconcile NFS without ever repeating application capture
-  ansible.builtin.command:
-    # Budget an existing 12h transfer plus our own 12h reconciliation. Native
-    # timeout bounds lock waits too; failure retains production ownership.
-    # TERM reaches the runner's interruption handler with GNU and uutils timeout;
-    # uutils INT delivery can force-kill it without graceful interruption.
-    argv:
-      - /usr/bin/timeout
-      - --signal=TERM
-      - --kill-after=5m
-      - 24h
-      - /usr/local/libexec/home-lab/restic-backup
-      - daily-nfs
-      - --wait
-  become: true
-  changed_when: true

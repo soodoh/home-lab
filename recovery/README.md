@@ -51,14 +51,17 @@ From a fresh reviewed checkout:
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-backups.yml
 ```
 
-Use the default **strict** observer to select current-artifact protection with an
-exact NFS match. Proton may lag this capture by at most 48 hours; independently select and verify its
-actual copied snapshot when it is the recovery source. Routine admission uses
-bounded capture-time lag and may accept an earlier artifact.
+Use the default **strict** observer to select current-policy, current-artifact
+local protection. Routine observation may accept an earlier artifact locally.
+Both modes require verified NFS and Proton copies of complete daily captures
+at most 48 hours old. These need not be copies of the selected local capture and
+may reflect an older policy or artifact.
 
 The observer refuses active owners, opens each live repository and reports current
-repository IDs, policy/artifact identities and latest snapshots. Select one chain
-from this output. Do not use a snapshot ID copied from Git history or a previous run.
+repository IDs, policy/artifact identities and selected snapshots. Independently
+select and verify the exact snapshot on the repository you intend to restore from;
+do not assume the three reported IDs describe the same capture. Do not use a
+snapshot ID copied from Git history or a previous run.
 
 Before restoring, independently confirm:
 

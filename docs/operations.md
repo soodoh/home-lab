@@ -167,25 +167,24 @@ ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 Run the relevant observer afresh before **each** plan or host apply. Backup
 observation never creates a backup. Select admission according to reviewed risk:
 
-- **Routine upgrades:** require a successful complete local recovery set less than
-  48 hours old under the current scope/policy, initial coverage on both NFS and
-  Proton, and at most 48 hours of replication lag. Lag is the difference between
-  the latest local **capture time** and the newest capture successfully copied
-  to each destination, not upload completion time. The local snapshot may identify
-  an earlier routine deployment. Active transfers and failed copy-unit exits are
-  not blockers by themselves; missing baselines, excessive lag, wrong identities
-  and ambiguous ancestry are. Inaccessible inventories fail closed.
+- **Routine upgrades:** require a complete local recovery set on `/mnt/games` less
+  than 48 hours old under the current scope and policy. It may identify an earlier
+  routine deployment.
 - **Data/storage/schema changes, deletion or incompatible upgrades:** the owned
-  mutation interface creates fresh complete local protection and reconciles its
-  exact NFS copy before admission. The NFS reconciliation waits for any existing
-  transfer, then reads a fresh inventory without repeating application capture.
-  Native timeout bounds waiting and reconciliation together to 24 hours; timeout
-  or failure retains production ownership for inspection. The snapshot is bound
-  to this acquired production owner and the accepted artifact. Proton need not
-  finish this newest copy first, but its baseline and 48-hour lag limit still
-  apply. Standalone observation remains read-only. Fresh protection is not
-  approval to destroy data or proof that startup is reversible; independently
-  review the recovery procedure and acceptable loss window.
+  mutation interface creates a fresh, complete local recovery set bound to the
+  exact acquired owner and the accepted artifact. It does not wait for either
+  replica of that capture. Fresh local protection is not approval to destroy
+  data or proof that startup is reversible. Review recovery and the acceptable
+  loss window separately, including whether the exact pre-change backup must
+  exist off-host before proceeding.
+
+Both modes require a verified copy of a complete daily capture on **each** of NFS
+and Proton. Each copy's original **capture time** must be no more than 48 hours
+old, measured against the current time, not upload completion or the newest local
+capture. An earlier scope/policy or artifact can satisfy this replica floor, not
+current local protection. Replicas may be in flight or have a failed last run
+without blocking work. Missing, stale or unverifiable replicas (including an
+inaccessible inventory, wrong identity or ambiguous ancestry) fail closed.
 
 For routine observation use
 `ansible-playbook ansible/playbooks/observe-backups.yml -e restic_backup_admission=routine`.
@@ -834,8 +833,8 @@ reconfiguration preserves the installed destination; the separately approved
 scheduler interface selects the morning or backup-only target. The morning target
 waits only for complete local capture, then invokes routine deployment. NFS/Proton
 reconciliation has an independent hourly/boot timer and a local-success trigger;
-deployment does not wait for transfers. Admission still checks both replica lags
-and baselines. Manual backup/replication commands never trigger deployment.
+deployment does not wait for transfers. Admission still verifies a recent copy
+on each destination. Manual backup/replication commands never trigger deployment.
 
 Deployment begins when local capture terminates, **at whatever time that is**,
 without a clock cutoff or missed-run alert. Active local capture, unresolved
@@ -1117,11 +1116,15 @@ acquired owner identity. A conflicting or ambiguous completion retains staging
 for inspection. After exact completion is rediscovered, the temporary NFS
 mount/export and snapshots are removed before staging is deleted. A lost
 cleanup acknowledgement can be retried without reopening those sources.
-Restic's native final tagging briefly
-requires an exclusive repository lock; an active copy can defer it. The completion
-command waits natively for up to the full 12-hour transfer budget, with a 13-hour
-process timeout. The local unit allows 24 hours for capture/upload and completion,
-so healthy lock contention does not consume its rate-limited systemd restarts.
+Restic tags the exact provisional snapshot under its native exclusive lock, with
+only a short retry for other native readers. Managed replica jobs cannot delay
+this tag: they use a read-only local repository mount and Restic's source-only
+`copy --no-lock`. This does not bypass the destination's native write lock. It is
+safe on the source because copy jobs select already-published snapshots by ID
+and hold the shared repository gate until they stop. Final tagging changes only
+the provisional snapshot ID, which replica jobs never select. Use managed
+maintenance for any source deletion or repacking; do not run native destructive
+commands outside the exclusive gate at `/run/lock/home-lab-restic-repositories.lock`.
 Failures still retain ready staging for bounded retries without interrupting
 transfers or repeating application capture. Services are already running.
 
@@ -1148,9 +1151,12 @@ suspends expiry in its native snapshot group for that pass so it cannot take
 the place of a valid capture; unrelated groups remain eligible.
 Maintenance waits for the exclusive repository gate instead of failing on healthy
 readers; capture/copy use its shared side. Its 24-hour native systemd timeout
-budgets an existing 12-hour copy plus maintenance. Admission remains blocked while
-maintenance is pending or running, and genuine failures still require inspection.
-Ordinary deployments do not stop replication.
+budgets an existing 12-hour copy plus maintenance. Waiting for that gate does not
+block admission; active maintenance holds the backup lock and unresolved retention
+journals still block. If an owner is active when maintenance gets the gate, or
+retention finds a not-yet-copied snapshot, maintenance defers rather than failing;
+review repeated deferrals and capacity before retrying. Ordinary deployments do
+not stop replication.
 
 Stop managed replica units through systemd. Their mixed kill mode signals only
 the runner initially; it forwards one interrupt to its isolated Restic child and

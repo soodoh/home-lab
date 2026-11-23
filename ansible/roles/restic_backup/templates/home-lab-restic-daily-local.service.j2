@@ -13,7 +13,7 @@ User=root
 Group=root
 UMask=0027
 ExecStart={{ restic_systemd.runner_path }} daily-local
-# Preserve the 8h capture/upload budget plus the 13h completion command budget.
+# Bound capture/upload and local completion, independent of replication.
 TimeoutStartSec=24h
 Restart=on-failure
 RestartSec=10min

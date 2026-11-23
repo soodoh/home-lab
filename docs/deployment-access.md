@@ -58,8 +58,8 @@ only an explicitly approved scheduling change replaces the trigger dependency.
 That target waits for complete local capture, then routine deployment. NFS and
 Proton reconcile independently at boot/hourly and after local success, never as a
 deployment dependency. Manual backups never trigger deployment. Routine admission
-requires local freshness, initial replica coverage and at most 48 hours of
-capture-time lag to either destination. Copy progress/failure alone does not
+requires current-policy local coverage and a verified copy on each destination
+whose capture is no more than 48 hours old. Copy progress/failure alone does not
 block it; local failures, unresolved staging and journals do.
 There is no deployment clock cutoff, independent polling timer or missed-run alert.
 

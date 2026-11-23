@@ -596,13 +596,22 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         self.assertFalse(stage.exists())
 
     @unittest.skipUnless(os.environ.get('RESTIC'), 'native Restic is required in CI')
-    def test_native_completion_waits_for_a_shared_repository_lock_without_recapture(self):
+    def test_native_local_completion_and_cleanup_do_not_wait_for_replication(self):
         binary = os.environ['RESTIC']
-        repository = self.root / 'games'
+        games, nfs = self.root / 'games', self.root / 'nfs'
         environment = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': str(self.root), 'LC_ALL': 'C',
-                       'RESTIC_PASSWORD': 'synthetic-only', 'RESTIC_CACHE_DIR': str(self.root / 'cache')}
-        subprocess.run([binary, '-r', str(repository), 'init'], env=environment,
-                       check=True, capture_output=True, timeout=30)
+                       'RESTIC_PASSWORD': 'synthetic-only', 'RESTIC_FROM_PASSWORD': 'synthetic-only',
+                       'RESTIC_CACHE_DIR': str(self.root / 'cache')}
+        def native(repository, *arguments):
+            return subprocess.run([binary, '-r', str(repository), *arguments], env=environment,
+                                  check=True, capture_output=True, timeout=30).stdout
+        native(games, 'init')
+        native(nfs, 'init', '--from-repo', str(games), '--copy-chunker-params')
+        previous = self.root / 'previous'
+        previous.write_bytes(os.urandom(8 * 1024 * 1024))
+        native(games, 'backup', str(previous), '--tag', 'cadence=daily',
+               '--tag', 'format=full-v2', '--tag', 'complete=full-v2')
+        source = json.loads(native(games, 'snapshots', '--json'))[0]
         stage = self.root / 'stage'
         stage.mkdir(mode=0o700)
         (stage / 'value').write_text('synthetic ready capture')
@@ -611,56 +620,35 @@ sys.exit(int(os.environ['DUMP_RESULT']))
         (stage / 'manifest.json').write_text(json.dumps(manifest))
         (stage / 'manifest.json').chmod(0o600)
         policy = {'capture': {'stage': str(stage)}, 'tools': {'restic': {'installed_path': binary}},
-                  'repositories': {'games': {'path': str(repository)}}}
-        local, restic = RUNNER['LocalCapture'](policy), RUNNER['restic_result']
-        tagging, finished = threading.Event(), threading.Event()
-        errors = []
-        def command(*args, **kwargs):
-            if args[2][0] == 'tag':
-                tagging.set()
-                # Bound fixture teardown even if a native lock fails to clear.
-                kwargs['timeout'] = 30
-            return restic(*args, **kwargs)
-        def complete():
-            try:
-                local.run('a' * 64)
-            except BaseException as error:
-                errors.append(error)
-            finally:
-                finished.set()
-        # An open stdin keeps a native shared repository lock alive without
-        # relying on transfer speed. Copies hold the same kind of source lock.
-        with subprocess.Popen([binary, '-r', str(repository), 'backup', '--stdin',
-                               '--stdin-filename', 'lock-holder'], env=environment,
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as reader:
-            worker = threading.Thread(target=complete, daemon=True)
+                  'repositories': {'games': {'path': str(games)}}}
+        local = RUNNER['LocalCapture'](policy)
+        with subprocess.Popen([binary, '-r', str(nfs), '--from-repo', str(games), '--no-lock',
+                               '--limit-upload', '1024', 'copy', source['id']], env=environment,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE) as reader:
             try:
                 deadline = time.monotonic() + 10
-                while not list((repository / 'locks').iterdir()):
-                    self.assertIsNone(reader.poll(), 'native lock holder exited prematurely')
-                    self.assertLess(time.monotonic(), deadline, 'native reader did not acquire its lock')
+                while not list((nfs / 'locks').iterdir()):
+                    self.assertIsNone(reader.poll(), 'copy exited before acquiring its destination lock')
+                    self.assertLess(time.monotonic(), deadline, 'copy did not acquire its destination lock')
                     time.sleep(.02)
+                self.assertEqual(list((games / 'locks').iterdir()), [])
                 with mock.patch.dict(local.run.__globals__, {
                     'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
                     'capture_adapter': lambda _: CAPTURE, 'rooted': Path, 'artifact_hash': lambda _: 'b' * 64,
-                    'repository_environment': lambda *_: environment, 'restic_result': command,
+                    'repository_environment': lambda *_: environment,
                     'declared_services': mock.Mock(side_effect=AssertionError('ready capture replanned')),
                 }), mock.patch.object(local, 'recover'), mock.patch('builtins.print'):
-                    worker.start()
-                    try:
-                        self.assertTrue(tagging.wait(10), 'completion did not reach native tagging')
-                        self.assertFalse(finished.wait(7), 'completion abandoned the shared lock')
-                        self.assertTrue(stage.exists())
-                        reader.communicate(input=b'synthetic lock-holder input', timeout=10)
-                        self.assertEqual(reader.returncode, 0)
-                    finally:
-                        if reader.poll() is None:
-                            reader.terminate()
-                            reader.communicate(timeout=10)
-                        worker.join(40)
-                    self.assertFalse(worker.is_alive())
-                    self.assertEqual(errors, [])
-                    self.assertFalse(stage.exists())
+                    local.run('a' * 64)
+                self.assertFalse(stage.exists())
+                self.assertIsNone(reader.poll(), 'replication must still be running after local cleanup')
+                self.assertTrue(list((nfs / 'locks').iterdir()))
+                completed = json.loads(native(games, 'snapshots', '--json', '--tag', 'capture=' + manifest['capture']))
+                self.assertEqual(len(completed), 1)
+                self.assertIn('complete=full-v2', completed[0]['tags'])
+                _, stderr = reader.communicate(timeout=30)
+                self.assertEqual(reader.returncode, 0, stderr.decode())
+                copies = json.loads(native(nfs, 'snapshots', '--json'))
+                self.assertEqual([copy['original'] for copy in copies], [source['id']])
             finally:
                 if reader.poll() is None:
                     reader.terminate()

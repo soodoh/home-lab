@@ -33,7 +33,7 @@ class Runtime(unittest.TestCase):
         for key, name in (('runner', 'restic-backup'), ('capture', 'restic-capture-files.py')):
             actual = hashlib.sha256((ROOT / 'scripts' / name).read_bytes()).hexdigest()
             self.assertEqual(policy[key]['sha256' if key == 'runner' else 'adapter_sha256'], actual)
-        self.assertEqual(policy['replication']['max_lag_seconds'], 48 * 3600)
+        self.assertEqual(policy['replication']['max_capture_age_seconds'], 48 * 3600)
         self.assertEqual(policy['capture']['zfs']['expiry_seconds'], 72 * 3600)
         self.assertEqual(CAPTURE['zfs_spec'](policy), policy['capture']['zfs'])
         for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
@@ -302,52 +302,23 @@ class Runtime(unittest.TestCase):
                 with gate.open('a+') as updater:
                     fcntl.flock(updater, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-    def test_strict_nfs_waits_for_existing_work_before_reconciling_without_recapture(self):
+    def test_owner_bound_capture_can_start_during_both_replica_transfers(self):
         main = RUNNER['main']
-        flock = fcntl.flock
-        for lock_name in ('home-lab-restic-repositories.lock', 'home-lab-restic-daily-nfs.lock'):
-            with self.subTest(lock=lock_name), tempfile.TemporaryDirectory() as directory:
-                root, gate, _ = self.coordination_fixture(directory)
-                held_path = gate.with_name(lock_name)
-                requested, finished = threading.Event(), threading.Event()
-                errors = []
-                inventory_ready = root / 'fresh-inventory'
-                def acquire(stream, flags):
-                    if Path(stream.name) == held_path:
-                        self.assertFalse(flags & fcntl.LOCK_NB)
-                        requested.set()
-                    return flock(stream, flags)
-                def reconcile(_policy, destination):
-                    self.assertEqual(destination, 'nfs')
-                    self.assertTrue(inventory_ready.exists())
-                reconciler = mock.Mock(side_effect=reconcile)
-                def invoke():
-                    try:
-                        main()
-                    except BaseException as error:
-                        errors.append(error)
-                    finally:
-                        finished.set()
-                with held_path.open('a+') as active, mock.patch.dict(os.environ, {
-                    'HOME_LAB_RESTIC_TESTING': '1', 'HOME_LAB_RESTIC_TEST_ROOT': str(root),
-                }), mock.patch.object(sys, 'argv', ['restic-backup', 'daily-nfs', '--wait']), \
-                        mock.patch('signal.signal'), mock.patch.object(fcntl, 'flock', side_effect=acquire), \
-                        mock.patch.dict(main.__globals__, {'reconcile': reconciler}), \
-                        mock.patch.object(LOCAL, 'run', side_effect=AssertionError('recapture')):
-                    flock(active, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    worker = threading.Thread(target=invoke, daemon=True)
-                    worker.start()
-                    try:
-                        self.assertTrue(requested.wait(5))
-                        self.assertFalse(finished.is_set())
-                        reconciler.assert_not_called()
-                        inventory_ready.touch()
-                    finally:
-                        flock(active, fcntl.LOCK_UN)
-                        worker.join(5)
-                    self.assertFalse(worker.is_alive())
-                    self.assertEqual(errors, [])
-                    reconciler.assert_called_once()
+        with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+            root, owner, _ = self.interruption_fixture(directory)
+            digest = hashlib.sha256(owner.read_bytes()).hexdigest()
+            locks = root / 'run/lock'
+            gate = stack.enter_context((locks / 'home-lab-restic-repositories.lock').open('a+'))
+            fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            for destination in ('nfs', 'proton'):
+                lock = stack.enter_context((locks / f'home-lab-restic-daily-{destination}.lock').open('a+'))
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with (mock.patch.dict(os.environ, HOME_LAB_RESTIC_TESTING='1', HOME_LAB_RESTIC_TEST_ROOT=str(root)),
+                  mock.patch.object(sys, 'argv', ['restic-backup', 'daily-local', '--owner-sha256', digest]),
+                  mock.patch('signal.signal'), mock.patch.object(LOCAL, 'run', autospec=True) as capture):
+                main()
+            capture.assert_called_once()
+            self.assertEqual(capture.call_args.args[0].policy['_owner'], digest)
 
     def test_ordinary_nfs_still_refuses_a_concurrent_copy(self):
         main = RUNNER['main']
@@ -364,33 +335,6 @@ class Runtime(unittest.TestCase):
                 main()
             self.assertIn('reason=concurrent_operation', stderr.getvalue())
             reconcile.assert_not_called()
-
-    @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux timeout')
-    def test_strict_nfs_native_timeout_bounds_lock_wait_and_preserves_ownership(self):
-        import yaml
-        tasks = yaml.safe_load((ROOT / 'ansible/roles/restic_backup/tasks/fresh.yml').read_text())
-        task = next(t for t in tasks if t['name'] == 'Reconcile NFS without ever repeating application capture')
-        argv = task['ansible.builtin.command']['argv']
-        # Exercise the actual installed timeout implementation and production
-        # argv: Ubuntu's uutils timeout mishandles INT, unlike GNU timeout.
-        for lock_name in ('home-lab-restic-repositories.lock', 'home-lab-restic-daily-nfs.lock'):
-            with self.subTest(lock=lock_name), tempfile.TemporaryDirectory() as directory:
-                root, owner, journal = self.interruption_fixture(directory)
-                before = (owner.read_bytes(), journal.read_bytes())
-                command = []
-                for value in argv:
-                    if value == '/usr/local/libexec/home-lab/restic-backup':
-                        command.extend([sys.executable, str(ROOT / 'scripts/restic-backup')])
-                    else:
-                        command.append({'24h': '2s', '--kill-after=5m': '--kill-after=1s'}.get(value, value))
-                environment = {**os.environ, 'HOME_LAB_RESTIC_TESTING': '1',
-                               'HOME_LAB_RESTIC_TEST_ROOT': str(root)}
-                with (root / 'run/lock' / lock_name).open('a+') as active:
-                    fcntl.flock(active, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=10)
-                self.assertEqual(result.returncode, 124, result.stderr)
-                self.assertIn('reason=interrupted', result.stderr)
-                self.assertEqual((owner.read_bytes(), journal.read_bytes()), before)
 
     def test_maintenance_waits_for_copy_then_succeeds_without_manual_reset(self):
         main = RUNNER['main']
@@ -846,17 +790,6 @@ class Runtime(unittest.TestCase):
                 events.append(args[0])
                 if args[0] == 'backup':
                     return subprocess.CompletedProcess([], 0, json.dumps({'message_type': 'summary', 'snapshot_id': 'c' * 64}), '')
-                # Healthy copies must fit inside one completion invocation, not
-                # consume the service's three rate-limited start attempts.
-                budgets = {}
-                for name in ('local', 'nfs', 'proton'):
-                    unit = configparser.ConfigParser(interpolation=None)
-                    unit.read(ROOT / f'ansible/roles/restic_backup/templates/home-lab-restic-daily-{name}.service.j2')
-                    budgets[name] = int(unit['Service']['TimeoutStartSec'].removesuffix('h')) * 3600
-                wait = int(args[args.index('--retry-lock') + 1].removesuffix('h')) * 3600
-                self.assertGreaterEqual(wait, max(budgets['nfs'], budgets['proton']))
-                self.assertGreater(kwargs['timeout'], wait)
-                self.assertGreaterEqual(budgets['local'], 8 * 3600 + kwargs['timeout'])
                 return OK
             with mock.patch.dict(daily.__globals__, {
                 'preflight': mock.Mock(), 'verify_sources': mock.Mock(),
@@ -872,17 +805,6 @@ class Runtime(unittest.TestCase):
                 daily(LOCAL({'capture': {'stage': str(stage)}}), 'a' * 64)
             self.assertEqual(events, ['backup', 'tag'])
             self.assertFalse(stage.exists())
-
-    def test_restic_completion_timeout_reaches_the_subprocess(self):
-        restic = RUNNER['restic_result']
-        policy = {'tools': {'restic': {'installed_path': '/restic'}},
-                  'repositories': {'games': {'path': '/repository'}}}
-        args = ['tag', '--retry-lock', '12h', '--add', 'complete=full-v2', 'a' * 64]
-        with mock.patch.dict(restic.__globals__, {'repository_environment': lambda *_: {}}), \
-                mock.patch.dict(restic.__globals__, run=mock.Mock(return_value=OK)):
-            restic(policy, 'games', args, timeout=13 * 3600)
-            restic.__globals__['run'].assert_called_once_with(
-                ['/restic', '--repo', '/repository', *args], environment={}, timeout=13 * 3600)
 
     def test_replication_cancellation_does_not_retry(self):
         reconcile = RUNNER['reconcile']
@@ -1002,7 +924,7 @@ g['main']()
 
     @unittest.skipUnless(sys.platform == 'linux' and os.environ.get('RESTIC') and os.environ.get('RCLONE'),
                          'requires pinned native Linux Restic and rclone')
-    def test_native_copy_stop_removes_both_repository_locks_without_unlock(self):
+    def test_native_copy_stop_removes_destination_lock_without_unlock(self):
         with tempfile.TemporaryDirectory() as directory:
             root, gate, _ = self.coordination_fixture(directory)
             restic = str(Path(os.environ['RESTIC']).resolve())
@@ -1057,11 +979,12 @@ g['main']()
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 deadline = time.monotonic() + 20
-                while not (any((Path(local) / 'locks').glob('*')) and any((raw / 'locks').glob('*'))
+                while not (any((raw / 'locks').glob('*'))
                            and any(p.is_file() and p.stat().st_size > 0 for p in (raw / 'data').rglob('*'))):
                     self.assertIsNone(child.poll(), 'copy ended before its interruption point')
                     self.assertLess(time.monotonic(), deadline, 'copy never reached payload upload')
                     time.sleep(0.01)
+                self.assertEqual(list((Path(local) / 'locks').glob('*')), [])
                 os.killpg(child.pid, signal.SIGINT)
                 stdout, stderr = child.communicate(timeout=20)
                 self.assertNotEqual(child.returncode, 0)
@@ -1103,7 +1026,7 @@ g['main']()
                 command = copy.__globals__['run']
                 self.assertEqual(copy(policy, 'games', destination, snapshot), replica['id'])
                 self.assertEqual(command.call_args.args[0], [
-                    '/restic', '--repo', '/' + destination, '--from-repo', '/games', 'copy', snapshot['id'],
+                    '/restic', '--repo', '/' + destination, '--from-repo', '/games', '--no-lock', 'copy', snapshot['id'],
                 ])
                 self.assertEqual(command.call_count, 1)
                 self.assertEqual(command.call_args.kwargs['timeout'], budget)
@@ -1129,21 +1052,23 @@ g['main']()
                 self.assertTrue(all(c.args[2][0] == 'backup' for c in calls.call_args_list))
                 self.assertTrue(stage.exists())
 
-    def test_retention_never_forgets_uncopied_complete_sources(self):
+    def test_retention_defers_without_writes_when_either_format_is_uncopied(self):
         maintenance = RUNNER['maintenance']
-        with tempfile.TemporaryDirectory() as directory:
-            source = {'id': 'a' * 64, 'time': '2026-11-10T00:00:00Z', 'tags': [
-                'complete=full-v2', 'format=full-v2', 'cadence=daily']}
-            writes = mock.Mock(side_effect=AssertionError('unsafe retention'))
-            with mock.patch.dict(maintenance.__globals__, {
-                'journal_path': lambda _: Path(directory) / 'journal', 'rooted': Path,
-                'preflight': mock.Mock(), 'inventory': lambda _, n: [source] if n == 'games' else [],
-                'restic_result': writes,
-            }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'):
-                with self.assertRaisesRegex(RUNNER['WorkflowError'], 'replication_pending'):
-                    maintenance({'capture': {'stage': str(Path(directory) / 'stage')},
-                                 'retention': {'read_data_subset': '10%'}})
-            writes.assert_not_called()
+        for tags in (['cadence=daily'], ['cadence=daily', 'format=full-v2', 'complete=full-v2']):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(tags=tags):
+                source = {'id': 'a' * 64, 'time': '2026-11-10T00:00:00Z', 'tags': tags}
+                writes = mock.Mock(side_effect=AssertionError('unsafe retention'))
+                stage = Path(directory) / 'stage'
+                with (mock.patch.dict(maintenance.__globals__, {
+                        'journal_path': lambda _: Path(directory) / 'journal', 'rooted': Path,
+                        'preflight': mock.Mock(), 'inventory': lambda _, n: [source] if n == 'games' else [],
+                        'restic_result': writes,
+                    }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'),
+                      contextlib.redirect_stdout(io.StringIO()) as output):
+                    maintenance({'capture': {'stage': str(stage)}, 'retention': {'read_data_subset': '10%'}})
+                self.assertIn('deferred=replication_pending', output.getvalue())
+                self.assertFalse((stage.parent / 'retention.json').exists())
+                writes.assert_not_called()
 
     def test_legacy_retention_is_replica_safe_and_keeps_unqualified_captures(self):
         maintenance = RUNNER['maintenance']
@@ -1307,21 +1232,6 @@ g['main']()
                 maintenance(policy)
             writes.assert_not_called()
             self.assertFalse((root / 'retention.json').exists())
-
-    def test_retention_never_forgets_uncopied_legacy_sources(self):
-        maintenance = RUNNER['maintenance']
-        legacy = {'id': 'a' * 64, 'tags': ['cadence=daily']}
-        with tempfile.TemporaryDirectory() as directory:
-            writes = mock.Mock(side_effect=AssertionError('unsafe retention'))
-            with mock.patch.dict(maintenance.__globals__, {
-                'journal_path': lambda _: Path(directory) / 'journal', 'rooted': Path,
-                'preflight': mock.Mock(), 'inventory': lambda _, n: [legacy] if n == 'games' else [],
-                'restic_result': writes,
-            }), mock.patch.dict(os.environ, HOME_LAB_RESTIC_MAINTENANCE_SCOPE='local'):
-                with self.assertRaisesRegex(RUNNER['WorkflowError'], 'replication_pending'):
-                    maintenance({'capture': {'stage': str(Path(directory) / 'stage')},
-                                 'retention': {'read_data_subset': '10%'}})
-            writes.assert_not_called()
 
     def test_replication_includes_legacy_but_not_partial_or_unknown_formats(self):
         reconcile = RUNNER['reconcile']

@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "7c6eb1c3c17436436f75d0ae3051008720ea261f36f3cf8339be270563f4866f",
+    "sha256": "951beb06282c2d31542a41b15d0e5a3ad574999dc70d54eec1350db6f9ebdc70",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -335,6 +335,6 @@
     ]
   },
   "replication": {
-    "max_lag_seconds": 172800
+    "max_capture_age_seconds": 172800
   }
 }

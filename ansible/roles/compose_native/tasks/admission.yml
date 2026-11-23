@@ -6,7 +6,7 @@
     fail_msg: Backup admission requires identity from successful lock acquisition or explicit adoption.
   when: not ansible_check_mode
 
-- name: Establish fresh complete local and matching NFS protection before strict changes
+- name: Establish fresh complete local protection before strict changes
   ansible.builtin.import_role:
     name: restic_backup
     tasks_from: fresh
