@@ -206,9 +206,10 @@ GitHub Actions validates source without deployment secrets or Tailscale federati
 The observer admits the scheduled timer's own `running` state only for the known
 morning target under exact validated production ownership and routine admission;
 this never admits another owner's lock, an active local capture or an interruption
-journal. Independent replica transfers may run during ordinary deployment; actual
-capture-time lag and ancestry are checked instead of the last copy-unit exit. Systemd removes controller scratch and its credential/runtime scope on exit;
-failed production ownership, journals and source before-images remain for inspection.
+journal. Independent replica transfers may run during deployment; verified replica
+capture age and ancestry matter, not the last copy-unit exit. Systemd removes
+controller scratch and its credential/runtime scope on exit; failed production
+ownership, journals and source before-images remain for inspection.
 See [local deployment access](deployment-access.md#host-local-scheduled-deployment).
 
 ## SSH and privilege

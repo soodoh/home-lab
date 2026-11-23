@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Admission behavior: complete local recovery, capture-time lag, and ownership."""
+"""Admission behavior: complete local recovery, replica freshness, and ownership."""
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import os
@@ -18,13 +18,14 @@ EVIDENCE = importlib.util.module_from_spec(EVIDENCE_SPEC)
 EVIDENCE_SPEC.loader.exec_module(EVIDENCE)
 POLICY, ARTIFACT, OWNER = 'a' * 64, 'b' * 64, 'c' * 64
 STAGE = '/mnt/games/home-lab-backup/capture'
+NOW = datetime(2026, 11, 13, tzinfo=timezone.utc)
 
 
-def snapshot(identifier='1', age=0, artifact=ARTIFACT, owner=None):
-    tags = ['cadence=daily', 'format=full-v2', 'complete=full-v2', 'policy=' + POLICY, 'artifact=' + artifact]
+def snapshot(identifier='1', age=0, artifact=ARTIFACT, owner=None, policy=POLICY):
+    tags = ['cadence=daily', 'format=full-v2', 'complete=full-v2', 'policy=' + policy, 'artifact=' + artifact]
     if owner:
         tags += ['owner=' + owner]
-    return {'id': identifier * 64, 'time': (datetime.now(timezone.utc) - timedelta(hours=age)).isoformat(),
+    return {'id': identifier * 64, 'time': (NOW - timedelta(hours=age)).isoformat(),
             'tags': tags, 'tree': 'd' * 64, 'paths': [STAGE]}
 
 
@@ -35,36 +36,42 @@ def copied(source, identifier):
 class Admission(unittest.TestCase):
     def select(self, games, nfs, proton, routine=True, owner=None):
         return OBSERVER.select_full(EVIDENCE, {'games': games, 'nfs': nfs, 'proton': proton},
-                                    POLICY, ARTIFACT, STAGE, routine=routine, owner=owner)
+                                    POLICY, ARTIFACT, STAGE, routine=routine, owner=owner,
+                                    now=NOW, max_replica_age=48 * 3600)
 
-    def test_routine_can_use_an_earlier_artifact_with_bounded_replica_lag(self):
+    def test_routine_can_use_an_earlier_artifact_with_recent_replicas(self):
         newest = snapshot(artifact='e' * 64)
-        older = snapshot('2', age=47)
-        result = self.select([newest, older], [copied(older, '3')], [copied(older, '4')])
-        self.assertEqual(result[0], newest)
+        older = snapshot('2', age=48)
+        self.assertEqual(self.select([newest, older], [copied(older, '3')], [copied(older, '4')]),
+                         (newest, copied(older, '3'), copied(older, '4')))
 
-    def test_lag_is_original_capture_time_not_recent_upload_time(self):
-        newest, older = snapshot(), snapshot('2', age=49)
-        for destination in ('nfs', 'proton'):
-            with self.subTest(destination=destination), self.assertRaisesRegex(OBSERVER.ObservationError, 'replication_stale'):
-                self.select([newest, older], [copied(older if destination == 'nfs' else newest, '3')],
-                            [copied(older if destination == 'proton' else newest, '4')])
+    def test_replica_age_is_measured_from_now_not_latest_local_or_upload_time(self):
+        newest = snapshot(age=24, owner=OWNER)
+        for age in (48 + 1 / 3600, -1):
+            older = snapshot('2', age=age, policy='e' * 64)
+            for routine in (True, False):
+                for destination in ('nfs', 'proton'):
+                    with self.subTest(destination=destination, age=age, routine=routine), self.assertRaisesRegex(
+                            OBSERVER.ObservationError, destination + '_replication_stale'):
+                        self.select([newest, older], [copied(older if destination == 'nfs' else newest, '3')],
+                                    [copied(older if destination == 'proton' else newest, '4')], routine=routine)
 
-    def test_missing_initial_replica_coverage_blocks_routine(self):
+    def test_missing_initial_replica_coverage_blocks_both_modes(self):
         source = snapshot()
-        for nfs, proton in (([], [copied(source, '2')]), ([copied(source, '2')], [])):
-            with self.assertRaisesRegex(OBSERVER.ObservationError, 'baseline_missing'):
-                self.select([source], nfs, proton)
+        for routine in (True, False):
+            for nfs, proton in (([], [copied(source, '2')]), ([copied(source, '2')], [])):
+                with self.subTest(routine=routine), self.assertRaisesRegex(OBSERVER.ObservationError, 'baseline_missing'):
+                    self.select([source], nfs, proton, routine=routine)
 
-    def test_strict_requires_exact_owned_local_and_nfs_but_not_newest_proton(self):
+    def test_strict_requires_exact_owned_local_but_neither_replica_of_that_capture(self):
         newest = snapshot(owner=OWNER)
-        previous = snapshot('2', age=47)
-        result = self.select([newest, previous], [copied(newest, '3')], [copied(previous, '4')], routine=False, owner=OWNER)
-        self.assertEqual(result[0], newest)
-        with self.assertRaisesRegex(OBSERVER.ObservationError, 'replication_stale'):
-            self.select([newest, previous], [copied(previous, '3')], [copied(previous, '4')], routine=False, owner=OWNER)
+        previous = snapshot('2', age=47, policy='e' * 64, artifact='f' * 64)
+        nfs = copied(previous, '3')
+        proton = copied(previous, '4')
+        self.assertEqual(self.select([newest, previous], [nfs], [proton], routine=False, owner=OWNER),
+                         (newest, nfs, proton))
         with self.assertRaisesRegex(OBSERVER.ObservationError, 'local_missing'):
-            self.select([newest], [copied(newest, '3')], [copied(newest, '4')], routine=False, owner='e' * 64)
+            self.select([newest, previous], [nfs], [proton], routine=False, owner='e' * 64)
 
     def test_current_policy_complete_scope_and_freshness_are_mandatory(self):
         source = snapshot()
@@ -203,6 +210,17 @@ class Admission(unittest.TestCase):
             with self.assertRaisesRegex(OBSERVER.ObservationError, 'timer_cadence'):
                 self.validate_rebooted_units(directory, policy, units)
 
+    def test_copy_and_queued_maintenance_do_not_block_admission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            policy, units = self.rebooted_units(directory)
+            for workflow in ('replication', 'maintenance'):
+                units[f'home-lab-restic-{workflow}.timer'].update(
+                    SubState='running', Unit=f'home-lab-restic-{workflow}.target', LastTriggerUSec='scheduled')
+            for service in ('daily-nfs', 'maintenance-local'):
+                units[f'home-lab-restic-{service}.service'].update(ActiveState='activating', SubState='start')
+            units['home-lab-restic-daily-proton.service'].update(ActiveState='failed', SubState='failed', Result='exit-code')
+            self.validate_rebooted_units(directory, policy, units)
+
     def test_scheduled_timer_exception_remains_narrow(self):
         values = {'ActiveState': 'active', 'SubState': 'running', 'Unit': 'home-lab-morning.target',
                   'LastTriggerUSec': 'scheduled'}
@@ -245,7 +263,7 @@ class Admission(unittest.TestCase):
                 OBSERVER.proton_restic(policy, ['snapshots', '--json'])
             self.assertEqual(command.call_count, 1)
 
-    def test_wrong_repository_identity_is_never_replication_lag(self):
+    def test_wrong_repository_identity_is_never_treated_as_stale_replication(self):
         with self.assertRaises(OBSERVER.ObservationError):
             OBSERVER.require_repository_identity({'id': 'a' * 64}, 'b' * 64)
 

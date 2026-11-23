@@ -263,7 +263,14 @@ def restic_result(
 ) -> subprocess.CompletedProcess[str]:
     command = [policy["tools"]["restic"]["installed_path"], "--repo", policy["repositories"][name]["path"]]
     if source is not None:
-        command.extend(["--from-repo", policy["repositories"][source]["path"]])
+        # Native copy's --no-lock applies only to the read-only source; the
+        # destination still takes an append lock. The runner holds the shared
+        # repository gate against maintenance for the entire transfer.
+        command.extend(["--from-repo", policy["repositories"][source]["path"], "--no-lock"])
+    elif name == 'games' and (arguments[:1] == ['snapshots'] or arguments == ['cat', 'config']):
+        # These metadata reads also run under the gate and must work in the
+        # replica services' read-only source mount.
+        command.append('--no-lock')
     environment = repository_environment(policy, name, source)
     if name == 'proton' and os.geteuid() == 0 and not testing():
         command = ['/usr/sbin/runuser', '--user', 'restic-proton', '--', '/usr/bin/env',
@@ -907,11 +914,11 @@ class LocalCapture:
             self._state_request(adapter, state, 'state-inspect')
         # Drop the local overlay and all live binds before granting completion.
         attachments.close()
-        # Tagging changes the ID. Wait natively for healthy shared copy locks;
-        # a failure retains the ready capture for a retry, with writers running.
+        # Tagging changes only this provisional snapshot ID. Replica readers
+        # use published IDs and cannot hold up completion or source release.
         require_success(restic_result(policy, 'games', [
-            'tag', '--retry-lock', '12h', '--add', evidence.COMPLETE, snapshot,
-        ], timeout=13 * 3600), 'capture_completion')
+            'tag', '--retry-lock', '1m', '--add', evidence.COMPLETE, snapshot,
+        ], timeout=120), 'capture_completion')
         backup = self._completed(inventory(policy, 'games'), manifest['capture'], manifest)
         if not backup:
             raise WorkflowError('completion_mapping')
@@ -1050,7 +1057,7 @@ class ReplicaExpiry:
         self.policy = policy
         self.journal = journal_path(policy).with_name('retention.json')
 
-    def run(self):
+    def run(self) -> bool:
         self._finish_pending()
         records = inventory(self.policy, 'games')
         sources = replication_sources(records)
@@ -1060,10 +1067,13 @@ class ReplicaExpiry:
             selected = {'games': source['id']}
             for name, rows in replicas.items():
                 matches = [row for row in rows if same_capture(source, row)]
-                if len(matches) != 1:
-                    raise WorkflowError('retention_replication_pending')
-                selected[name] = matches[0]['id']
+                if len(matches) > 1:
+                    raise WorkflowError('snapshot_mapping')
+                if matches:
+                    selected[name] = matches[0]['id']
             bindings.append(selected)
+        if any(len(row) != len(self.repositories) for row in bindings):
+            return False
         # Bind exact IDs before native expiry, using the same one-to-one check
         # on publication and replay. After expiry ancestry cannot reconstruct them.
         pending = {'version': 1, 'repositories': self._repository_ids(), 'snapshots': bindings}
@@ -1071,6 +1081,7 @@ class ReplicaExpiry:
         atomic_json(self.journal, pending)
         self._expire_local(records, sources)
         self._finish_pending()
+        return True
 
     def _repository_ids(self):
         return {name: self.policy['repositories'][name]['id'] for name in self.repositories}
@@ -1156,7 +1167,9 @@ def maintenance(policy: dict[str, Any]) -> None:
     keep = policy['retention']
     subset = keep['read_data_subset']
     if scope == 'local':
-        ReplicaExpiry(policy).run()
+        if not ReplicaExpiry(policy).run():
+            print('restic_backup=maintenance deferred=replication_pending')
+            return
         for name in names:
             require_success(restic_result(policy, name, ['prune', '--max-repack-size', keep['prune_max_repack_size'],
                                                         '--max-unused', keep['prune_max_unused']]), 'prune')
@@ -1195,11 +1208,8 @@ def capture_namespace():
 
 def main() -> None:
     os.umask(0o077)
-    if len(sys.argv) not in (2, 3, 4) or sys.argv[1] not in SUBCOMMANDS:
+    if len(sys.argv) not in (2, 4) or sys.argv[1] not in SUBCOMMANDS:
         fail('fixed_subcommand_required')
-    wait_for_copy = len(sys.argv) == 3
-    if wait_for_copy and sys.argv[1:] != ['daily-nfs', '--wait']:
-        fail('wait_argument')
     owner = None
     if len(sys.argv) == 4:
         if sys.argv[1] != 'daily-local' or sys.argv[2] != '--owner-sha256' or not SNAPSHOT_ID.fullmatch(sys.argv[3]):
@@ -1221,11 +1231,7 @@ def main() -> None:
             # Maintenance queues behind healthy readers instead of leaving a
             # failed unit that blocks admission after replication has finished.
             # Its native systemd start timeout bounds both this wait and the work.
-            # Strict admission wraps daily-nfs --wait in native timeout, allowing
-            # an existing transfer to finish before a fresh inventory/reconcile.
-            flags = fcntl.LOCK_EX if command == 'maintenance' else fcntl.LOCK_SH
-            if command != 'maintenance' and not wait_for_copy:
-                flags |= fcntl.LOCK_NB
+            flags = fcntl.LOCK_EX if command == 'maintenance' else fcntl.LOCK_SH | fcntl.LOCK_NB
             try:
                 fcntl.flock(gate_stream, flags)
             except BlockingIOError:
@@ -1253,16 +1259,22 @@ def main() -> None:
             require_regular(selected_lock, {0o660}, None if testing() else {0})
             stream = stack.enter_context(selected_lock.open('a+'))
             try:
-                fcntl.flock(stream, fcntl.LOCK_EX if wait_for_copy else fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
                 if command == 'expire-snapshots':
                     print('restic_backup=snapshot_cleanup deferred=active_capture')
+                    return
+                if command == 'maintenance':
+                    print('restic_backup=maintenance deferred=backup_owner')
                     return
                 raise WorkflowError("concurrent_operation") from error
             deploy_lock = rooted(policy["runner"]["deploy_lock_path"])
             if deploy_lock.exists() and not copying:
                 if deploy_lock.is_symlink() or not deploy_lock.is_dir():
                     raise WorkflowError('deploy_lock_type')
+                if command == 'maintenance':
+                    print('restic_backup=maintenance deferred=production_owner')
+                    return
                 if owner is None and command == 'recover':
                     # Boot recovery may resume only this capture's recorded
                     # services, never adopt/release the retained production lock.

@@ -304,7 +304,7 @@ jobs:
             python3 scripts/test-simple-backups.py Files.test_online_capture_from_readonly_wal_mount_finishes_and_preserves_committed_data
           BACKUP_CONTAINER_TESTS=true TMPDIR="$work" python scripts/test-backup-container-lifecycle.py
           RESTIC="$RESTIC" RCLONE="${{ steps.rclone-tool.outputs.rclone }}" TMPDIR="$work" \
-            python scripts/test-restic-runtime.py Runtime.test_native_copy_stop_removes_both_repository_locks_without_unlock
+            python scripts/test-restic-runtime.py Runtime.test_native_copy_stop_removes_destination_lock_without_unlock
           sudo env TMPDIR="$work" RESTIC="$RESTIC" RCLONE="${{ steps.rclone-tool.outputs.rclone }}" \
             RESTIC_CHUNKER_TEST_DISPOSABLE=true python3 scripts/test-restic-chunker.py
 

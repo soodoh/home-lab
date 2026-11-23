@@ -112,8 +112,8 @@ class DeploymentInterfaces(unittest.TestCase):
                 "dest": str(self.work / "fresh-protection"),
                 "content": "{{ restic_backup_observation_apply_owner_sha256 }}", "mode": "0600"}},
             {"name": "Count fixture captures", "ansible.builtin.shell": "echo captured >> {{ fixture_capture_count | quote }}"},
-            {"name": "Simulate NFS reconciliation failure", "ansible.builtin.fail": {
-                "msg": "synthetic NFS failure"}, "when": "fixture_fail_nfs | default(false)"},
+            {"name": "Simulate local capture failure", "ansible.builtin.fail": {
+                "msg": "synthetic local capture failure"}, "when": "fixture_fail_capture | default(false)"},
         ])
         self.variables = {
             "compose_native_post_change_capture_cutoff_path": str(self.work / "capture-cutoff"),
@@ -409,7 +409,7 @@ else:
                 (self.work / "mutated").unlink()
 
     def test_shared_apply_retains_owner_on_backup_or_mutation_failure(self):
-        for failure in ("fixture_fail_nfs", "fixture_refuse_backup", "fixture_fail_mutation"):
+        for failure in ("fixture_fail_capture", "fixture_refuse_backup", "fixture_fail_mutation"):
             with self.subTest(failure=failure):
                 result = self.run_tasks([role("compose_native", "apply")], variables={failure: True})
                 self.assertNotEqual(result.returncode, 0)
