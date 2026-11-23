@@ -45,7 +45,7 @@ printf '%s\n' 'synthetic-selected-book' >/srv/home-lab-state/books/value
 printf '%s\n' 'synthetic-unselected' >/srv/home-lab-state/unselected/value
 cat >"$work/recovery/groups.json" <<'JSON'
 {"version":1,"common_paths":["/srv/home-lab-state/common"],"groups":{
-  "books":{"services":["book-app"],"paths":["/srv/home-lab-state/books","/mnt/storage/media/tachidesk","/mnt/storage/media/books"]},
+  "books":{"services":["book-app"],"paths":["/srv/home-lab-state/books","/mnt/storage/media/tachidesk","/mnt/storage/media/books","/mnt/storage/media/uchiyomi/downloads"]},
   "other":{"services":["other-app"],"paths":["/srv/home-lab-state/unselected","/mnt/storage/media/frigate/exports"]},
   "wolf":{"services":["wolf"],"paths":["/mnt/games/roms","/mnt/games/wolf"]}
 }}
@@ -121,7 +121,7 @@ PY
 # Simulate three immutable views from one source snapshot at the archive paths.
 # The broker tests cover NFS identity; here read-only bind mounts prove that
 # real Restic includes separately mounted roots and can restore without them.
-for root in tachidesk books frigate/exports; do
+for root in tachidesk books frigate/exports uchiyomi/downloads; do
   live="/mnt/storage/media/$root"
   frozen="$work/snapshot/$root"
   target="$capture/files$live"
@@ -208,7 +208,7 @@ for scope in books all; do
     and .symlinks["/srv/home-lab-state/books/link"] == "../common/value"
   ' "$RECOVERY_TARGET/recovery-exports/manifest.json" >/dev/null
   [[ ! -e $RECOVERY_TARGET/mnt/games/home-lab-backup/capture ]]
-  for root in tachidesk books; do
+  for root in tachidesk books uchiyomi/downloads; do
     printf 'frozen %s\n' "$root" | cmp - "$RECOVERY_TARGET/mnt/storage/media/$root/value"
     [[ ! -e $RECOVERY_TARGET/mnt/storage/media/$root/new ]]
   done

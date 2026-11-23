@@ -337,8 +337,10 @@ review exact-source matches before committing the batch. Read markers are not
 full history or page-level resume. The native import does not ingest downloaded
 chapters. Do not mount a legacy download tree under `/library`: normal scans
 can publish it as shared. Test attaching a copied archive to the correct private
-series, or use Uchiyomi to fetch the chapter. Check local-state free space before
-any bulk copy or download; do not fill the shared state filesystem.
+series, or use Uchiyomi to fetch the chapter. Public Uchiyomi keeps its database,
+config and private uploads in local state. Its managed download path is
+`/mnt/storage/media/uchiyomi/downloads` on the NFS mount; check that filesystem's
+free space before bulk downloads. Uchiyomi X retains its own local storage.
 
 See the pinned [usage guide](https://github.com/AngeloSha/uchiyomi/blob/v0.108.1/docs/USAGE.md#private-libraries)
 for reader settings, update/download rules, offline reading and tracker options.
@@ -1049,8 +1051,9 @@ backup scope when adding an emulator or changing its data directory.
 
 All recorded writers resume before Restic mounts or reads the snapshot. Nextcloud
 must also pass native `occ status`. Only the approved Nextcloud data, Books and
-audiobooks, Carolyn's Tachidesk downloads, the legacy comics archive and Frigate
-export subtrees are mounted read-only at their existing archive paths, alongside
+audiobooks, Carolyn's Tachidesk downloads, the legacy comics archive, public
+Uchiyomi downloads and Frigate exports are mounted read-only at their existing
+archive paths, alongside
 the selected application state paths on the local snapshot. These roots are not counted toward staging
 capacity. Missing or unexpected sources fail closed. The shared pause can
 lengthen an individual application's outage even if total backup time falls.

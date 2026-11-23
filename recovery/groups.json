@@ -35,6 +35,7 @@
         "/mnt/storage/media/audiobooks",
         "/mnt/storage/media/tachidesk",
         "/mnt/storage/media/caro-tachidesk",
+        "/mnt/storage/media/uchiyomi/downloads",
         "/srv/home-lab-state/grimmory-data",
         "/srv/home-lab-state/grimmory-db-data",
         "/srv/home-lab-state/grimmory-bookdrop",

@@ -158,7 +158,7 @@ services:
         target: /library
         bind: {create_host_path: false}
       - type: bind
-        source: /srv/home-lab-state/uchiyomi/downloads
+        source: /mnt/storage/media/uchiyomi/downloads
         target: /library-dl
         bind: {create_host_path: false}
       - type: bind
