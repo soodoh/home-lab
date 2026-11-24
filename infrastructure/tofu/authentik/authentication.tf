@@ -56,7 +56,7 @@ check "authentication_ownership" {
       length(local.desired.passwordPolicies) == 1 &&
       length(local.desired.brands) == 1 &&
       length(local.desired.systemSettings) == 1 &&
-      length(local.desired.signingCertificates) == 4 &&
+      length(local.desired.signingCertificates) == 5 &&
       alltrue([for group in values(local.desired.groups) :
         !group.is_superuser && length(group.parents) == 0 &&
         contains(keys(local.desired.membershipSets), group.membership_set)

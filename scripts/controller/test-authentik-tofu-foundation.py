@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "47", "grimmory", "uchiyomi", "uchiyomi-x"}
+OAUTH_PROVIDER_IDS = {"15", "21", "47", "bookorbit", "grimmory", "uchiyomi", "uchiyomi-x"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
@@ -142,7 +142,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         expected = {
             "jellyfin": family, "seerr": family, "karaoke-eternal": family,
             "caro-tachidesk": {"carodilo", "eabbado"},
-            "grimmory": {"paul", "sarabeth"},
+            "bookorbit": {"paul", "sarabeth"}, "grimmory": {"paul", "sarabeth"},
             "uchiyomi": {"paul", "carodilo", "eabbado"},
             "frigate": {"paul", "sarabeth"}, "vaultwarden": {"paul", "sarabeth"},
         }

@@ -27,7 +27,7 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Jellyfin (existing media entitlement) | family | Jellyfin, Seerr |
 | Karaoke Users | family | Karaoke Eternal |
 | Caro Library Users | caro | Caro Tachidesk |
-| Books Users | personal | Grimmory |
+| Books Users | personal | BookOrbit, Grimmory |
 | Uchiyomi Users | uchiyomi | Uchiyomi |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
@@ -39,6 +39,11 @@ auto-provisioning directory users or mapping application access to admin roles.
 Its separate client secret uses the same Authentik SOPS authority; its signed OIDC
 client uses a dedicated create-only RSA signing certificate in the existing
 SOPS/OpenTofu signing authority, not a competing discovery-owned key writer.
+BookOrbit has its own confidential authorization-code client and supplied RSA
+signer. Its only access binding is `Books Users`; it does not inherit the
+operator group or assign BookOrbit roles from token claims. Before the public
+cutover, its hidden application registers only the private staging callback.
+Keep the stable `bookorbit` issuer and subject when replacing the callback.
 Uchiyomi has a separate create-only OIDC application, client and signer in the
 same authorities. `Uchiyomi Users` admits Paul, Carolyn and Eric; Uchiyomi
 reads `App Operators` (Paul only) from the signed `profile` claim for its own

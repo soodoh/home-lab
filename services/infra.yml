@@ -103,6 +103,7 @@ services:
     networks:
       - proxy
       - omada-backend
+      - bookorbit-stage
     environment:
       AWS_SHARED_CREDENTIALS_FILE: /run/secrets/traefik_tailnet_aws_credentials
       AWS_REGION: us-east-1

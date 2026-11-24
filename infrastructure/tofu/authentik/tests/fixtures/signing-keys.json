@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "certificates": {
+    "bookorbit-oidc": {
+      "private_key": "-----BEGIN PRIVATE KEY-----\nsynthetic-bookorbit-test-key-not-valid-PEM\n-----END PRIVATE KEY-----"
+    },
     "uchiyomi-x-oidc": {
       "private_key": "-----BEGIN PRIVATE KEY-----\nsynthetic-uchiyomi-x-test-key-not-valid-PEM\n-----END PRIVATE KEY-----"
     },

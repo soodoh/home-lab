@@ -443,10 +443,17 @@ finalizes app/media files and exports PostgreSQL; manage any future Dock writer
 in that same capture group. The database directory is an estimate input, not a
 physical restore source.
 
-BookOrbit's first-use setup is private: the runtime has no published port or
-public router. Require a tested, Authentik-linked superuser before disabling
-local authentication and opening public ingress. Keep setup credentials and
-Kobo bearer URLs out of logs and change records.
+BookOrbit's first-use setup is host-only with no published port. Its staging
+hostname is tailnet-only, with password sign-in, manual account creation,
+password reset, and magic links denied at ingress. Use the native Authentik
+issuer `https://auth.diloreto.com/application/o/bookorbit/` with `openid profile
+email`. Enable first-login provisioning, leave username linking off, and keep
+default library grants empty. Promote Paul explicitly after his first sign-in
+and grant Sarabeth only her own library. Require a tested, Authentik-linked
+superuser before setting `DISABLE_LOCAL_AUTH=true`; keep denying shared accounts
+and magic links at ingress. Offboarding also requires revoking the native app
+sessions and device credentials. Keep setup credentials and Kobo bearer URLs
+out of logs and change records.
 
 ### Shelfmark acquisition and seeding
 

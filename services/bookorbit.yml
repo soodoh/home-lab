@@ -14,7 +14,7 @@ services:
     environment:
       NODE_ENV: production
       TZ: $TZ
-      APP_URL: https://books.diloreto.com
+      APP_URL: https://books-next.ts.diloreto.com
       POSTGRES_HOST: bookorbit-db
       POSTGRES_DB: bookorbit
       POSTGRES_USER: bookorbit
@@ -51,10 +51,11 @@ services:
         target: /data
         bind:
           create_host_path: false
-    # No public router or published port before private bootstrap and import.
+    # Browser qualification uses only private Traefik; no published host port.
     networks:
       - bookorbit-egress
       - bookorbit-db
+      - bookorbit-stage
 
   bookorbit-db:
     image: pgvector/pgvector:0.8.3-pg18@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84
@@ -97,3 +98,5 @@ networks:
   bookorbit-db:
     internal: true
   bookorbit-egress: {}
+  bookorbit-stage:
+    internal: true

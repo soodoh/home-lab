@@ -71,6 +71,11 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   override_resource {
+    target = authentik_certificate_key_pair.signing["bookorbit-oidc"]
+    values = { id = "synthetic-bookorbit-signer" }
+  }
+
+  override_resource {
     target = authentik_certificate_key_pair.signing["grimmory-oidc"]
     values = { id = "synthetic-grimmory-signer" }
   }
@@ -78,6 +83,27 @@ run "authentication_and_onboarding_preserve_behavior" {
   override_resource {
     target = authentik_certificate_key_pair.signing["jellyfin-oidc"]
     values = { id = "synthetic-existing-signer" }
+  }
+
+  assert {
+    condition = (
+      !contains(keys(local.existing_oauth_providers), "bookorbit") &&
+      !contains(keys(local.existing_signing_certificates), "bookorbit-oidc") &&
+      authentik_provider_oauth2.providers["bookorbit"].signing_key == authentik_certificate_key_pair.signing["bookorbit-oidc"].id &&
+      authentik_provider_oauth2.providers["bookorbit"].client_type == "confidential" &&
+      authentik_provider_oauth2.providers["bookorbit"].sub_mode == "user_uuid" &&
+      toset(authentik_provider_oauth2.providers["bookorbit"].grant_types) == toset(["authorization_code"]) &&
+      length(authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris) == 1 &&
+      alltrue([for redirect in authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris :
+        redirect.matching_mode == "strict" && redirect.url == "https://books-next.ts.diloreto.com/oauth2-callback"
+      ]) &&
+      tostring(authentik_application.applications["bookorbit"].protocol_provider) == authentik_provider_oauth2.providers["bookorbit"].id &&
+      authentik_application.applications["bookorbit"].meta_hide &&
+      length([for binding in values(local.application_policy_bindings) : binding if binding.application_slug == "bookorbit"]) == 1 &&
+      authentik_policy_binding.application_access["d8de5f8e-3eed-410d-85f4-661d300731ad"].group == authentik_group.managed["cwa-users"].id &&
+      toset(authentik_group.managed["cwa-users"].users) == toset([5003, 5004])
+    )
+    error_message = "BookOrbit must have its own hidden, signed private OIDC client, with one strict callback and only the two Books Users."
   }
 
   assert {
@@ -126,7 +152,7 @@ run "authentication_and_onboarding_preserve_behavior" {
   assert {
     condition = (
       length(local.existing_signing_certificates) == 1 &&
-      length(authentik_certificate_key_pair.signing) == 4 &&
+      length(authentik_certificate_key_pair.signing) == 5 &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].certificate_data == "${trimspace(file("${path.module}/grimmory-oidc.pem"))}\n" &&
       authentik_certificate_key_pair.signing["grimmory-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["grimmory-oidc"].private_key)}\n"
