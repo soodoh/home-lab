@@ -7,7 +7,7 @@
   "image_pins": [
     {
       "source": "ghcr.io/games-on-whales/wolf-ui:main",
-      "image": "ghcr.io/games-on-whales/wolf-ui:main@sha256:cd6de1158b29068e4a4d4ce6312976067517239be97200a391be758a6ddfcf9b"
+      "image": "ghcr.io/games-on-whales/wolf-ui:main@sha256:1bdaf38f0fe2b6176fb8282477023513614e195b69fdf5c7a04fc2d7b70462f7"
     },
     {
       "source": "ghcr.io/games-on-whales/steam:edge",
