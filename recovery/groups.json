@@ -46,6 +46,13 @@
         "/srv/home-lab-state/uchiyomi-engine"
       ]
     },
+    "bookorbit": {
+      "services": ["bookorbit", "bookorbit-db"],
+      "paths": [
+        "/srv/home-lab-state/bookorbit-data",
+        "/srv/home-lab-state/bookorbit-media"
+      ]
+    },
     "comics-x": {
       "services": [
         "uchiyomi-x",

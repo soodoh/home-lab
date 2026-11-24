@@ -432,6 +432,22 @@ directories or an older restore. Regular backups preserve native state, not
 discarded legacy records; never fabricate completion dates or catalog entries.
 See [device qualification](migrations.md#physical-kobo-continuity).
 
+### BookOrbit local storage and recovery
+
+Keep BookOrbit's writable `/books` and `/data` on local application-state
+storage. Do not mount the NFS library or the download clients' seeded files into
+BookOrbit. PostgreSQL has its own private network and local data directory.
+Do not load production library data until a complete capture and private
+`bookorbit` restore have been qualified. The capture stops the BookOrbit writer while it
+finalizes app/media files and exports PostgreSQL; manage any future Dock writer
+in that same capture group. The database directory is an estimate input, not a
+physical restore source.
+
+BookOrbit's first-use setup is private: the runtime has no published port or
+public router. Require a tested, Authentik-linked superuser before disabling
+local authentication and opening public ingress. Keep setup credentials and
+Kobo bearer URLs out of logs and change records.
+
 ### Shelfmark acquisition and seeding
 
 Shelfmark at `shelfmark.diloreto.com` uses Authentik's operator-only embedded

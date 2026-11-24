@@ -9,7 +9,10 @@ The `books` group includes books, audiobooks, Grimmory state, and Carolyn's
 Tachidesk state and downloads. It also includes Paul's retired Tachidesk archive
 (`/srv/home-lab-state/tachidesk-data` and `/mnt/storage/media/tachidesk`) as
 files only, not as a service. Public Uchiyomi's database, config, local library and
-separate extension-engine state are local; managed downloads are captured from
+separate extension-engine state are local. BookOrbit has a separate `bookorbit`
+group: library media, application data (including Library Dock), and a logical
+PostgreSQL export. Its database directory is neither copied nor restored
+physically. Managed Uchiyomi downloads are captured from
 `/mnt/storage/media/uchiyomi/downloads` on the same NFS snapshot as the other media.
 Restore Uchiyomi with a release that enforces private libraries (v0.107.0 or
 later); a downgrade to an older release can expose private content. Restore
@@ -162,6 +165,9 @@ Logical exports and native archives remain in `recovery-exports/`:
   Restore media, templates and certificates from that same capture before
   starting the restored instance. The database is captured online while the
   companion files are verified unchanged across the copy and dump.
+- `databases/bookorbit.dump`: native PostgreSQL custom format. Start from an empty
+  compatible PostgreSQL with pgvector, restore the dump, then check the library
+  files, covers, individual users and reading state from the same capture.
 - `databases/books.sql`, `databases/nextcloud.sql`: native MariaDB logical
   exports for compatible empty databases. Restore database and coupled files
   from this same capture before enabling application/background writers.

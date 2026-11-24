@@ -82,6 +82,7 @@
     "applications": [
       "shelfmark",
       "grimmory",
+      "bookorbit",
       "nextcloud-cron",
       "nextcloud",
       "frigate",
@@ -101,6 +102,7 @@
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
       "/srv/home-lab-state/grimmory-db-data",
+      "/srv/home-lab-state/bookorbit-postgres",
       "/srv/home-lab-state/nextcloud-db-data"
     ],
     "radio_max_age_seconds": 172800,
@@ -170,6 +172,22 @@
             "engine": "mariadb",
             "container": "grimmory-db",
             "name": "books.sql"
+          }
+        ]
+      },
+      {
+        "name": "bookorbit",
+        "precopy": true,
+        "services": ["bookorbit"],
+        "paths": [
+          "/srv/home-lab-state/bookorbit-data",
+          "/srv/home-lab-state/bookorbit-media"
+        ],
+        "databases": [
+          {
+            "engine": "postgres",
+            "container": "bookorbit-db",
+            "name": "bookorbit.dump"
           }
         ]
       },
