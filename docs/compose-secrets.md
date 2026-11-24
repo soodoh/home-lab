@@ -46,6 +46,12 @@ do not rotate existing database accounts; rotation needs a separately admitted
 native account change and app restart. See
 [native authentication convergence](operations.md#grimmory-native-authentication-and-library-ownership).
 
+BookOrbit reads native `POSTGRES_PASSWORD_FILE`, `JWT_SECRET_FILE` and
+`SETUP_BOOTSTRAP_TOKEN_FILE` inputs from protected files. Its dedicated
+PostgreSQL service takes the same SOPS database password through a separate
+reader-specific file. Treat the setup token as an administrator credential;
+never publish uninitialized setup or copy that token to shell history.
+
 These declarations are **not proof of current live state**. Frigate camera
 URLs use its native credential placeholders, and Recyclarr API-key references
 use native `!secret` tags. Preserve those interfaces when editing or recovering
