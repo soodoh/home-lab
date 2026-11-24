@@ -21,6 +21,7 @@ services:
       POSTGRES_USER: bookorbit
       POSTGRES_PASSWORD_FILE: /run/secrets/bookorbit_pg_app_password
       JWT_SECRET_FILE: /run/secrets/bookorbit_jwt_secret
+      # v3.9.0 requires a setup token at production startup even in OIDC-only mode.
       SETUP_BOOTSTRAP_TOKEN_FILE: /run/secrets/bookorbit_bootstrap_token
       LIBRARY_BROWSE_ROOT: /books
       BOOK_DOCK_PATH: /data/book-dock

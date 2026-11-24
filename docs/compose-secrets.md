@@ -49,8 +49,11 @@ native account change and app restart. See
 BookOrbit reads native `POSTGRES_PASSWORD_FILE`, `JWT_SECRET_FILE` and
 `SETUP_BOOTSTRAP_TOKEN_FILE` inputs from protected files. Its dedicated
 PostgreSQL service takes the same SOPS database password through a separate
-reader-specific file. Treat the setup token as an administrator credential;
-never publish uninitialized setup or copy that token to shell history.
+reader-specific file. The pinned image requires a setup token in production
+even after initialization. Keep it mounted as a protected startup input;
+OIDC-only mode and ingress still block setup. Do not retain a bootstrap admin
+password after the temporary account is retired, publish uninitialized setup,
+or copy a setup token to shell history.
 
 These declarations are **not proof of current live state**. Frigate camera
 URLs use its native credential placeholders, and Recyclarr API-key references
