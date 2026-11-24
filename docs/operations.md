@@ -436,7 +436,10 @@ See [device qualification](migrations.md#physical-kobo-continuity).
 
 Keep BookOrbit's writable `/books` and `/data` on local application-state
 storage. Do not mount the NFS library or the download clients' seeded files into
-BookOrbit. PostgreSQL has its own private network and local data directory.
+BookOrbit. Define separate catalog roots at `/books/paul`, `/books/sarabeth` and
+`/books/audiobooks`; Sarabeth only receives her own library. Do not scan the
+parent `/books` as a library. PostgreSQL has its own private network and local
+data directory.
 Do not load production library data until a complete capture and private
 `bookorbit` restore have been qualified. The capture stops the BookOrbit writer while it
 finalizes app/media files and exports PostgreSQL; manage any future Dock writer
