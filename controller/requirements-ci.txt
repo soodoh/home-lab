@@ -1,5 +1,5 @@
 -r requirements-fixtures.txt
 
-ansible-lint==26.11.0
+ansible-lint==26.11.1
 yamllint==1.38.0
 jsonschema==4.26.0
