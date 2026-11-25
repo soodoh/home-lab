@@ -208,8 +208,9 @@ them. Observation output is current-run input, not a Git artifact.
 
 Active remote-backed roots under `infrastructure/tofu/` are `authentik`,
 `aws-foundation`, `omada`, `proxmox`, `proxmox-firewall`, `servarr` and `tailscale`.
-The declared `proxmox-access` root is owner-only and requires independent backend
-and provider admission; never initialize it with ordinary controller credentials.
+The declared `proxmox-access` and `authentik-access` roots are owner-only and
+require independent backend and provider admission; never initialize them with
+ordinary controller credentials.
 [Proxmox ownership](proxmox-ownership.md) describes new adoption, native snippet
 replacement/readback and the host boundaries that remain outside the provider.
 Initialize against the **remote S3 backend**, refresh against the provider,
@@ -279,13 +280,112 @@ drift or VM-start prerequisites and does not itself authorize an apply. Obtain a
 separate human confirmation before applying the inspected plan. A new plan needs
 a new approval. Afterward verify provider reality and a fresh no-op plan.
 
+### Authentik controller permissions
+
+Use the independent [`authentik-access`](../infrastructure/tofu/authentik-access)
+root for the one-time controller access setup or a separately approved permission
+policy change. Do not run it as part of normal Authentik deployment or on a
+schedule. Keep its locked `home-lab/authentik-access/tofu.tfstate`
+in a separately owner-controlled S3 bucket. Excluding the key from ordinary
+state grants is not sufficient if an ordinary identity can administer the bucket.
+Use a clean reviewed checkout, a private workspace (`$work` below), protected
+owner storage credentials and the ephemeral `TF_VAR_authentik_access_owner_token`.
+The bucket name and optional `AUTHENTIK_ACCESS_AWS_PROFILE` selector may be
+saved in the gitignored `.env`; keep the owner token out of it. Select the owner
+AWS identity only in the dedicated owner session, with no inherited ordinary AWS
+credentials, and verify the caller and bucket authority afresh. Supply the
+independently admitted Authentik credential for each phase; never use an ordinary
+controller token, pass the owner token on the command line, or give it to CI.
+Verify recovery login and backup first. Serialize access-root plans and applies
+against normal Authentik applies and administrator edits.
+
+```sh
+root=infrastructure/tofu/authentik-access
+export TF_DATA_DIR="$work/access-data"
+if [ -n "${AUTHENTIK_ACCESS_AWS_PROFILE:-}" ]; then
+  export AWS_PROFILE="$AUTHENTIK_ACCESS_AWS_PROFILE"
+fi
+aws sts get-caller-identity
+: "${AUTHENTIK_ACCESS_BACKEND_BUCKET:?load the independent owner backend environment}"
+tofu -chdir="$root" init -lockfile=readonly -backend-config="bucket=$AUTHENTIK_ACCESS_BACKEND_BUCKET"
+```
+
+For adoption, identify existing roles and templates by exact live ID and verify
+their assignments, other effective grants and consumers against the
+[ownership boundary](authentik-ownership.md#controller-permissions).
+After backend initialization, preserve the protected state version (or confirm
+there is no state yet). With separate approval, use native **state-only** imports
+for existing objects before making any permission changes. For example, with the
+observed IDs in your private session:
+
+```sh
+tofu -chdir="$root" import -input=false 'authentik_rbac_role.controller["apply"]' "$apply_role_uuid"
+tofu -chdir="$root" import -input=false 'authentik_rbac_initial_permissions.controller["apply"]' "$apply_template_id"
+```
+
+Use `refresh` for the shared role and its template. Import only existing objects;
+plan creation for an absent template. Reobserve the imports and review a fresh
+full saved plan separately. Do not recreate existing roles or use a combined
+import-and-update to bypass plan review.
+
+Compare scoped grants with the app root's state ownership and live IDs. For
+already-owned objects without a pinned primary key that still need owner grants,
+commit `authentik_access_adopted_object_ids` in the access root's
+`adopted-objects.auto.tfvars.json` as a `"collection/key": "native-id"` map. Never
+copy raw state or infer an ID from a display-name collision. Uncreated objects
+need no adopted IDs; Initial Permissions grant access when the normal apply
+identity creates them. Keep admitted scoped IDs in Git until their tracked grants
+are deliberately removed. The native provider attaches an already-present grant
+idempotently; a planned grant create is not evidence the live grant was absent.
+
+```sh
+tofu -chdir="$root" plan -input=false -out="$work/access.plan"
+TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/access.plan"
+```
+
+Privately review the complete saved plan, including role, model, ID and grant
+scope. Follow [deletion review](#deletion-and-replacement) when applicable. After
+separate owner approval and loading the admitted owner apply credentials, apply
+only the saved plan and require a fresh access-root no-op:
+
+```sh
+tofu -chdir="$root" apply -input=false "$work/access.plan"
+tofu -chdir="$root" plan -input=false -detailed-exitcode # must exit 0
+unset TF_VAR_authentik_access_owner_token TF_DATA_DIR
+```
+
+Then independently verify an ordinary Authentik no-op with the normal plan token
+and verify that the normal identities cannot change their own grants. Revoke any
+owner token issued only for this change. Leave the access root dormant with its
+reviewed declarations and remote state intact; deleting either is not cleanup of
+a one-time run. Do not use the owner token to hide ordinary provider permission
+failures.
+
+When replacing broader legacy grants, install the scoped grants and Initial
+Permissions first. Verify the ordinary Authentik plan is a no-op using each
+controller token before revoking anything. Inspect all effective roles for both
+accounts, not just the two roles managed by this root.
+
+OpenTofu only revokes **tracked** grants. To revoke an existing untracked grant
+through OpenTofu, first track the exact role, permission, and scope tuple using
+the native resource in reviewed private supplemental configuration. Verify it is
+already present immediately before applying that adoption; never re-grant a
+missing legacy permission. Keep transition declarations out of Git. After
+read-back and normal plan verification, remove the supplemental declarations and
+review the resulting destroy plan separately. Do not delete entire roles or drop
+state to accomplish the revocation. Afterward, verify no unrelated access changed
+and both controller tokens still work without the removed grants. Reconcile a new
+model before the normal root creates objects of that type. For removal, keep the live grants through the
+approved application destroy, then apply the access-root plan deleting any now
+obsolete tracked grants. Native Initial Permissions can leave untracked orphan
+ACLs when their objects disappear; those are not active grants or tracked state.
+
 ### Authentik OAuth client-secret rotation
 
-Before planning the managed Authentik root, obtain independent
-approval for the plan identity's provider-change grant: a view-only identity does
-not receive OAuth secrets from the API, so a secret plan would otherwise propose
-false updates even if the encrypted value is already live. Protect the plan token
-as a mutating credential. `scripts/prepare-authentik-plan-input` checks all existing managed
+Plan only after the owner has admitted the Git permissions profile. An Authentik
+view-only identity does not receive OAuth secrets, so a secret plan would otherwise
+propose false updates even if the encrypted value is already live. Protect the
+plan token as a mutating credential. `scripts/prepare-authentik-plan-input` checks all existing managed
 OAuth secret reads and every owned signing-certificate private-key read without
 printing their values; it refuses a masked or inaccessible identity. It also
 checks live login-stage binding values that the pinned provider cannot read back.
@@ -299,12 +399,12 @@ protected client-secret file and Home Assistant's existing `!secret` entry deriv
 from the same Authentik SOPS client secrets during site convergence. Do not
 assume an Authentik plan or apply makes a consumer switch atomic; verify a fresh
 OIDC login and a no-op plan before declaring rotation complete.
-A new provider has no imported ID: the preflight discovers it by client ID after
-creation and
-requires its secret read, rather than continuing to skip a create-only declaration.
-A dedicated create-only signing certificate follows the same boundary:
-rediscover it by exact name and independently admit its private-key read before
-subsequent plans. Do not grant provider identities their own permissions.
+A new provider or signing certificate has no imported ID. After creation, the
+preflight discovers it by exact client ID or certificate name and checks the
+read granted by Initial Permissions. Verify the newly created identities are
+visible to the plan token and that the next full plan is a no-op. An unexpected
+create for an already-owned object is a refusal to investigate, not permission
+to recreate it or to broaden the token's grants.
 
 ### Uchiyomi authentication, libraries and imports
 

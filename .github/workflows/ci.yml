@@ -143,11 +143,14 @@ jobs:
           umask 077
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
-          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-access,proxmox-firewall,servarr,tailscale}; do
+          for root in infrastructure/tofu/{aws-foundation,authentik,authentik-access,omada,proxmox,proxmox-access,proxmox-firewall,servarr,tailscale}; do
             TF_DATA_DIR="$work/$(basename "$root")"
             export TF_DATA_DIR
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
+            if [[ $root == infrastructure/tofu/authentik-access ]]; then
+              tofu -chdir="$root" test
+            fi
             # Native lock refresh must not add unpacked hashes for either supported platform.
             # Extra upstream ZIP hashes for unrelated platforms do not invalidate existing locks.
             # Use a private copy; never repair a PR lock silently or access remote state.

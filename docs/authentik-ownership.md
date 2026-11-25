@@ -139,37 +139,40 @@ OpenTofu without first resolving the competing writer and key custody. Removing 
 managed certificate or declaration must produce a reviewed destroy plan, never an
 orphaned state entry.
 
-## Independent provider permissions
+## Controller permissions
 
-Provider accounts, tokens and the plan/apply roles' own grants remain outside their
-OpenTofu root. An independent owner administers the required object read/change
-permissions and singleton system-setting permissions. This is not permission for a
-provider identity to broaden its own access. Plan credentials also retain the
-explicit OAuth provider-change exception needed for secret reads; protect them as
-mutating credentials. See [security](security.md#opentofu-state-and-plans).
+The owner-only [`authentik-access` OpenTofu root](../infrastructure/tofu/authentik-access)
+owns the two controller roles, their declared global and object grants, and their
+native [Initial Permissions](https://docs.goauthentik.io/users-sources/access-control/initial_permissions/).
+The normal controller identities must not be able to modify these grants or write
+their state. Verify all effective roles, including legacy assignments, before
+claiming that boundary. Token issuance and role membership are independently bootstrapped: assign
+`home-lab-opentofu-authentik-apply` only to `home-lab-opentofu-apply` and
+`home-lab-opentofu-managed-group-read` (the shared refresh role) only to
+`home-lab-opentofu-plan` and `home-lab-opentofu-apply`. Neither role may be
+assigned to a group. Independently verify these assignments and all effective
+grants; OpenTofu manages tracked grants, not the complete live role membership
+or arbitrary grants added outside state. See [owner operations](operations.md#authentik-controller-permissions).
 
-### Group permissions in Authentik Admin
+Applications have model-wide lifecycle grants. Other admitted models get global
+`add` where needed and object-scoped writes. Existing objects get scoped grants
+by the IDs pinned in [`desired.json`](../infrastructure/tofu/authentik/desired.json)
+or independently adopted by exact ID. Initial Permissions gives newly created
+objects their scoped grants automatically; the shared refresh role must already
+be on the apply account when it creates them. Stock lookup dependencies and
+provider-exposed singleton settings retain explicit permissions. New applications,
+bindings, groups, providers and signers of an admitted type need no per-object
+owner run. Adding a model is a reviewed access-root change.
 
-An independent Authentik administrator owns these role assignments and native
-[Initial Permissions](https://docs.goauthentik.io/users-sources/access-control/initial_permissions/).
-The OpenTofu root still owns application-access groups, their membership, and
-application bindings.
-
-1. Assign the role `home-lab-opentofu-managed-group-read` to both
-   `home-lab-opentofu-plan` and `home-lab-opentofu-apply`. Give this role no global
-   permissions. Set its Initial Permissions to `authentik_core.view_group`.
-2. Keep the apply role `home-lab-opentofu-authentik-apply` restricted to the apply
-   account. Keep `authentik_core.add_group` global on that role because the group
-   doesn't exist yet. Set its Initial Permissions to the Group model's
-   `change_group`, `delete_group`, `add_user_to_group`, and
-   `remove_user_from_group`. Do not grant those permissions globally or grant
-   role assignment or superuser status for this setup.
-3. Initial Permissions apply to future creations, not existing groups. Assign
-   the same permissions to those roles **on** any independently reviewed
-   existing group being adopted; don't change that group's members or roles to
-   grant the automation access. Verify live read-back and intended membership
-   before importing the observed group UUID.
-
-Verify group creation and read-back with both controller identities before
-relying on Initial Permissions. Initial Permissions are not a deletion approval;
-review and authorize each destroy plan separately.
+Application-group membership and binding writes do not extend to Authentik admins.
+Managed certificates allow private-key export to both controller accounts, not
+for independently owned certificates. The shared refresh role has scoped OAuth
+provider `change` because Authentik hides client secrets without it. The plan
+credential is therefore mutating; see [security](security.md#opentofu-state-and-plans).
+Blueprint writes, RBAC assignment, admin groups, controller roles and accounts,
+and human users' write access are outside ordinary apply authority. Changes that
+need role assignment or dedicated service-identity creation/removal (including
+LDAP search-role grants) require independent owner review of the exact saved plan
+and an owner-run apply; routine updates to the declared service accounts remain
+object-scoped. Permission to delete is not approval to delete: inspect and
+approve every destructive OpenTofu plan separately.

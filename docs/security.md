@@ -282,17 +282,21 @@ for bounded policy inspection.
 A local-state-only root is not deployable. Migrate or retire its ownership before
 removing local state.
 
-Authentik omits OAuth client secrets from its provider API response unless the
-caller has provider change permission. The Authentik OpenTofu plan identity
-therefore needs that permission on every existing managed OAuth provider to plan
-secret rotations without false updates on every refresh. Grant it on those
-objects rather than globally if the live RBAC model permits. This is an
-explicit exception to a read-only plan identity:
-protect its credential as a mutating credential, and do not plan until the
-independently owned grant has been reviewed and installed. The plan-input
-preflight refuses an identity that cannot read all managed OAuth secrets without
-printing them. The apply identity remains separate. Both identities' provider
-reads and any saved plans/state can contain client secrets; keep them private.
+Authentik omits OAuth client secrets unless the caller has provider `change`
+permission. The independently managed shared refresh role grants this only on
+managed OAuth providers, including new ones via Initial Permissions. It also
+allows export of managed certificate private keys. Protect both provider tokens
+as mutating credentials; the plan token is not read-only. Keep provider reads,
+saved plans and state private. The preflight checks OAuth secrets and signing
+keys without printing their values.
+
+The ordinary apply token can change application access and managed authentication
+configuration, including shared login stages and singleton settings. Saved-plan
+inspection gates the normal workflow, not calls made with a stolen token. Keep
+the separate [RBAC owner credential](operations.md#authentik-controller-permissions)
+out of ordinary plans, applies and CI. The controller roles cannot grant
+themselves permissions through this policy. When admitting the roles, verify
+other effective grants and independent recovery access as well.
 
 The Arr applications expose only one full-privilege API key per instance. The
 owner explicitly accepts a narrow exception to separate plan/apply provider
