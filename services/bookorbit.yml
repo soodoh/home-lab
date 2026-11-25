@@ -7,7 +7,7 @@ x-logging: &default-logging
 
 services:
   bookorbit:
-    image: ghcr.io/bookorbit/bookorbit:3.9.0@sha256:79cd9c66c990a82944514e3e82d5be5987f21eda96cb37a378ed1484043716fc
+    image: ghcr.io/bookorbit/bookorbit:3.10.0@sha256:507a84c08c100244c27bce68ce59670da5dc8c3bc9054dd4aea3630977c42885
     container_name: bookorbit
     restart: unless-stopped
     logging: *default-logging
