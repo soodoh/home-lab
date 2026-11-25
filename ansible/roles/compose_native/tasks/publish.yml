@@ -55,11 +55,6 @@
 - name: Provision native credential files and minimal interpolation inputs
   ansible.builtin.include_tasks: credentials.yml
 
-- name: Prepare protected Grimmory runtime directories
-  ansible.builtin.include_role:
-    name: grimmory
-    tasks_from: directories
-
 - name: Admit and provision managed application directories and certificate stores
   ansible.builtin.include_tasks: runtime-paths.yml
 

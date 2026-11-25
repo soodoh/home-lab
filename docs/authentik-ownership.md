@@ -27,23 +27,17 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Jellyfin (existing media entitlement) | family | Jellyfin, Seerr |
 | Karaoke Users | family | Karaoke Eternal |
 | Caro Library Users | caro | Caro Tachidesk |
-| Books Users | personal | BookOrbit, Grimmory |
+| Books Users | personal | BookOrbit |
 | Uchiyomi Users | uchiyomi | Uchiyomi |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
 | App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
 
-Grimmory has a create-only provider/application, not an invented
-import ID. It uses the existing personal entitlement without
-auto-provisioning directory users or mapping application access to admin roles.
-Its separate client secret uses the same Authentik SOPS authority; its signed OIDC
-client uses a dedicated create-only RSA signing certificate in the existing
-SOPS/OpenTofu signing authority, not a competing discovery-owned key writer.
 BookOrbit has its own confidential authorization-code client and supplied RSA
 signer. Its only access binding is `Books Users`; it does not inherit the
-operator group or assign BookOrbit roles from token claims. Before the public
-cutover, its hidden application registers only the private staging callback.
-Keep the stable `bookorbit` issuer and subject when replacing the callback.
+operator group or assign BookOrbit roles from token claims. Keep the stable
+`bookorbit` issuer and subject, and register only the strict callback at
+`https://books.diloreto.com/oauth2-callback`.
 Uchiyomi has a separate create-only OIDC application, client and signer in the
 same authorities. `Uchiyomi Users` admits Paul, Carolyn and Eric; Uchiyomi
 reads `App Operators` (Paul only) from the signed `profile` claim for its own
@@ -131,16 +125,6 @@ encrypted private-key text to their respective exports; do not universally trim
 existing signers or add an extra OpenSSL newline to new ones. Representation
 qualification must prove identical certificate/key content and a fresh no-op plan,
 not apply an unexplained rewrite. This does not rotate cryptographic material.
-
-`grimmory-oidc.pem` is the dedicated Grimmory signer's public certificate; its
-private key is another entry in the same encrypted `signing-keys.sops.json`
-authority. Its null observed ID excludes it from imports, and the provider uses
-a symbolic managed-certificate reference. Existing signer declarations and key
-material remain unchanged. After creation, exact-name discovery requires a
-complete inventory and the new private-key read permission on every plan; a
-create-only declaration is not a permanent permission exemption. Independently
-review grants, certificate validity and served JWKS before activation. Supplied
-certificates are not automatically renewed.
 
 OAuth client secrets and the LDAP bind/TLS material retain their independent
 `client-secrets.sops.json` authority. Signing-key adoption must preserve the existing

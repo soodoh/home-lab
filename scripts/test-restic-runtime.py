@@ -505,7 +505,7 @@ class Runtime(unittest.TestCase):
         self.assertEqual(running, declared)
         self.assertEqual(stops, [policy['stop_groups']['applications']])
         self.assertEqual(set(stops[0]), declared - kept)
-        self.assertTrue({'nextcloud', 'nextcloud-cron', 'shelfmark', 'grimmory', 'sabnzbd'} <= set(stops[0]))
+        self.assertTrue({'nextcloud', 'nextcloud-cron', 'shelfmark', 'bookorbit', 'sabnzbd'} <= set(stops[0]))
         self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list],
                          ['create', 'state-create'])
         adapter.copy_paths.assert_not_called()
@@ -531,7 +531,7 @@ class Runtime(unittest.TestCase):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         settings = policy['capture']
         state_path = Path('/srv/home-lab-state/omada-data/data')
-        zfs_path = '/mnt/storage/media/books'
+        zfs_path = '/mnt/storage/media/tachidesk'
         live_path = Path('/mnt/games/roms')
         state_receipt = {'created': 1, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff',
                          'bytes': settings['state_snapshot']['bytes']}
@@ -703,7 +703,7 @@ class Runtime(unittest.TestCase):
         daily = LOCAL.run
         reviewed = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         step = next(s for s in reviewed['capture']['online'] if s['name'] == 'authentik')
-        books = next(s for s in reviewed['capture']['cold'] if s['name'] == 'books')
+        books = next(s for s in reviewed['capture']['cold'] if s['name'] == 'bookorbit')
         for outcome in ('ready', 'changed_files', 'overlapping_stop'):
             with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
                 stage = Path(directory).resolve() / 'capture'

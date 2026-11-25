@@ -76,11 +76,6 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   override_resource {
-    target = authentik_certificate_key_pair.signing["grimmory-oidc"]
-    values = { id = "synthetic-grimmory-signer" }
-  }
-
-  override_resource {
     target = authentik_certificate_key_pair.signing["jellyfin-oidc"]
     values = { id = "synthetic-existing-signer" }
   }
@@ -95,29 +90,16 @@ run "authentication_and_onboarding_preserve_behavior" {
       toset(authentik_provider_oauth2.providers["bookorbit"].grant_types) == toset(["authorization_code"]) &&
       length(authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris) == 1 &&
       alltrue([for redirect in authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris :
-        redirect.matching_mode == "strict" && redirect.url == "https://books-next.ts.diloreto.com/oauth2-callback"
+        redirect.matching_mode == "strict" && redirect.url == "https://books.diloreto.com/oauth2-callback"
       ]) &&
       tostring(authentik_application.applications["bookorbit"].protocol_provider) == authentik_provider_oauth2.providers["bookorbit"].id &&
-      authentik_application.applications["bookorbit"].meta_hide &&
+      !authentik_application.applications["bookorbit"].meta_hide &&
+      authentik_application.applications["bookorbit"].meta_launch_url == "https://books.diloreto.com/" &&
       length([for binding in values(local.application_policy_bindings) : binding if binding.application_slug == "bookorbit"]) == 1 &&
       authentik_policy_binding.application_access["d8de5f8e-3eed-410d-85f4-661d300731ad"].group == authentik_group.managed["cwa-users"].id &&
       toset(authentik_group.managed["cwa-users"].users) == toset([5003, 5004])
     )
-    error_message = "BookOrbit must have its own hidden, signed private OIDC client, with one strict callback and only the two Books Users."
-  }
-
-  assert {
-    condition = (
-      !contains(keys(local.existing_oauth_providers), "grimmory") &&
-      tostring(authentik_application.applications["grimmory"].protocol_provider) == authentik_provider_oauth2.providers["grimmory"].id &&
-      authentik_policy_binding.application_access["96719d44-e9d4-468b-8bc6-350014c4f846"].group == authentik_group.managed["cwa-users"].id &&
-      authentik_provider_oauth2.providers["grimmory"].client_type == "confidential" &&
-      authentik_provider_oauth2.providers["grimmory"].sub_mode == "user_uuid" &&
-      !contains(keys(local.existing_signing_certificates), "grimmory-oidc") &&
-      authentik_provider_oauth2.providers["grimmory"].signing_key == authentik_certificate_key_pair.signing["grimmory-oidc"].id &&
-      toset(authentik_provider_oauth2.providers["grimmory"].grant_types) == toset(["authorization_code", "refresh_token"])
-    )
-    error_message = "Grimmory must create a separate signed OIDC client without importing an invented ID or widening membership."
+    error_message = "BookOrbit must have its own signed public OIDC client, with one strict callback and only the two Books Users."
   }
 
   assert {
@@ -152,10 +134,10 @@ run "authentication_and_onboarding_preserve_behavior" {
   assert {
     condition = (
       length(local.existing_signing_certificates) == 1 &&
-      length(authentik_certificate_key_pair.signing) == 5 &&
-      authentik_certificate_key_pair.signing["grimmory-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
-      authentik_certificate_key_pair.signing["grimmory-oidc"].certificate_data == "${trimspace(file("${path.module}/grimmory-oidc.pem"))}\n" &&
-      authentik_certificate_key_pair.signing["grimmory-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["grimmory-oidc"].private_key)}\n"
+      length(authentik_certificate_key_pair.signing) == 4 &&
+      authentik_certificate_key_pair.signing["bookorbit-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
+      authentik_certificate_key_pair.signing["bookorbit-oidc"].certificate_data == "${trimspace(file("${path.module}/bookorbit-oidc.pem"))}\n" &&
+      authentik_certificate_key_pair.signing["bookorbit-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["bookorbit-oidc"].private_key)}\n"
     )
     error_message = "The new signer must remain separately owned, supplied from its matching encrypted authority, and excluded from imports."
   }
@@ -219,7 +201,7 @@ run "authentication_and_onboarding_preserve_behavior" {
     condition = alltrue([for group_key, binding_key in {
       "karaoke-users"      = "b3104c79-adca-4847-b398-aaa7130cf25a"
       "caro-library-users" = "2cde7ad7-35ee-4ff2-8c90-1edcc83f3e89"
-      "cwa-users"          = "96719d44-e9d4-468b-8bc6-350014c4f846"
+      "cwa-users"          = "d8de5f8e-3eed-410d-85f4-661d300731ad"
       "camera-viewers"     = "9fcefd65-0127-45d3-8d48-31e7e0804683"
       "vaultwarden-users"  = "182dbb79-78ab-4144-9625-8b042e985eaa"
     } : authentik_policy_binding.application_access[binding_key].group == authentik_group.managed[group_key].id && authentik_policy_binding.application_access[binding_key].user == null && !authentik_policy_binding.application_access[binding_key].negate])

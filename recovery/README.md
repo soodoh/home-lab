@@ -5,7 +5,7 @@ directory. Production activation is not yet qualified.
 
 ## Scope
 
-The `books` group includes books, audiobooks, Grimmory state, and Carolyn's
+The `books` group includes Shelfmark configuration, Uchiyomi and Carolyn’s
 Tachidesk state and downloads. It also includes Paul's retired Tachidesk archive
 (`/srv/home-lab-state/tachidesk-data` and `/mnt/storage/media/tachidesk`) as
 files only, not as a service. Public Uchiyomi's database, config, local library and
@@ -168,7 +168,7 @@ Logical exports and native archives remain in `recovery-exports/`:
 - `databases/bookorbit.dump`: native PostgreSQL custom format. Start from an empty
   compatible PostgreSQL with pgvector, restore the dump, then check the library
   files, covers, individual users and reading state from the same capture.
-- `databases/books.sql`, `databases/nextcloud.sql`: native MariaDB logical
+- `databases/nextcloud.sql`: native MariaDB logical
   exports for compatible empty databases. Restore database and coupled files
   from this same capture before enabling application/background writers.
 - `native/jellyfin.zip`: use Jellyfin's supported backup restore facility with

@@ -10,9 +10,6 @@
     "uchiyomi-oidc": {
       "private_key": "-----BEGIN PRIVATE KEY-----\nsynthetic-uchiyomi-test-key-not-valid-PEM\n-----END PRIVATE KEY-----"
     },
-    "grimmory-oidc": {
-      "private_key": "-----BEGIN PRIVATE KEY-----\nsynthetic-grimmory-test-key-not-valid-PEM\n-----END PRIVATE KEY-----"
-    },
     "jellyfin-oidc": {
       "private_key": "-----BEGIN PRIVATE KEY-----\nsynthetic-offline-test-key-not-valid-PEM\n-----END PRIVATE KEY-----\n"
     }

@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "47", "bookorbit", "grimmory", "uchiyomi", "uchiyomi-x"}
+OAUTH_PROVIDER_IDS = {"15", "21", "47", "bookorbit", "uchiyomi", "uchiyomi-x"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
@@ -142,7 +142,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         expected = {
             "jellyfin": family, "seerr": family, "karaoke-eternal": family,
             "caro-tachidesk": {"carodilo", "eabbado"},
-            "bookorbit": {"paul", "sarabeth"}, "grimmory": {"paul", "sarabeth"},
+            "bookorbit": {"paul", "sarabeth"},
             "uchiyomi": {"paul", "carodilo", "eabbado"},
             "frigate": {"paul", "sarabeth"}, "vaultwarden": {"paul", "sarabeth"},
         }
@@ -388,14 +388,14 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             self.assertIn("-----BEGIN CERTIFICATE-----", certificate)
             self.assertNotIn("PRIVATE KEY", certificate)
         self.assertEqual(DESIRED["oauthProviders"]["15"]["signing_key"], DESIRED["signingCertificates"]["jellyfin-oidc"]["pk"])
-        self.assertIsNone(DESIRED["signingCertificates"]["grimmory-oidc"]["pk"])
-        self.assertIsNone(DESIRED["oauthProviders"]["grimmory"]["signing_key"])
-        self.assertEqual(DESIRED["oauthProviders"]["grimmory"]["signing_certificate_ref"], "grimmory-oidc")
+        self.assertIsNone(DESIRED["signingCertificates"]["bookorbit-oidc"]["pk"])
+        self.assertIsNone(DESIRED["oauthProviders"]["bookorbit"]["signing_key"])
+        self.assertEqual(DESIRED["oauthProviders"]["bookorbit"]["signing_certificate_ref"], "bookorbit-oidc")
         self.assertNotIn(DESIRED["oauthProviders"]["47"]["signing_key"],
                          {value["pk"] for value in DESIRED["signingCertificates"].values()})
 
-    def test_grimmory_signer_is_current_rsa_material_without_a_live_identity(self) -> None:
-        certificate = ROOT / DESIRED["signingCertificates"]["grimmory-oidc"]["certificate_file"]
+    def test_bookorbit_signer_is_current_rsa_material_without_a_live_identity(self) -> None:
+        certificate = ROOT / DESIRED["signingCertificates"]["bookorbit-oidc"]["certificate_file"]
         validity = subprocess.run(
             ["openssl", "x509", "-in", str(certificate), "-noout", "-checkend", "2592000"],
             capture_output=True,
@@ -409,7 +409,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             ["openssl", "rsa", "-pubin", "-text", "-noout"], input=public,
             capture_output=True, check=True,
         ).stdout.decode()
-        self.assertRegex(key, r"Public-Key: \(4096 bit\)")
+        self.assertRegex(key, r"Public-Key: \(3072 bit\)")
 
     def test_plan_policy_allowlist_is_exact_for_reviewed_addresses(self) -> None:
         allow = set((REPO / "infrastructure" / "policy" / "allow" / "authentik.txt").read_text().splitlines())

@@ -299,13 +299,10 @@ protected client-secret file and Home Assistant's existing `!secret` entry deriv
 from the same Authentik SOPS client secrets during site convergence. Do not
 assume an Authentik plan or apply makes a consumer switch atomic; verify a fresh
 OIDC login and a no-op plan before declaring rotation complete.
-Grimmory consumes that same encrypted authority through its approval-gated native
-settings API role; see
-[native authentication convergence](#grimmory-native-authentication-and-library-ownership).
 A new provider has no imported ID: the preflight discovers it by client ID after
 creation and
 requires its secret read, rather than continuing to skip a create-only declaration.
-The dedicated Grimmory signing certificate follows the same create-only boundary:
+A dedicated create-only signing certificate follows the same boundary:
 rediscover it by exact name and independently admit its private-key read before
 subsequent plans. Do not grant provider identities their own permissions.
 
@@ -358,80 +355,6 @@ to `paul`. `App Operators` maps in-app admin privileges and is not a login grant
 Verify Paul's OIDC login and a non-member denial without changing the public
 comics access group. Recovery uses the separate `comics-x` group.
 
-### Grimmory native authentication and library ownership
-
-[`converge-grimmory.yml`](../ansible/playbooks/converge-grimmory.yml) converges only
-managed authentication settings, the shared SOPS Hardcover metadata API key and
-adopted library import patterns through the native API over verified HTTPS. Check
-mode authenticates the existing recovery administrator but does not write settings:
-
-```sh
-export ANSIBLE_CONFIG=ansible/ansible.cfg
-ansible-playbook ansible/playbooks/converge-grimmory.yml --check
-# Separate approval after fresh host/Compose/strict-backup observation:
-ansible-playbook ansible/playbooks/converge-grimmory.yml -e grimmory_apply_confirmed=true
-```
-
-OIDC-only mode retains the protected `grimmory-admin` local recovery exception.
-Initialize only an explicitly approved empty instance with
-`grimmory_initialize_confirmed=true`; never expose uninitialized setup, reset
-accounts or promote users during convergence. Native settings writes are sequential,
-not atomic: concurrent-edit guards and exact readback are required, and failures
-retain production ownership for inspection.
-
-The Hardcover metadata key derives from `HARDCOVER_API_KEY` in
-`secrets/production.sops.yaml`, the same authority used by Shelfmark. Store the raw
-token without `Bearer ` or whitespace; rotate with
-`sops edit secrets/production.sops.yaml`, then check and separately approve both
-Grimmory and Shelfmark convergence from that same SOPS revision. These consumer
-updates are not atomic. Grimmory merges only
-`metadataProviderSettings.hardcover.apiKey` into the observed native provider
-settings, preserving Hardcover enablement and every other provider setting/key.
-Unreadable provider settings refuse convergence; concurrent-edit guards and exact
-readback protect the complete merged object. No Compose environment variable,
-secret mount or OpenTofu resource is added. Treat UI key changes as drift.
-Per-user Hardcover reading-progress sync tokens remain application-owned.
-Settings persistence does not prove the token is valid at Hardcover; verify native
-metadata access after an approved apply. Synthetic behavior coverage is
-`python3 scripts/controller/test-grimmory.py`.
-
-Grimmory is the sole catalog/file writer. Use native uploads or BookDrop and
-`BOOK_PER_FOLDER` to group formats as one book. Keep library roots separate:
-`/books/paul` for Paul and `/books/sarabeth` for Paul and Sarabeth. On the host,
-these are `/mnt/storage/media/books/paul` and
-`/mnt/storage/media/books/sarabeth` on the reviewed NFS export. The separate
-`/mnt/storage/media/audiobooks` bind mount is `/audiobooks` in Grimmory; its
-Book Per Folder library is assigned to Paul only. For this adopted `/audiobooks`
-root, Ansible owns the native library import pattern
-`<{authors}/>{title}/{currentFilename}`. It preserves distinct original chapter
-filenames inside an author/title folder, rather than giving every MP3 the same
-title-based filename. Convergence selects the library by its exact root, refuses
-missing/ambiguous roots or concurrent edits, PATCHes only its import pattern and
-verifies readback; it does not create libraries, move existing books or edit grants.
-Ebook naming and the global upload pattern remain application-owned. Database and
-application state remain local. Both NFS roots are included in daily Restic snapshots and
-the `books` recovery group; the NFS repository copy shares the library storage
-failure domain, so retain the independent games and Proton copies. Directory
-convergence refuses missing or wrong exports, and the local backup unit requires
-both storage mounts. The adopted Docker storage dependency must continue to
-order startup after the NFS mount.
-
-NFS changes made by other clients do not reliably generate local watcher events;
-keep watching disabled and use native imports or explicit rescans. Book Per Folder
-combines ebook/audio files in the same book folder (or an audio subfolder), not
-matching titles across `/books` and `/audiobooks`. Shelfmark stages both ebooks
-and audiobooks in the shared local BookDrop inbox, not the NFS libraries.
-Library assignment defines web access; Kobo shelves define device selection only.
-Preserve book/file identities and history when moving books between library roots;
-qualify native moves and rescans before bulk changes. Keep original formats,
-including KEPUB derivatives excluded by the generic scanner. Writable storage does
-not approve metadata write-back, organization or automatic device selections.
-After data/path/schema changes, verify a fresh private restored `books` scope with
-current paths, IDs, covers, library grants, shelves and progress, not just empty
-directories or an older restore. Regular backups preserve native state, not
-discarded legacy records; never fabricate completion dates or catalog entries.
-See [device qualification](migrations.md#physical-kobo-continuity).
-
 ### BookOrbit local storage and recovery
 
 Keep BookOrbit's writable `/books` and `/data` on local application-state
@@ -442,12 +365,12 @@ parent `/books` as a library. PostgreSQL has its own private network and local
 data directory.
 Do not load production library data until a complete capture and private
 `bookorbit` restore have been qualified. The capture stops the BookOrbit writer while it
-finalizes app/media files and exports PostgreSQL; manage any future Dock writer
-in that same capture group. The database directory is an estimate input, not a
+finalizes app/media files and exports PostgreSQL. Shelfmark shares the Dock
+and stops in the same capture group. The database directory is an estimate input, not a
 physical restore source.
 
-BookOrbit's first-use setup is host-only with no published port. Its staging
-hostname is tailnet-only, with password sign-in, manual account creation,
+BookOrbit’s first-use setup is host-only with no published port. Public ingress
+at `books.diloreto.com` denies password sign-in, manual account creation,
 password reset, and magic links denied at ingress. Use the native Authentik
 issuer `https://auth.diloreto.com/application/o/bookorbit/` with `openid profile
 email`. Enable first-login provisioning, leave username linking off, and keep
@@ -479,7 +402,7 @@ ansible-playbook ansible/playbooks/converge-shelfmark.yml -e shelfmark_apply_con
 ```
 
 Ansible owns connection fields/client selectors, folder output, both destinations
-(`/grimmory-bookdrop`), ebook/audio naming (`none`), both torrent hardlink flags
+(`/book-dock`), ebook/audio naming (`none`), both torrent hardlink flags
 (`false`), torrent action (`keep`) and qBittorrent categories (`shelfmark` and
 `shelfmark-audiobooks`). These acquisition fields live in native `downloads.json`
 and `prowlarr_clients.json`, without competing Compose environment defaults.
@@ -504,35 +427,11 @@ fields in the UI as drift; other fields remain application-owned.
 Use qBittorrent categories `shelfmark` and `shelfmark-audiobooks`, without changing
 other applications' categories or existing torrents.
 
-Completed ebooks and audiobooks are copied into `/grimmory-bookdrop` in Shelfmark,
-which binds `/srv/home-lab-state/grimmory-bookdrop`; Grimmory sees that same inbox
-as `/bookdrop`. Neither NFS library root is mounted into Shelfmark. It sees
-qBittorrent's `/data/downloads` read-only, keeps torrents and disables both hardlink
-options: imports or metadata edits cannot alter seeded originals. Naming is disabled
-for both types to retain original filenames and numbered audio chapters. Prefer a
-single M4B: Grimmory v3.5.0 BookDrop imports each MP3 chapter as a separate catalog
-entry even when all chapters have the same title/folder. Preserving filenames
-avoids collisions but does not consolidate those records into a folder audiobook.
-
-Grimmory v3.5.0 queues BookDrop files for review by design; there is no auto-import
-setting to converge. Select Paul, Sarabeth or Audiobooks explicitly when importing;
-Audiobooks remains Paul-only. Use M4B for one catalog entry. Leave chaptered audio
-in review until a folder-import/grouping workflow is qualified if separate chapter
-entries are not wanted. Qualify copy/import/seeding with synthetic or approved files.
-The opt-in native fixture exercises M4B and MP3 review/imports, original filenames
-and checksums, and the separate-chapter limitation without production mounts:
-
-```sh
-ansible-playbook ansible/tests/grimmory-bookdrop.yml -e grimmory_runtime_test=true
-ansible-playbook ansible/tests/shelfmark-settings.yml -e ansible_become=false -e shelfmark_runtime_test=true
-```
-
-The BookDrop fixture needs a Linux Docker host and controller FFmpeg; `grimmory_test_host` and
-`shelfmark_test_host` may select an approved Docker host instead. On a remote
-host, set `shelfmark_fixture_parent=/tmp` so controller paths are not reused there.
-Do not launch an arbitrary download merely to verify deployment. Shelfmark v1.4.0's
-native Grimmory output supports ebooks only, so retain shared folder output rather
-than switching the audiobook path to that integration.
+Shelfmark copies ebooks and audiobooks to `/book-dock`, which is BookOrbit’s
+unassigned Dock. Keep automatic finalization off and select the destination
+library during review. The download tree is mounted read-only, and Shelfmark
+does not hardlink seeded files. Verify with a synthetic or approved title, not
+an arbitrary live download.
 
 ### Omada SMTP and recipients
 

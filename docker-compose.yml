@@ -1,7 +1,6 @@
 include:
   - ./services/openfit.yml
   - ./services/apps.yml
-  - ./services/grimmory.yml
   - ./services/bookorbit.yml
   - ./services/cli-proxy-api.yml
   - ./services/hass.yml

@@ -27,27 +27,6 @@ http:
         certResolver: tailnet
         domains:
           - main: "*.ts.diloreto.com"
-    bookorbit-stage:
-      rule: "Host(`books-next.ts.diloreto.com`)"
-      entryPoints: [tailnet]
-      service: bookorbit-stage
-      tls:
-        certResolver: tailnet
-        domains:
-          - main: "*.ts.diloreto.com"
-    bookorbit-stage-deny-local-auth:
-      # Bootstrap and the initial admin login are host-only. Reject encoded
-      # separators on this host so path normalization cannot bypass the guard.
-      rule: >-
-        Host(`books-next.ts.diloreto.com`) &&
-        (PathRegexp(`(?i)%(2f|5c|25)`) ||
-        PathRegexp(`(?i)^/api/v1/auth/magic-links(/|$)`) ||
-        (Method(`POST`) &&
-        PathRegexp(`(?i)^/api/v1/(users(/shared|/[0-9]+/reset-password)?|auth/(setup|login|register|forgot-password|reset-password|change-password))/?$`)))
-      priority: 1000
-      entryPoints: [tailnet]
-      service: noop@internal
-      tls: {}
     proxmox:
       rule: "Host(`proxmox.ts.diloreto.com`)"
       entryPoints: [tailnet]
@@ -116,10 +95,6 @@ http:
       loadBalancer:
         servers:
           - url: http://gluetun:3001
-    bookorbit-stage:
-      loadBalancer:
-        servers:
-          - url: http://bookorbit:3000
     proxmox:
       loadBalancer:
         serversTransport: proxmox-lan

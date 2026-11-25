@@ -46,22 +46,13 @@ configures its native controller settings.
 Authentik OAuth client secrets are instead authoritative in
 `infrastructure/tofu/authentik/client-secrets.sops.json`. Site convergence reads
 that source on the controller to render Home Assistant's protected `!secret`
-entry and Vaultwarden's protected client-secret file. Grimmory uses the same
-encrypted authority through its native admin settings API, with controller-side
-Ansible `no_log` tasks and verified HTTPS; it has no native OIDC secret-file reader.
-Its database/bootstrap credentials and shared `HARDCOVER_API_KEY` remain in
-production SOPS. Ansible merges only the Hardcover metadata key into native
-provider settings, preserving enablement and other provider credentials; per-user
-reading-progress sync tokens remain application-owned. The database password uses
-Spring Boot's native `configtree:` reader. See
-[native authentication convergence](operations.md#grimmory-native-authentication-and-library-ownership)
-for local-administrator recovery and approval-gated settings changes.
+entry and Vaultwarden's protected client-secret file.
 Only the public Vaultwarden client ID
 is added to Compose's interpolation environment, from Authentik's reviewed `desired.json`.
 Jellyfin OIDC's existing signing key has separate authority in
-`infrastructure/tofu/authentik/signing-keys.sops.json`; Grimmory's dedicated RSA
-key uses that same authority without rotating existing material. Public
-certificates are not secret. Its private-key export must be readable by the plan identity, and
+`infrastructure/tofu/authentik/signing-keys.sops.json`. BookOrbit’s dedicated RSA
+signer uses that same authority. Public certificates are not secret. Private-key
+exports must be readable by the plan identity, and
 both decrypted secret inputs, state and plans remain protected. Discovery-owned
 signing certificates must not acquire a competing writer; see
 [Authentik ownership](authentik-ownership.md).
@@ -118,22 +109,13 @@ old one expires (October 2028). A mismatch must fail closed; do not disable
 backend or client-side TLS verification, substitute a LAN/tailnet address, or
 restore a hostname alias.
 
-## Grimmory account and device access
+## BookOrbit account and device access
 
-Authentik entitlement admits login, not administrator privileges or library access.
-Grimmory auto-provisioning creates non-admin accounts with empty default permissions
-and library assignments; grant access separately. Local-account linking and group
-privilege synchronization remain disabled. Offboarding must review existing
-Grimmory accounts, permissions and sessions independently of directory entitlement.
-Do not recycle an OIDC username while its Grimmory account exists: the pinned login
-implementation also falls back to usernames, not only issuer/subject.
-
-Kobo tokens are separate credentials from OIDC; protect tokens and token-bearing
-URLs. Each owner's dedicated `Kobo` shelf controls selection; ordinary/history
-shelves must not expand it or enable automatic addition. Pinned v3.5.0's direct
-Kobo download route does not enforce assigned-library access. This native behavior
-is accepted for this deployment; library grants do not provide complete
-device-route isolation.
+Authentik provisions identity only. Grant library access separately, with empty
+default grants and no linking by username. Device sync credentials are separate
+from OIDC. Issue one credential per device under its owner, limit sync to the
+owner’s selected collections, and revoke lost devices and offboarded sessions.
+Never log or publish token-bearing sync URLs.
 
 ## Mindwtr access
 

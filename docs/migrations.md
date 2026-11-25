@@ -21,17 +21,14 @@ boundaries and API gaps.
 
 ## Physical Kobo continuity
 
-Physical-device resume and native annotation continuity remain unqualified
-independently of Grimmory catalog operation. The accepted
-[Kobo authorization exception](security.md#grimmory-account-and-device-access) is
-separate from device continuity. Before changing or re-syncing either device, take
+Physical-device resume and native annotation continuity require separate verification.
+Before changing or re-syncing either device, take
 a fresh protected backup of configuration, SQLite/WAL state, downloaded books and
 annotations; inspect a working copy and preserve originals until the owner
 separately approves disposal. Device backups are outside the managed `books`
 Restic scope; verify their existence before relying on them.
 
-Legacy UUID-based entitlements and KEPUB output can differ from Grimmory identities
-and conversion output. Qualify duplicates/deletions, selections, collections,
+Kobo entitlements and KEPUB conversion can differ between catalog servers. Qualify duplicates/deletions, selections, collections,
 statuses, percentages, exact resume passages, annotations and round-trip progress
 on one backed-up device before the second. Stored percentages and archived annotations do not prove exact resume or
 native annotation parity. Never automatically reset or delete device content.
@@ -80,7 +77,7 @@ for real control/data listeners and NFS exports, exact receipt and partition
 readback, interrupted cleanup, and a complete capture and restore from the live
 local, NFS and Proton repositories. Measure per-service downtime and total capture
 time during that run. Keep existing exports and scope. Keep Nextcloud web/cron
-and Shelfmark/Grimmory writers paused across the SQL exports and both snapshots;
+and Shelfmark/BookOrbit writers paused across the SQL exports and both snapshots;
 resume them before Restic reads. Remove other pauses or native exports only
 after restoring the live-captured app with its pinned image and verifying its
 files, database and startup. Wolf's separate games disk uses an explicit live

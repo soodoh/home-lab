@@ -14,7 +14,7 @@ services:
     environment:
       NODE_ENV: production
       TZ: $TZ
-      APP_URL: https://books-next.ts.diloreto.com
+      APP_URL: https://books.diloreto.com
       DISABLE_LOCAL_AUTH: 'true'
       POSTGRES_HOST: bookorbit-db
       POSTGRES_DB: bookorbit
@@ -53,11 +53,11 @@ services:
         target: /data
         bind:
           create_host_path: false
-    # Browser qualification uses only private Traefik; no published host port.
+    # Only public Traefik joins the ingress bridge; no published host port.
     networks:
       - bookorbit-egress
       - bookorbit-db
-      - bookorbit-stage
+      - bookorbit-ingress
 
   bookorbit-db:
     image: pgvector/pgvector:0.8.3-pg18@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84
@@ -100,5 +100,5 @@ networks:
   bookorbit-db:
     internal: true
   bookorbit-egress: {}
-  bookorbit-stage:
+  bookorbit-ingress:
     internal: true

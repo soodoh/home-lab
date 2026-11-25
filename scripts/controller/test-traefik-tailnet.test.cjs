@@ -30,7 +30,7 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
   const privateIngress = infra.services['traefik-tailnet'];
   assert.equal(privateIngress.network_mode, undefined);
   assert.deepEqual(privateIngress.ports, [`${ingressIp}:443:443/tcp`]);
-  assert.deepEqual(privateIngress.networks, ['proxy', 'omada-backend', 'bookorbit-stage']);
+  assert.deepEqual(privateIngress.networks, ['proxy', 'omada-backend']);
   assert.deepEqual(infra.services.omada.networks, ['omada-backend']);
   assert.ok(Object.entries(infra.services).every(([name, service]) => {
     const networks = Array.isArray(service.networks) ? service.networks : Object.keys(service.networks || {});
@@ -63,7 +63,7 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
 test('the private router allowlist has no catch-all backend or public routes', () => {
   const expected = { omada: 'omada', llm: 'cli-proxy-api', proxmox: 'proxmox', zwave: 'authentik' };
   const apiRoutes = { 'sonarr-api': 'v3', 'radarr-api': 'v3', 'prowlarr-api': 'v1' };
-  assert.deepEqual(Object.keys(routes.routers).sort(), [...Object.keys(expected), ...Object.keys(apiRoutes), 'uchiyomi-x', 'bookorbit-stage', 'bookorbit-stage-deny-local-auth'].sort());
+  assert.deepEqual(Object.keys(routes.routers).sort(), [...Object.keys(expected), ...Object.keys(apiRoutes), 'uchiyomi-x'].sort());
   for (const [name, service] of Object.entries(expected)) {
     const router = routes.routers[name];
     assert.equal(router.rule, `Host(\`${name}.ts.diloreto.com\`)`);
@@ -93,30 +93,11 @@ test('Uchiyomi X uses the private listener and its separate backend', () => {
   assert.deepEqual(routes.services[router.service].loadBalancer.servers, [{ url: 'http://gluetun:' + port }]);
 });
 
-test('BookOrbit staging reaches only the isolated backend from the private listener', () => {
-  const stage = readYaml('services/bookorbit.yml');
-  assert.deepEqual(stage.networks['bookorbit-stage'], { internal: true });
-  const app = stage.services.bookorbit;
-  assert.ok(app.networks.includes('bookorbit-stage'));
-  assert.equal(app.ports, undefined);
-  assert.ok(!Object.keys(infra.services.traefik.networks).includes('bookorbit-stage'));
-  const router = routes.routers['bookorbit-stage'];
-  const guard = routes.routers['bookorbit-stage-deny-local-auth'];
-  assert.equal(router.rule, 'Host(`books-next.ts.diloreto.com`)');
-  assert.equal(app.environment.APP_URL, 'https://books-next.ts.diloreto.com');
-  assert.deepEqual(router.entryPoints, ['tailnet']);
-  assert.deepEqual(guard.entryPoints, ['tailnet']);
-  assert.equal(guard.service, 'noop@internal');
-  assert.ok(guard.priority > router.rule.length);
-  assert.deepEqual(routes.services[router.service].loadBalancer.servers, [{ url: 'http://bookorbit:3000' }]);
-  assert.equal(publicRoutes.services.books.loadBalancer.servers[0].url, 'http://grimmory:6060');
-});
-
 test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   const transport = routes.serversTransports['omada-backend'];
   const cert = new X509Certificate(fs.readFileSync('services/data/traefik-tailnet/omada.pem'));
   assert.deepEqual(Object.keys(routes.services).sort(), [
-    'authentik', 'bookorbit-stage', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'prowlarr-api', 'uchiyomi-x',
+    'authentik', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'prowlarr-api', 'uchiyomi-x',
   ].sort());
   assert.deepEqual(Object.keys(routes.serversTransports).sort(), ['omada-backend', 'proxmox-lan']);
   assert.equal(routes.services.omada.loadBalancer.serversTransport, 'omada-backend');

@@ -21,8 +21,8 @@
     shelfmark_settings:
       downloads:
         BOOKS_OUTPUT_MODE: folder
-        DESTINATION: /grimmory-bookdrop
-        DESTINATION_AUDIOBOOK: /grimmory-bookdrop
+        DESTINATION: /book-dock
+        DESTINATION_AUDIOBOOK: /book-dock
         FILE_ORGANIZATION: none
         FILE_ORGANIZATION_AUDIOBOOK: none
         HARDLINK_TORRENTS: false

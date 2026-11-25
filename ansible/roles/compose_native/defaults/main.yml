@@ -34,6 +34,7 @@ compose_native_secret_files: []
 # Existing paths must already have this identity; never repair unknown app state.
 compose_native_runtime_paths:
   - {path: /srv/home-lab-state/bookorbit-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-data/book-dock, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/bookorbit-media, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/bookorbit-media/paul, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/bookorbit-media/sarabeth, kind: directory, uid: 1000, gid: 1000, mode: '0700'}

@@ -509,7 +509,7 @@ class SnapshotCapture(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'snapshot_broker_scope'):
                 scope(policy)
         settings = policy['capture']
-        next(step for step in settings['cold'] if step['name'] == 'books')['paths'].remove('/mnt/storage/media/books')
+        next(step for step in settings['cold'] if '/mnt/storage/media/tachidesk' in step['paths'])['paths'].remove('/mnt/storage/media/tachidesk')
         with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
             CAPTURE['capture_sources'](settings)
 

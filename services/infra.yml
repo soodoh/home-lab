@@ -90,6 +90,7 @@ services:
       proxy:
         # Must match Home Assistant's trusted_proxies entry.
         ipv4_address: 172.23.0.250
+      bookorbit-ingress: {}
 
   traefik-tailnet:
     image: traefik:v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
@@ -103,7 +104,6 @@ services:
     networks:
       - proxy
       - omada-backend
-      - bookorbit-stage
     environment:
       AWS_SHARED_CREDENTIALS_FILE: /run/secrets/traefik_tailnet_aws_credentials
       AWS_REGION: us-east-1
