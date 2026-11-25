@@ -177,7 +177,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(group["parents"], [])
         self.assertEqual(group["roles"], [])
         self.assertEqual({binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()
-                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","sabnzbd","shelfmark","sonarr","tachidesk","vaultwarden","zwave"})
+                          if binding["group"] == group["pk"]}, {"caro-tachidesk","ddns-updater","frigate","hass-oidc","karaoke-eternal","mindwtr","openfit","prowlarr","qbittorrent","radarr","sabnzbd","shelfmark","sonarr","vaultwarden","zwave"})
         owned_ids = {value["pk"] for value in DESIRED["groups"].values() if value["pk"]}
         for binding in DESIRED["applicationPolicyBindings"].values():
             self.assertIsNone(binding["user"])

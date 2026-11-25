@@ -31,7 +31,7 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | Uchiyomi Users | uchiyomi | Uchiyomi |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
-| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Tachidesk, Vaultwarden, Z-Wave |
+| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Vaultwarden, Z-Wave |
 
 BookOrbit has its own confidential authorization-code client and supplied RSA
 signer. Its only access binding is `Books Users`; it does not inherit the
