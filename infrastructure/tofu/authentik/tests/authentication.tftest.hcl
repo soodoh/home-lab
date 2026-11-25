@@ -88,9 +88,13 @@ run "authentication_and_onboarding_preserve_behavior" {
       authentik_provider_oauth2.providers["bookorbit"].client_type == "confidential" &&
       authentik_provider_oauth2.providers["bookorbit"].sub_mode == "user_uuid" &&
       toset(authentik_provider_oauth2.providers["bookorbit"].grant_types) == toset(["authorization_code"]) &&
-      length(authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris) == 1 &&
+      length(authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris) == 2 &&
       alltrue([for redirect in authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris :
-        redirect.matching_mode == "strict" && redirect.url == "https://books.diloreto.com/oauth2-callback"
+        redirect.matching_mode == "strict" && redirect.redirect_uri_type == "authorization"
+      ]) &&
+      toset([for redirect in authentik_provider_oauth2.providers["bookorbit"].allowed_redirect_uris : redirect.url]) == toset([
+        "https://books.diloreto.com/oauth2-callback",
+        "bookorbit://oauth2-callback",
       ]) &&
       tostring(authentik_application.applications["bookorbit"].protocol_provider) == authentik_provider_oauth2.providers["bookorbit"].id &&
       !authentik_application.applications["bookorbit"].meta_hide &&
@@ -99,7 +103,7 @@ run "authentication_and_onboarding_preserve_behavior" {
       authentik_policy_binding.application_access["d8de5f8e-3eed-410d-85f4-661d300731ad"].group == authentik_group.managed["cwa-users"].id &&
       toset(authentik_group.managed["cwa-users"].users) == toset([5003, 5004])
     )
-    error_message = "BookOrbit must have its own signed public OIDC client, with one strict callback and only the two Books Users."
+    error_message = "BookOrbit must have its own signed OIDC client, only the exact web and native callbacks, and only the two Books Users."
   }
 
   assert {
