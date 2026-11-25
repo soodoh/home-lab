@@ -1,0 +1,54 @@
+---
+- name: Require the reviewed BookOrbit API and credential inputs
+  ansible.builtin.assert:
+    that:
+      - bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is match('^bok_[A-Za-z0-9]+$')
+      - bookorbit_production.BOOKORBIT_REQUEST_ENCRYPTION_KEY is match('^[0-9a-f]{64}$')
+      - bookorbit_production.PROWLARR_API_KEY | length >= 32
+      - bookorbit_download_clients.qbittorrent_username | length > 0
+      - bookorbit_download_clients.qbittorrent_password | length >= 32
+      - bookorbit_download_clients.sabnzbd_api_key | length >= 32
+  no_log: true
+
+- name: Observe the native BookOrbit identity without accepting redirects
+  ansible.builtin.uri:
+    url: "{{ bookorbit_api_url }}/auth/me"
+    headers:
+      X-Api-Key: "{{ bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY }}"
+    follow_redirects: none
+    use_netrc: false
+    use_proxy: false
+    return_content: true
+  delegate_to: localhost
+  become: false
+  register: bookorbit_identity
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Require scoped app-settings API authentication
+  ansible.builtin.assert:
+    that:
+      - bookorbit_identity.json.authenticationMethod == 'api_key'
+      - not bookorbit_identity.json.isSuperuser
+      - bookorbit_identity.json.permissions | sort == ['manage_app_settings']
+    fail_msg: BookOrbit convergence needs a non-superuser API key scoped to App settings.
+  no_log: true
+
+- name: Require a write-capable key with a side-effect-free DTO validation failure
+  ansible.builtin.uri:
+    url: "{{ bookorbit_api_url }}/admin/download-clients/validate"
+    method: POST
+    body_format: json
+    body: {}
+    status_code: 400
+    headers:
+      X-Api-Key: "{{ bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY }}"
+    follow_redirects: none
+    use_netrc: false
+    use_proxy: false
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  no_log: true

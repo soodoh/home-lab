@@ -1,0 +1,17 @@
+---
+- name: Observe Gluetun's Arr-interface address for host-side native maintenance
+  community.docker.docker_container_info:
+    name: gluetun
+  become: true
+  register: bookorbit_gluetun
+  no_log: true
+
+- name: Select the observed address on the adopted Arr bridge
+  ansible.builtin.set_fact:
+    bookorbit_arr_ip: "{{ bookorbit_gluetun.container.NetworkSettings.Networks['docker-compose_arr_network'].IPAddress }}"
+    cacheable: false
+  no_log: true
+
+- name: Require an address on the reviewed Arr bridge
+  ansible.builtin.assert:
+    that: bookorbit_arr_ip is match('^172[.]21[.][0-9]{1,3}[.][0-9]{1,3}$')

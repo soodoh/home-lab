@@ -86,6 +86,12 @@
   changed_when: false
   no_log: true
 
+- name: Admit or provision BookOrbit acquisition before starting its private proxy
+  ansible.builtin.include_role:
+    name: bookorbit
+    tasks_from: prepare
+  when: "'bookorbit-acquisition' in compose_native_new_services.stdout_lines"
+
 - name: Pull missing digest-pinned images after provisioning reviewed manual configuration
   community.docker.docker_compose_v2_pull:
     project_src: "{{ compose_native_current_dir }}"

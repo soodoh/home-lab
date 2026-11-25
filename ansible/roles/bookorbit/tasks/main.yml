@@ -1,0 +1,9 @@
+---
+- name: Preflight the BookOrbit API before category and connection changes
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Converge the isolated download categories
+  ansible.builtin.include_tasks: categories.yml
+
+- name: Converge the native connection records
+  ansible.builtin.include_tasks: connections.yml

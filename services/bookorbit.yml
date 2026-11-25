@@ -21,6 +21,7 @@ services:
       POSTGRES_USER: bookorbit
       POSTGRES_PASSWORD_FILE: /run/secrets/bookorbit_pg_app_password
       JWT_SECRET_FILE: /run/secrets/bookorbit_jwt_secret
+      BOOK_REQUEST_ENCRYPTION_KEY_FILE: /run/secrets/bookorbit_request_encryption_key
       # v3.9.0 requires a setup token at production startup even in OIDC-only mode.
       SETUP_BOOTSTRAP_TOKEN_FILE: /run/secrets/bookorbit_bootstrap_token
       LIBRARY_BROWSE_ROOT: /books
@@ -31,6 +32,7 @@ services:
       - bookorbit_pg_app_password
       - bookorbit_jwt_secret
       - bookorbit_bootstrap_token
+      - bookorbit_request_encryption_key
     depends_on:
       bookorbit-db:
         condition: service_healthy
@@ -53,11 +55,56 @@ services:
         target: /data
         bind:
           create_host_path: false
-    # Only public Traefik joins the ingress bridge; no published host port.
+      - type: bind
+        source: ${MEDIA_PATH}/downloads/complete/bookorbit
+        target: /acquisition/qbittorrent
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEDIA_PATH}/downloads/sabnzbd/complete/bookorbit
+        target: /acquisition/sabnzbd
+        read_only: true
+        bind:
+          create_host_path: false
+    # Keep the application out of the shared Arr namespace and bridge.
     networks:
       - bookorbit-egress
       - bookorbit-db
       - bookorbit-ingress
+      - bookorbit-acquisition
+
+  bookorbit-acquisition:
+    image: traefik:v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
+    container_name: bookorbit-acquisition
+    restart: unless-stopped
+    logging: *default-logging
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, traefik, healthcheck, --ping]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    volumes:
+      - type: bind
+        source: ./data/bookorbit-acquisition/traefik.yml
+        target: /etc/traefik/traefik.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/bookorbit-acquisition/routes.yml
+        target: /etc/traefik/routes.yml
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      bookorbit-acquisition:
+        ipv4_address: 172.26.253.2
+      arr_network: {}
 
   bookorbit-db:
     image: pgvector/pgvector:0.8.3-pg18@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84
@@ -93,6 +140,8 @@ secrets:
     file: /etc/docker-compose/credentials/bookorbit-pg-password
   bookorbit_jwt_secret:
     file: /etc/docker-compose/credentials/bookorbit-jwt-secret
+  bookorbit_request_encryption_key:
+    file: /etc/docker-compose/credentials/bookorbit-request-encryption-key
   bookorbit_bootstrap_token:
     file: /etc/docker-compose/credentials/bookorbit-bootstrap-token
 
@@ -102,3 +151,10 @@ networks:
   bookorbit-egress: {}
   bookorbit-ingress:
     internal: true
+  bookorbit-acquisition:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.26.253.0/29
+          # Reserve .2 for the proxy even if BookOrbit joins the bridge first.
+          ip_range: 172.26.253.4/30

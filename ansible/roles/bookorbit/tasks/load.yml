@@ -1,0 +1,11 @@
+---
+- name: Read BookOrbit integration inputs from the existing credential authorities
+  ansible.builtin.set_fact:
+    bookorbit_production: >-
+      {{ lookup('community.sops.sops', bookorbit_controller_root ~ '/secrets/production.sops.yaml',
+         input_type='yaml', age_keyfile=lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE')) | from_yaml }}
+    bookorbit_download_clients: >-
+      {{ lookup('community.sops.sops', bookorbit_controller_root ~ '/secrets/download-clients.sops.yaml',
+         input_type='yaml', age_keyfile=lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE')) | from_yaml }}
+    cacheable: false
+  no_log: true

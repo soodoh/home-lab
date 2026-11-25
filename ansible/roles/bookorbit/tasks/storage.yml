@@ -1,0 +1,68 @@
+---
+- name: Require the observed media root for the two read-only imports
+  ansible.builtin.assert:
+    that: compose_native_production_secrets.MEDIA_PATH == bookorbit_media_root
+    fail_msg: Requalify BookOrbit's category paths and mounts when changing the media root.
+  no_log: true
+
+- name: Confirm the production NFS mount before making category directories
+  ansible.builtin.command:
+    argv: [findmnt, --noheadings, --raw, --output, "TARGET,FSTYPE", --target, "{{ bookorbit_media_root }}"]
+  register: bookorbit_storage_mount
+  changed_when: false
+  failed_when: bookorbit_storage_mount.rc != 0 or bookorbit_storage_mount.stdout != '/mnt/storage nfs4'
+  become: true
+
+- name: Resolve existing category parents without accepting symlinks
+  ansible.builtin.command:
+    argv: [realpath, --canonicalize-existing, "{{ bookorbit_media_root }}{{ item | dirname | regex_replace('^/data', '') }}"]
+  register: bookorbit_parent
+  changed_when: false
+  failed_when: bookorbit_parent.rc != 0 or bookorbit_parent.stdout != (bookorbit_media_root ~ (item | dirname | regex_replace('^/data', '')))
+  loop: "{{ [bookorbit_qbit_path, bookorbit_sab_path] }}"
+  become: true
+
+- name: Inspect the exact category directories before creation
+  ansible.builtin.stat:
+    path: "{{ bookorbit_media_root }}{{ item | regex_replace('^/data', '') }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  register: bookorbit_import_dirs
+  loop: "{{ [bookorbit_qbit_path, bookorbit_sab_path] }}"
+  become: true
+
+- name: Refuse unowned existing category directories
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or (item.stat.isdir and item.stat.uid == 1000 and item.stat.gid == 1000 and item.stat.mode == '0750')
+    fail_msg: Inspect the existing BookOrbit category path before reuse.
+  loop: "{{ bookorbit_import_dirs.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Refuse category directory provisioning in the routine lane
+  ansible.builtin.assert:
+    that: bookorbit_import_dirs.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: Run a separately approved data-class deployment to provision the BookOrbit directories.
+  when: bookorbit_prepare_read_only | bool
+
+- name: Create only missing BookOrbit category directories as the NFS application user
+  # Production sudo grants root, not a direct transition to docker. mkdir also
+  # refuses a path created concurrently instead of adopting it.
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/runuser
+      - --user
+      - docker
+      - --
+      - /usr/bin/mkdir
+      - --mode=0750
+      - --
+      - "{{ bookorbit_media_root }}{{ item.item | regex_replace('^/data', '') }}"
+  become: true
+  changed_when: true
+  loop: "{{ bookorbit_import_dirs.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists

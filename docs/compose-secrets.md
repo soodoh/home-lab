@@ -29,9 +29,11 @@ two credentials remain environment-based. The unused `ZWAVE_SECRET` injection
 is removed, but its encrypted source is neither deleted nor revoked.
 `production.env` is CLI interpolation, not a blanket service `env_file`.
 
-BookOrbit reads native `POSTGRES_PASSWORD_FILE`, `JWT_SECRET_FILE` and
-`SETUP_BOOTSTRAP_TOKEN_FILE` inputs from protected files. Its dedicated
-PostgreSQL service takes the same SOPS database password through a separate
+BookOrbit reads native `POSTGRES_PASSWORD_FILE`, `JWT_SECRET_FILE`,
+`SETUP_BOOTSTRAP_TOKEN_FILE` and `BOOK_REQUEST_ENCRYPTION_KEY_FILE` inputs from
+protected files. The BookOrbit controller API key stays in production SOPS and
+is not mounted or interpolated into Compose. BookOrbit's dedicated PostgreSQL
+service takes the same SOPS database password through a separate
 reader-specific file. The pinned image requires a setup token in production
 even after initialization. Keep it mounted as a protected startup input;
 OIDC-only mode and ingress still block setup. Do not retain a bootstrap admin

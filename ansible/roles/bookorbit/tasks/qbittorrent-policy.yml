@@ -1,0 +1,56 @@
+---
+- name: Resolve the qBittorrent management endpoint on the host
+  ansible.builtin.include_tasks: arr-address.yml
+
+- name: Converge and verify exact qBittorrent bypass peers before exposing the private proxy
+  module_defaults:
+    ansible.builtin.uri:
+      follow_redirects: none
+      use_netrc: false
+      use_proxy: false
+      return_content: true
+  become: true
+  no_log: true
+  block:
+    - name: Read the current bypass policy without exposing preferences
+      ansible.builtin.uri:
+        url: "http://{{ bookorbit_arr_ip }}:8081/api/v2/app/preferences"
+      register: bookorbit_qbit_preferences
+      changed_when: false
+
+    - name: Refuse qBittorrent policy changes in the routine lane
+      ansible.builtin.assert:
+        that:
+          - bookorbit_qbit_preferences.json.use_category_paths_in_manual_mode
+          - bookorbit_qbit_preferences.json.bypass_auth_subnet_whitelist_enabled
+          - bookorbit_qbit_preferences.json.bypass_auth_subnet_whitelist.splitlines() | sort == bookorbit_qbit_trusted_peers | sort
+      when: bookorbit_prepare_read_only | bool
+
+    - name: Require authentication for untrusted peers and honor category paths for manual adds
+      ansible.builtin.uri:
+        url: "http://{{ bookorbit_arr_ip }}:8081/api/v2/app/setPreferences"
+        method: POST
+        status_code: [200, 204]
+        headers:
+          Referer: "http://{{ bookorbit_arr_ip }}:8081/"
+        body_format: form-urlencoded
+        body:
+          json: >-
+            {{ {'bypass_auth_subnet_whitelist_enabled': true,
+                'bypass_auth_subnet_whitelist': bookorbit_qbit_trusted_peers | join(','),
+                'use_category_paths_in_manual_mode': true} | to_json }}
+      changed_when: true
+      when: >-
+        not bookorbit_qbit_preferences.json.use_category_paths_in_manual_mode or
+        not bookorbit_qbit_preferences.json.bypass_auth_subnet_whitelist_enabled or
+        bookorbit_qbit_preferences.json.bypass_auth_subnet_whitelist.splitlines() | sort != bookorbit_qbit_trusted_peers | sort
+
+    - name: Read back the native bypass policy
+      ansible.builtin.uri:
+        url: "http://{{ bookorbit_arr_ip }}:8081/api/v2/app/preferences"
+      register: bookorbit_qbit_effective
+      changed_when: false
+      failed_when: >-
+        not (bookorbit_qbit_effective.json.use_category_paths_in_manual_mode | default(false)) or
+        not (bookorbit_qbit_effective.json.bypass_auth_subnet_whitelist_enabled | default(false)) or
+        (bookorbit_qbit_effective.json.bypass_auth_subnet_whitelist | default('')).splitlines() | sort != bookorbit_qbit_trusted_peers | sort

@@ -51,7 +51,7 @@ test('Books isolates the backend and denies local auth without blocking the OIDC
   assert.equal(app.environment.APP_URL, 'https://books.diloreto.com');
   assert.equal(app.environment.DISABLE_LOCAL_AUTH, 'true');
   assert.equal(app.ports, undefined);
-  assert.deepEqual(app.networks.sort(), ['bookorbit-db', 'bookorbit-egress', 'bookorbit-ingress']);
+  assert.deepEqual(app.networks.sort(), ['bookorbit-acquisition', 'bookorbit-db', 'bookorbit-egress', 'bookorbit-ingress']);
   assert.deepEqual(model.networks['bookorbit-ingress'], { internal: true });
   assert.deepEqual(Object.keys(compose.services.traefik.networks).sort(), ['bookorbit-ingress', 'proxy']);
   const guard = dynamic.routers['books-deny-local-auth'];

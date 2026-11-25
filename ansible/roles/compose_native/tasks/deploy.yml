@@ -39,6 +39,16 @@
       - compose_native_controller_status.stdout == ''
     fail_msg: Commit or discard tracked controller changes before deploying Compose.
 
+- name: Preflight BookOrbit's scoped controller key before any runtime publication
+  ansible.builtin.include_role:
+    name: bookorbit
+    tasks_from: authorize
+  vars:
+    bookorbit_controller_root: "{{ compose_native_controller_root }}"
+  when:
+    - not (compose_native_automated | bool)
+    - lookup('ansible.builtin.fileglob', compose_native_controller_root ~ '/services/data/bookorbit-acquisition/traefik.yml') | length > 0
+
 - name: Report the check-mode boundary
   ansible.builtin.debug:
     msg: Check mode validates the active Compose model; apply archives committed Git source and converges it natively.
