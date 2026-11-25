@@ -36,8 +36,9 @@ personal authenticators. These are flat groups with no parents or superuser stat
 BookOrbit has its own confidential authorization-code client and supplied RSA
 signer. Its only access binding is `Books Users`; it does not inherit the
 operator group or assign BookOrbit roles from token claims. Keep the stable
-`bookorbit` issuer and subject, and register only the strict callback at
-`https://books.diloreto.com/oauth2-callback`.
+`bookorbit` issuer and subject. Allow only the exact authorization callbacks
+`https://books.diloreto.com/oauth2-callback` for browsers and
+`bookorbit://oauth2-callback` for the native app.
 Uchiyomi has a separate create-only OIDC application, client and signer in the
 same authorities. `Uchiyomi Users` admits Paul, Carolyn and Eric; Uchiyomi
 reads `App Operators` (Paul only) from the signed `profile` claim for its own
