@@ -24,7 +24,7 @@ services:
       BOOK_REQUEST_ENCRYPTION_KEY_FILE: /run/secrets/bookorbit_request_encryption_key
       # v3.9.0 requires a setup token at production startup even in OIDC-only mode.
       SETUP_BOOTSTRAP_TOKEN_FILE: /run/secrets/bookorbit_bootstrap_token
-      LIBRARY_BROWSE_ROOT: /books
+      LIBRARY_BROWSE_ROOT: /libraries
       BOOK_DOCK_PATH: /data/book-dock
       PUID: '1000'
       PGID: '1000'
@@ -45,6 +45,12 @@ services:
       - no-new-privileges:true
     stop_grace_period: 30s
     volumes:
+      - type: bind
+        source: /srv/home-lab-state/bookorbit-media
+        target: /libraries
+        bind:
+          create_host_path: false
+      # Temporary mount while migrating the existing /books/paul library to /libraries/books.
       - type: bind
         source: /srv/home-lab-state/bookorbit-media
         target: /books

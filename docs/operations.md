@@ -457,12 +457,11 @@ comics access group. Recovery uses the separate `comics-x` group.
 
 ### BookOrbit local storage and recovery
 
-Keep BookOrbit's writable `/books` and `/data` on local application-state
+Keep BookOrbit's writable `/libraries` and `/data` on local application-state
 storage. Do not mount the NFS library or the shared download roots into
 BookOrbit. Only the two dedicated native request categories are mounted read-only.
-Define separate catalog roots at `/books/paul`, `/books/sarabeth` and
-`/books/audiobooks`; Sarabeth only receives her own library. Do not scan the
-parent `/books` as a library. PostgreSQL has its own private network and local
+Define the shared catalog root at `/libraries/books`. Do not scan the
+parent `/libraries` as a library. PostgreSQL has its own private network and local
 data directory.
 Do not load production library data until a complete capture and private
 `bookorbit` restore have been qualified. The capture stops the BookOrbit writer while it
@@ -476,7 +475,7 @@ password reset, and magic links denied at ingress. Use the native Authentik
 issuer `https://auth.diloreto.com/application/o/bookorbit/` with `openid profile
 email`. Enable first-login provisioning, leave username linking off, and keep
 default library grants empty. Promote Paul explicitly after his first sign-in
-and grant Sarabeth only her own library. Require a tested, Authentik-linked
+and grant Sarabeth access to the shared Books library. Require a tested, Authentik-linked
 superuser before setting `DISABLE_LOCAL_AUTH=true`; keep denying shared accounts
 and magic links at ingress. Offboarding also requires revoking the native app
 sessions and device credentials. Keep setup credentials and Kobo bearer URLs
