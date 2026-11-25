@@ -458,8 +458,9 @@ comics access group. Recovery uses the separate `comics-x` group.
 ### BookOrbit local storage and recovery
 
 Keep BookOrbit's writable `/books` and `/data` on local application-state
-storage. Do not mount the NFS library or the download clients' seeded files into
-BookOrbit. Define separate catalog roots at `/books/paul`, `/books/sarabeth` and
+storage. Do not mount the NFS library or the shared download roots into
+BookOrbit. Only the two dedicated native request categories are mounted read-only.
+Define separate catalog roots at `/books/paul`, `/books/sarabeth` and
 `/books/audiobooks`; Sarabeth only receives her own library. Do not scan the
 parent `/books` as a library. PostgreSQL has its own private network and local
 data directory.
@@ -480,6 +481,63 @@ superuser before setting `DISABLE_LOCAL_AUTH=true`; keep denying shared accounts
 and magic links at ingress. Offboarding also requires revoking the native app
 sessions and device credentials. Keep setup credentials and Kobo bearer URLs
 out of logs and change records.
+
+### BookOrbit native requests
+
+The acquisition proxy listens only on the private BookOrbit bridge and forwards
+selected Prowlarr, qBittorrent and SABnzbd API routes into Gluetun. It has no host
+port, external ingress, Docker socket or credentials of its own. The two
+`/acquisition` mounts are read-only, dedicated completed-download roots. Clients
+use category `bookorbit`, disable hardlinks and keep originals. Categories and
+read-only mounts are not an authorization boundary for the upstream client APIs.
+
+A data-class Compose deployment creates the two category directories on the
+observed NFS mount and converges qBittorrent's native WebUI policy **before** the
+proxy starts. Only IPv4 loopback (Gluetun namespace hooks) and the Arr bridge's
+host gateway (Ansible maintenance) bypass native auth. The Authentik-protected
+qBittorrent UI now also needs its native login. Existing queue entries are not
+changed. qBittorrent is configured to use category paths for new manual-mode
+adds that do not specify a save path; check downstream Arr and Shelfmark behavior
+for new downloads, since this is a client-wide preference, not an automatic
+Torrent Management mode change.
+
+Ansible reads `PROWLARR_API_KEY` from `secrets/production.sops.yaml` and the
+qBittorrent login and SABnzbd key from `secrets/download-clients.sops.yaml`.
+BookOrbit encrypts the credentials it stores using the stable
+`BOOKORBIT_REQUEST_ENCRYPTION_KEY` mounted via its native `_FILE` reader. No
+acquisition credentials enter Compose interpolation or new OpenTofu resources.
+
+Before activation, use a signed-in BookOrbit session to enable native API keys
+and issue a dedicated **Read and write** key with only **App settings** and
+**Administrator** off. Prefer an identity with no library access; do not grant
+`Manage users` or store a browser session. Add the key to
+`secrets/production.sops.yaml` as `BOOKORBIT_CONVERGENCE_API_KEY` using SOPS, never
+in shell history. The controller uses it only against the verified Books HTTPS
+endpoint, without following redirects. Manual Compose publication of the
+acquisition proxy refuses to proceed without first testing this credential.
+Keep the token present once active; to replace it, issue a second
+key in the UI, converge and verify from the reviewed SOPS revision, then revoke
+the old one. BookOrbit API keys cannot mint their own successors.
+
+On a reviewed manual Compose convergence, Ansible creates the native categories
+if absent, refuses to repoint existing mismatched categories, and updates the
+three managed BookOrbit connection records in place. It explicitly resubmits
+SOPS credential values because BookOrbit's API masks stored secrets. A successful
+update alone is not proof: the role runs the native connection tests and explicitly
+syncs the Prowlarr catalog. The automatic image-only lane does not write BookOrbit
+settings or apply credential rotations. Do not change the encryption key during a
+provider key rotation: changing it requires resubmitting **all** encrypted request
+credentials, including any app-owned records, after the restart.
+
+New Prowlarr sources are disabled until reviewed in BookOrbit. Keep automatic grabs
+off and SABnzbd disabled until independently qualified. For activation, use an
+approved or synthetic title to verify a Prowlarr search, qBittorrent download into
+its dedicated category, import into the intended permitted library, and continued
+seeding from the original. Confirm unauthenticated qBittorrent API access from the
+acquisition bridge fails, unrelated Gluetun and management routes are unreachable,
+and both operator access and other application downloads still work. Qualify SABnzbd
+with an approved test before enabling it. No native test submits a download during
+Ansible convergence.
 
 ### Shelfmark acquisition and seeding
 
@@ -574,7 +632,8 @@ rotating qBittorrent/SABnzbd. Then run
 `ansible-playbook ansible/playbooks/converge-download-clients.yml -e download_client_apply_confirmed=true`
 under the observed host/backup admission: it takes the production host lock,
 changes only credentials that differ, verifies persistence/authentication and
-syncs Shelfmark from those same authorities before releasing ownership.
+syncs Shelfmark and configured BookOrbit from those same authorities before
+releasing ownership. BookOrbit’s scoped key is checked before provider changes.
 Immediately apply the reviewed saved Arr plan using the separate apply
 confirmation, then test every Sonarr, Radarr and Prowlarr download
 client and require a fresh no-op plan. These cross-application changes are **not
@@ -584,7 +643,7 @@ until live ownership and connectivity are resolved. An Arr application's
 **own** API key has a different order: `production.sops.yaml` is its single
 desired source for Compose and provider inputs. On an approved key rotation,
 converge Compose first so the application accepts the new key and Shelfmark
-consumes it, then prepare a
+and configured BookOrbit consume it, then prepare a
 **new** private provider session and saved plan using that same SOPS revision;
 a saved plan made with the old provider key is not reusable. Prowlarr's
 application integration may briefly have the old key until its OpenTofu update.

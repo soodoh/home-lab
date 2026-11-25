@@ -45,6 +45,30 @@
         name: compose_native
         tasks_from: observe
 
+    - name: Read BookOrbit integration inputs
+      ansible.builtin.import_role:
+        name: bookorbit
+        tasks_from: load
+
+    - name: Refuse to rotate credentials while BookOrbit acquisition is only partially activated
+      ansible.builtin.assert:
+        that: >-
+          ('bookorbit-acquisition' in compose_native_declared_services.stdout_lines) ==
+          (bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined)
+        fail_msg: Complete BookOrbit acquisition activation with the scoped SOPS key before rotating credentials.
+
+    - name: Preflight the configured BookOrbit consumer before starting a provider rotation
+      ansible.builtin.include_role:
+        name: bookorbit
+        tasks_from: preflight
+      when: bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined
+
+    - name: Verify that BookOrbit reaches the restricted client endpoint before rotating native credentials
+      ansible.builtin.include_role:
+        name: bookorbit
+        tasks_from: verify-proxy
+      when: bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined
+
     - name: Converge download-client credentials
       ansible.builtin.import_role:
         name: download_client
@@ -52,6 +76,11 @@
     - name: Sync Shelfmark after native download-client credential convergence
       ansible.builtin.import_role:
         name: shelfmark
+
+    - name: Sync BookOrbit from the same SOPS revision following native rotation
+      ansible.builtin.include_role:
+        name: bookorbit
+      when: bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined
 
   post_tasks:
     - name: Release production ownership only on complete success

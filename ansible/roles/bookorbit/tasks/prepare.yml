@@ -1,0 +1,10 @@
+---
+- name: Prepare only the reviewed BookOrbit storage and qBittorrent network policy
+  vars:
+    bookorbit_prepare_read_only: "{{ compose_native_automated | bool or compose_native_change_class != 'data' }}"
+  block:
+    - name: Admit the two mounted category directories before starting BookOrbit
+      ansible.builtin.include_tasks: storage.yml
+
+    - name: Require credentialed qBittorrent access before exposing the private route
+      ansible.builtin.include_tasks: qbittorrent-policy.yml

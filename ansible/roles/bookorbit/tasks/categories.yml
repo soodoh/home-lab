@@ -1,0 +1,103 @@
+---
+- name: Resolve the host-only management endpoints for category setup
+  ansible.builtin.include_tasks: arr-address.yml
+
+- name: Ensure dedicated qBittorrent and SABnzbd categories without changing existing assignments
+  vars:
+    bookorbit_qbit_url: "http://{{ bookorbit_arr_ip }}:8081/api/v2"
+    bookorbit_sab_url: "http://{{ bookorbit_arr_ip }}:8080/api"
+    bookorbit_sab_category: {section: categories, output: json}
+  module_defaults:
+    ansible.builtin.uri:
+      follow_redirects: none
+      use_netrc: false
+      use_proxy: false
+      return_content: true
+  become: true
+  no_log: true
+  block:
+    - name: Read qBittorrent categories
+      ansible.builtin.uri:
+        url: "{{ bookorbit_qbit_url }}/torrents/categories"
+      register: bookorbit_qbit_categories
+      check_mode: false
+      changed_when: false
+
+    - name: Read only SABnzbd category settings
+      ansible.builtin.uri:
+        url: "{{ bookorbit_sab_url }}"
+        method: POST
+        body_format: form-urlencoded
+        body: "{{ bookorbit_sab_category | combine({'mode': 'get_config', 'apikey': bookorbit_download_clients.sabnzbd_api_key}) }}"
+      register: bookorbit_sab_categories
+      check_mode: false
+      changed_when: false
+
+    - name: Require explicit category paths and refuse to repoint an existing queue
+      ansible.builtin.assert:
+        that:
+          - bookorbit_qbit_categories.json is mapping
+          - bookorbit_sab_categories.json.config.categories is sequence
+          - bookorbit_current_qbit_category is none or bookorbit_current_qbit_category.savePath | regex_replace('/+$', '') == bookorbit_qbit_path
+          - >-
+            bookorbit_current_sab_categories | length == 0 or
+            (bookorbit_current_sab_categories | length == 1 and bookorbit_current_sab_categories[0].dir | regex_replace('/+$', '') == bookorbit_sab_path and
+            bookorbit_current_sab_categories[0].script == 'None')
+      vars:
+        bookorbit_current_qbit_category: "{{ bookorbit_qbit_categories.json.get('bookorbit') }}"
+        bookorbit_current_sab_categories: "{{ bookorbit_sab_categories.json.config.categories | selectattr('name', 'equalto', 'bookorbit') | list }}"
+
+    - name: Create the missing qBittorrent category with an explicit save path
+      ansible.builtin.uri:
+        url: "{{ bookorbit_qbit_url }}/torrents/createCategory"
+        method: POST
+        status_code: [200, 204]
+        headers:
+          Referer: "http://{{ bookorbit_arr_ip }}:8081/"
+        body_format: form-urlencoded
+        body:
+          category: bookorbit
+          savePath: "{{ bookorbit_qbit_path }}"
+      changed_when: true
+      when: "'bookorbit' not in bookorbit_qbit_categories.json and not ansible_check_mode"
+
+    - name: Create the missing SABnzbd category without a post-processing script
+      ansible.builtin.uri:
+        url: "{{ bookorbit_sab_url }}"
+        method: POST
+        body_format: form-urlencoded
+        body: >-
+          {{ bookorbit_sab_category | combine({'mode': 'set_config', 'keyword': 'bookorbit',
+             'dir': bookorbit_sab_path, 'script': 'None', 'apikey': bookorbit_download_clients.sabnzbd_api_key}) }}
+      register: bookorbit_sab_category_write
+      failed_when: >-
+        bookorbit_sab_category_write.status != 200 or
+        (bookorbit_sab_category_write.json | default({})).get('error') is not none
+      changed_when: true
+      when: >-
+        not ansible_check_mode and
+        bookorbit_sab_categories.json.config.categories | selectattr('name', 'equalto', 'bookorbit') | list | length == 0
+
+    - name: Verify the qBittorrent category was persisted with the expected path
+      ansible.builtin.uri:
+        url: "{{ bookorbit_qbit_url }}/torrents/categories"
+      register: bookorbit_qbit_category_readback
+      failed_when: >-
+        (bookorbit_qbit_category_readback.json.bookorbit.savePath | default('') | regex_replace('/+$', '')) != bookorbit_qbit_path
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Verify the SABnzbd category was persisted with the expected path and no script
+      ansible.builtin.uri:
+        url: "{{ bookorbit_sab_url }}"
+        method: POST
+        body_format: form-urlencoded
+        body: >-
+          {{ bookorbit_sab_category | combine({'mode': 'get_config', 'apikey': bookorbit_download_clients.sabnzbd_api_key}) }}
+      register: bookorbit_sab_category_readback
+      failed_when: >-
+        bookorbit_sab_category_readback.json.config.categories |
+        selectattr('name', 'equalto', 'bookorbit') | selectattr('dir', 'equalto', bookorbit_sab_path) |
+        selectattr('script', 'equalto', 'None') | list | length != 1
+      changed_when: false
+      when: not ansible_check_mode

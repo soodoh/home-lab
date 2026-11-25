@@ -1,0 +1,11 @@
+---
+- name: Load the credential inputs from the reviewed source
+  ansible.builtin.include_tasks: load.yml
+
+- name: Require an App settings API key before activation or rotation
+  ansible.builtin.assert:
+    that: bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined
+    fail_msg: Add BOOKORBIT_CONVERGENCE_API_KEY to production SOPS before publishing BookOrbit acquisition.
+
+- name: Preflight the scoped write capability
+  ansible.builtin.include_tasks: preflight.yml

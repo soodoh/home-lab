@@ -1,0 +1,46 @@
+---
+http:
+  routers:
+    prowlarr:
+      entryPoints: [prowlarr]
+      rule: >-
+        Method(`GET`) &&
+        (PathRegexp(`^/api/v1/(system/status|indexer)$`) ||
+        PathRegexp(`^/api/v1/indexer/[0-9]+/(newznab|download)/?$`) ||
+        PathRegexp(`^/[0-9]+/(api|download)/?$`))
+      service: prowlarr
+    qbittorrent-read:
+      entryPoints: [qbittorrent]
+      rule: >-
+        Method(`GET`) &&
+        PathRegexp(`^/api/v2/(app/version|torrents/(info|trackers))$`)
+      service: qbittorrent
+    qbittorrent-write:
+      entryPoints: [qbittorrent]
+      rule: >-
+        Method(`POST`) &&
+        PathRegexp(`^/api/v2/(auth/login|torrents/(add|delete))$`)
+      service: qbittorrent
+    sabnzbd:
+      entryPoints: [sabnzbd]
+      rule: >-
+        Path(`/api`) &&
+        ((Method(`GET`) && (QueryRegexp(`mode`, `^(version|queue|history)$`) ||
+        (Query(`mode`, `get_config`) && Query(`section`, `categories`)))) ||
+        (Method(`POST`) && Query(`mode`, `addfile`)))
+      service: sabnzbd
+  services:
+    prowlarr:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:9696
+    qbittorrent:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:8081
+    sabnzbd:
+      loadBalancer:
+        # SABnzbd's native hostname whitelist already trusts gluetun.
+        passHostHeader: false
+        servers:
+          - url: http://gluetun:8080
