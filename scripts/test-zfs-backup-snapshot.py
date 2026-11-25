@@ -212,7 +212,7 @@ class SnapshotAuthority(unittest.TestCase):
         for target, expected in (('/storage/docker/.zfs/snapshot/unrelated', True),
                                  ('/storage/docker/media/nextcloud/data/user/external', False),
                                  ('/storage/docker/media', False),
-                                 ('/storage/docker/media/caro-tachidesk', False)):
+                                 ('/storage/docker/media/uchiyomi/downloads', False)):
             value = {'filesystems': [{'target': '/storage/docker', 'source': 'storage/docker', 'fstype': 'zfs',
                                      'children': [{'target': target, 'source': 'storage/other', 'fstype': 'zfs'}]}]}
             with self.subTest(target=target), mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, json.dumps(value), '')):
@@ -509,7 +509,7 @@ class SnapshotCapture(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'snapshot_broker_scope'):
                 scope(policy)
         settings = policy['capture']
-        next(step for step in settings['cold'] if '/mnt/storage/media/caro-tachidesk' in step['paths'])['paths'].remove('/mnt/storage/media/caro-tachidesk')
+        next(step for step in settings['cold'] if '/mnt/storage/media/uchiyomi/downloads' in step['paths'])['paths'].remove('/mnt/storage/media/uchiyomi/downloads')
         with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
             CAPTURE['capture_sources'](settings)
 

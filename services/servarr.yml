@@ -82,9 +82,6 @@ services:
     hostname: gluetun
     restart: always
     logging: *default-logging
-    ports:
-      # Suwayomi for local OPDS. qBittorrent WebUI is reachable through Authentik/Traefik over the proxy network.
-      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:4567:4567
     cap_add:
       - NET_ADMIN
     devices:
@@ -213,43 +210,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  caro-tachidesk:
-    # Same image on Dockerhub is outdated
-    image: ghcr.io/suwayomi/tachidesk:v2.4.2512@sha256:27dd1b51c0497b8ed4ed7c22f8564483990ce04b376cacb73eab419e80022b75
-    container_name: caro-tachidesk
-    restart: unless-stopped
-    logging: *default-logging
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
-    environment:
-      TZ: $TZ
-      DOWNLOAD_AS_CBZ: true
-      WEB_UI_ENABLED: true
-      WEB_UI_FLAVOR: WebUI
-      WEB_UI_CHANNEL: preview
-      WEB_UI_UPDATE_INTERVAL: 12
-      AUTO_DOWNLOAD_CHAPTERS: true
-      AUTO_DOWNLOAD_EXCLUDE_UNREAD: false
-      AUTO_DOWNLOAD_AHEAD_LIMIT: 20
-      UPDATE_EXCLUDE_UNREAD: false
-      UPDATE_EXCLUDE_STARTED: false
-      UPDATE_EXCLUDE_COMPLETED: true
-      UPDATE_INTERVAL: 12
-      UPDATE_MANGA_INFO: true
-      FLARESOLVERR_ENABLED: true
-      FLARESOLVERR_URL: http://gluetun:8191
-      BIND_PORT: 4568
-    volumes:
-      - /srv/home-lab-state/caro-tachidesk-data:/home/suwayomi/.local/share/Tachidesk
-      - type: bind
-        source: ${MEDIA_PATH}/caro-tachidesk
-        target: /home/suwayomi/.local/share/Tachidesk/downloads
-        bind:
-          create_host_path: false
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767

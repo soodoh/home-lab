@@ -2,12 +2,6 @@
 /mnt/storage/restic/**
 /srv/home-lab-state/hass-data/.cache/**
 /srv/home-lab-state/qbittorrent-data/.cache/**
-/srv/home-lab-state/caro-tachidesk-data/backups/**
-/srv/home-lab-state/caro-tachidesk-data/bin/**
-/srv/home-lab-state/caro-tachidesk-data/database*.trace.db
-/srv/home-lab-state/caro-tachidesk-data/database*.backup
-/srv/home-lab-state/caro-tachidesk-data/database*.sql
-/srv/home-lab-state/caro-tachidesk-data/webUI/**
 /srv/home-lab-state/frigate-data/.exports/**
 /srv/home-lab-state/frigate-data/.timeline/**
 /srv/home-lab-state/frigate-data/.vacuum/**

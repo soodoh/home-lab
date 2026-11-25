@@ -86,7 +86,6 @@
       "nextcloud",
       "frigate",
       "sabnzbd",
-      "caro-tachidesk",
       "uchiyomi",
       "uchiyomi-engine",
       "uchiyomi-x",
@@ -96,7 +95,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "602587a8e153817508a012a70a0c2bf1d9b178bbcd9f30df6bc99287ea16625d",
+    "adapter_sha256": "9e23249d7bbe4219178501daec970665e5e74ef60de914455a377ec987b879f4",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -205,17 +204,6 @@
         ],
         "paths": [
           "/srv/home-lab-state/sabnzbd-data"
-        ]
-      },
-      {
-        "name": "caro-tachidesk",
-        "precopy": true,
-        "services": [
-          "caro-tachidesk"
-        ],
-        "paths": [
-          "/srv/home-lab-state/caro-tachidesk-data",
-          "/mnt/storage/media/caro-tachidesk"
         ]
       },
       {

@@ -11,7 +11,7 @@ const forwards = JSON.parse(fs.readFileSync('infrastructure/tofu/omada/desired.j
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.infrastructure;
 
 const authentikHosts = [
-  'auth', 'caromanga', 'ddns', 'frigate', 'openfit',
+  'auth', 'ddns', 'frigate', 'openfit',
   'prowlarr', 'qb', 'radarr', 'sabnzbd',
   'seerr', 'shelfmark', 'sonarr', 'gost',
 ];

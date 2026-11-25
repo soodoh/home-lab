@@ -273,8 +273,7 @@ def online_tree(paths, target, excludes, *, sqlite_paths, json_roots=(), ephemer
 
 
 ZFS_BASE = Path('/mnt/storage')
-ZFS_DATA_PATHS = ('media/nextcloud/data', 'media/caro-tachidesk', 'media/frigate/exports',
-                  'media/uchiyomi/downloads')
+ZFS_DATA_PATHS = ('media/nextcloud/data', 'media/frigate/exports', 'media/uchiyomi/downloads')
 ZFS_PREFIX = 'home-lab-nextcloud-'
 ZFS_EXPIRY = 72 * 3600
 ZFS_BROKER_PORT = 2444

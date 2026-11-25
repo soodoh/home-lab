@@ -220,18 +220,6 @@
       "timeout": 30,
       "user": null
     },
-    "dd1bfef2-fc1c-4ada-adee-f7f0d242f0de": {
-      "application_slug": "caro-tachidesk",
-      "enabled": true,
-      "failure_result": false,
-      "group": "f35bcdf3-597b-4c26-bca5-dc0fe6268e5a",
-      "negate": false,
-      "order": 0,
-      "pk": "dd1bfef2-fc1c-4ada-adee-f7f0d242f0de",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "e1f79e5c-85e3-47f1-b94c-c49cb4442f05": {
       "application_slug": "mindwtr",
       "enabled": true,
@@ -249,18 +237,6 @@
       "enabled": true,
       "failure_result": false,
       "group": "653a9fd8-ea6e-4d83-bb6e-e8a1510bde46",
-      "negate": false,
-      "order": 1,
-      "pk": null,
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
-    "2cde7ad7-35ee-4ff2-8c90-1edcc83f3e89": {
-      "application_slug": "caro-tachidesk",
-      "enabled": true,
-      "failure_result": false,
-      "group": "87b271e2-bab4-4a92-83d5-9ee1820d8d85",
       "negate": false,
       "order": 1,
       "pk": null,
@@ -361,23 +337,6 @@
       "open_in_new_tab": false,
       "meta_hide": false,
       "import_existing": false
-    },
-    "caro-tachidesk": {
-      "backchannel_provider_ids": [],
-      "group": "Media",
-      "import_existing": true,
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "application-icons/tachidesk.png",
-      "meta_launch_url": "",
-      "meta_publisher": "",
-      "name": "Caro Tachidesk",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 39,
-      "provider_type": "proxy",
-      "slug": "caro-tachidesk",
-      "uuid": "e7dfffb7-ba95-442b-beb4-b4eb4742f14a"
     },
     "ddns-updater": {
       "backchannel_provider_ids": [],
@@ -1159,7 +1118,6 @@
         "29",
         "2",
         "7",
-        "39",
         "17",
         "19",
         "43",
@@ -1476,35 +1434,6 @@
       "refresh_token_validity": "days=30",
       "skip_path_regex": ""
     },
-    "39": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": null,
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://caromanga.diloreto.com",
-      "import_existing": true,
-      "intercept_header_auth": true,
-      "internal_host": "http://gluetun:4568",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Caro Tachidesk",
-      "pk": 39,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
     "41": {
       "access_token_validity": "hours=24",
       "authentication_flow": null,
@@ -1735,15 +1664,6 @@
       "pk": "653a9fd8-ea6e-4d83-bb6e-e8a1510bde46",
       "roles": []
     },
-    "caro-library-users": {
-      "attributes": {},
-      "is_superuser": false,
-      "membership_set": "caro",
-      "name": "Caro Library Users",
-      "parents": [],
-      "pk": "87b271e2-bab4-4a92-83d5-9ee1820d8d85",
-      "roles": []
-    },
     "cwa-users": {
       "attributes": {},
       "is_superuser": false,
@@ -1792,10 +1712,6 @@
       "eabbado",
       "parents",
       "sarabeth",
-      "carodilo"
-    ],
-    "caro": [
-      "eabbado",
       "carodilo"
     ],
     "personal": [

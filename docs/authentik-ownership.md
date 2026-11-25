@@ -17,7 +17,7 @@ replace the live, remote-backed import plan.
 ## Directory and onboarding
 
 Application-access membership is Git-owned. `membershipSets` defines the shared
-`family`, `caro`, `personal`, `uchiyomi` and `operators` username lists once; each `groups.*.membership_set`
+`family`, `personal`, `uchiyomi` and `operators` username lists once; each `groups.*.membership_set`
 selects one list. Native provider data sources resolve independently owned users;
 the root never creates or changes those accounts, their passwords or their
 personal authenticators. These are flat groups with no parents or superuser status.
@@ -26,12 +26,11 @@ personal authenticators. These are flat groups with no parents or superuser stat
 | --- | --- | --- |
 | Jellyfin (existing media entitlement) | family | Jellyfin, Seerr |
 | Karaoke Users | family | Karaoke Eternal |
-| Caro Library Users | caro | Caro Tachidesk |
 | Books Users | personal | BookOrbit |
 | Uchiyomi Users | uchiyomi | Uchiyomi |
 | Camera Viewers | personal | Frigate |
 | Vaultwarden Users | personal | Vaultwarden |
-| App Operators | operators (Paul only) | Caro Tachidesk, DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Vaultwarden, Z-Wave |
+| App Operators | operators (Paul only) | DDNS Updater, Frigate, Home Assistant, Karaoke Eternal, Mindwtr, Openfit, Prowlarr, qBittorrent, Radarr, SABnzbd, Shelfmark, Sonarr, Vaultwarden, Z-Wave |
 
 BookOrbit has its own confidential authorization-code client and supplied RSA
 signer. Its only access binding is `Books Users`; it does not inherit the

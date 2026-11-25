@@ -1132,9 +1132,8 @@ an upload retry; the ext4 and ZFS views still use their original receipts. Revie
 backup scope when adding an emulator or changing its data directory.
 
 All recorded writers resume before Restic mounts or reads the snapshot. Nextcloud
-must also pass native `occ status`. Only the approved Nextcloud data, Carolyn's
-Tachidesk downloads, public Uchiyomi downloads and Frigate exports are mounted
-read-only at their existing
+must also pass native `occ status`. Only the approved Nextcloud data, public
+Uchiyomi downloads and Frigate exports are mounted read-only at their existing
 archive paths, alongside
 the selected application state paths on the local snapshot. These roots are not counted toward staging
 capacity. Missing or unexpected sources fail closed. The shared pause can

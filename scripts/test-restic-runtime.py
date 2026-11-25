@@ -518,7 +518,7 @@ class Runtime(unittest.TestCase):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         settings = policy['capture']
         state_path = Path('/srv/home-lab-state/omada-data/data')
-        zfs_path = '/mnt/storage/media/caro-tachidesk'
+        zfs_path = '/mnt/storage/media/uchiyomi/downloads'
         live_path = Path('/mnt/games/roms')
         state_receipt = {'created': 1, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff',
                          'bytes': settings['state_snapshot']['bytes']}

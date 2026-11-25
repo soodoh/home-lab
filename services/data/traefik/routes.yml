@@ -6,10 +6,6 @@ http:
       rule: "Host(`auth.diloreto.com`)"
       entryPoints: [websecure]
       service: authentik
-    caromanga:
-      rule: "Host(`caromanga.diloreto.com`)"
-      entryPoints: [websecure]
-      service: authentik
     comics:
       rule: "Host(`comics.diloreto.com`)"
       entryPoints: [websecure]
