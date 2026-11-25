@@ -81,7 +81,7 @@
   "stop_groups": {
     "applications": [
       "shelfmark",
-      "grimmory",
+      "bookorbit",
       "nextcloud-cron",
       "nextcloud",
       "frigate",
@@ -96,11 +96,11 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "61715a3a9c8f1f1c030070c513e13685a4a7ba99a3495c0464326a86cf68e13a",
+    "adapter_sha256": "afbea3bb1c638d4cc54e29c6953d723df5e9207aa450117ff1cd2e708c09e7f4",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
-      "/srv/home-lab-state/grimmory-db-data",
+      "/srv/home-lab-state/bookorbit-postgres",
       "/srv/home-lab-state/nextcloud-db-data"
     ],
     "radio_max_age_seconds": 172800,
@@ -152,24 +152,19 @@
     ],
     "cold": [
       {
-        "name": "books",
+        "name": "bookorbit",
         "precopy": true,
-        "services": [
-          "shelfmark",
-          "grimmory"
-        ],
+        "services": ["shelfmark", "bookorbit"],
         "paths": [
-          "/srv/home-lab-state/grimmory-data",
-          "/srv/home-lab-state/grimmory-bookdrop",
           "/srv/home-lab-state/shelfmark-data",
-          "/mnt/storage/media/books",
-          "/mnt/storage/media/audiobooks"
+          "/srv/home-lab-state/bookorbit-data",
+          "/srv/home-lab-state/bookorbit-media"
         ],
         "databases": [
           {
-            "engine": "mariadb",
-            "container": "grimmory-db",
-            "name": "books.sql"
+            "engine": "postgres",
+            "container": "bookorbit-db",
+            "name": "bookorbit.dump"
           }
         ]
       },

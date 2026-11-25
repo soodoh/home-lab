@@ -1,0 +1,104 @@
+---
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  bookorbit:
+    image: ghcr.io/bookorbit/bookorbit:3.9.0@sha256:79cd9c66c990a82944514e3e82d5be5987f21eda96cb37a378ed1484043716fc
+    container_name: bookorbit
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      NODE_ENV: production
+      TZ: $TZ
+      APP_URL: https://books.diloreto.com
+      DISABLE_LOCAL_AUTH: 'true'
+      POSTGRES_HOST: bookorbit-db
+      POSTGRES_DB: bookorbit
+      POSTGRES_USER: bookorbit
+      POSTGRES_PASSWORD_FILE: /run/secrets/bookorbit_pg_app_password
+      JWT_SECRET_FILE: /run/secrets/bookorbit_jwt_secret
+      # v3.9.0 requires a setup token at production startup even in OIDC-only mode.
+      SETUP_BOOTSTRAP_TOKEN_FILE: /run/secrets/bookorbit_bootstrap_token
+      LIBRARY_BROWSE_ROOT: /books
+      BOOK_DOCK_PATH: /data/book-dock
+      PUID: '1000'
+      PGID: '1000'
+    secrets:
+      - bookorbit_pg_app_password
+      - bookorbit_jwt_secret
+      - bookorbit_bootstrap_token
+    depends_on:
+      bookorbit-db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/bookorbit-media
+        target: /books
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/home-lab-state/bookorbit-data
+        target: /data
+        bind:
+          create_host_path: false
+    # Only public Traefik joins the ingress bridge; no published host port.
+    networks:
+      - bookorbit-egress
+      - bookorbit-db
+      - bookorbit-ingress
+
+  bookorbit-db:
+    image: pgvector/pgvector:0.8.3-pg18@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84
+    container_name: bookorbit-db
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      POSTGRES_DB: bookorbit
+      POSTGRES_USER: bookorbit
+      POSTGRES_PASSWORD_FILE: /run/secrets/bookorbit_pg_password
+    secrets:
+      - bookorbit_pg_password
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/bookorbit-postgres
+        target: /var/lib/postgresql
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 10
+    networks:
+      - bookorbit-db
+
+secrets:
+  bookorbit_pg_app_password:
+    file: /etc/docker-compose/credentials/bookorbit-pg-app-password
+  bookorbit_pg_password:
+    file: /etc/docker-compose/credentials/bookorbit-pg-password
+  bookorbit_jwt_secret:
+    file: /etc/docker-compose/credentials/bookorbit-jwt-secret
+  bookorbit_bootstrap_token:
+    file: /etc/docker-compose/credentials/bookorbit-bootstrap-token
+
+networks:
+  bookorbit-db:
+    internal: true
+  bookorbit-egress: {}
+  bookorbit-ingress:
+    internal: true

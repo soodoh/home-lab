@@ -256,7 +256,6 @@ jobs:
       - name: Test native controller interfaces against synthetic APIs
         run: |
           python scripts/test-omada-mail-convergence.py --durations=0
-          python scripts/controller/test-grimmory.py --durations=0
 
   native-recovery:
     runs-on: ubuntu-latest

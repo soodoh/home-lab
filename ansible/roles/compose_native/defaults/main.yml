@@ -33,6 +33,13 @@ compose_native_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY
 compose_native_secret_files: []
 # Existing paths must already have this identity; never repair unknown app state.
 compose_native_runtime_paths:
+  - {path: /srv/home-lab-state/bookorbit-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-data/book-dock, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-media, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-media/paul, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-media/sarabeth, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-media/audiobooks, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
+  - {path: /srv/home-lab-state/bookorbit-postgres, kind: directory, uid: 999, gid: 999, mode: '0700'}
   - {path: /srv/home-lab-state/shelfmark-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/mindwtr-data, kind: directory, uid: 1000, gid: 1000, mode: '0700'}
   - {path: /srv/home-lab-state/uchiyomi, kind: directory, uid: 1000, gid: 1000, mode: '0700'}

@@ -26,7 +26,7 @@ test('the public host allowlist routes to the intended private backends', () => 
     ...authentikHosts.map((host) => [host, 'authentik']),
     ...Object.entries(directHosts),
   ]);
-  assert.deepEqual(Object.keys(dynamic.routers).sort(), Object.keys(expected).sort());
+  assert.deepEqual(Object.keys(dynamic.routers).sort(), [...Object.keys(expected), 'books-deny-local-auth'].sort());
   assert.ok(!Object.values(dynamic.routers).some(({ rule }) => /omada\.diloreto\.com|proxmox\.diloreto\.com|zwave\.diloreto\.com|ts-control\.diloreto\.com|sonarr-4k\.diloreto\.com/.test(rule)));
   for (const [host, service] of Object.entries(expected)) {
     const route = dynamic.routers[host];
@@ -41,8 +41,34 @@ test('the public host allowlist routes to the intended private backends', () => 
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.23.0.1:8123');
-  assert.equal(dynamic.services.books.loadBalancer.servers[0].url, 'http://grimmory:6060');
+  assert.equal(dynamic.services.books.loadBalancer.servers[0].url, 'http://bookorbit:3000');
   assert.equal(dynamic.services.uchiyomi.loadBalancer.servers[0].url, 'http://gluetun:3000');
+});
+
+test('Books isolates the backend and denies local auth without blocking the OIDC callback or Kobo', () => {
+  const model = readYaml('services/bookorbit.yml');
+  const app = model.services.bookorbit;
+  assert.equal(app.environment.APP_URL, 'https://books.diloreto.com');
+  assert.equal(app.environment.DISABLE_LOCAL_AUTH, 'true');
+  assert.equal(app.ports, undefined);
+  assert.deepEqual(app.networks.sort(), ['bookorbit-db', 'bookorbit-egress', 'bookorbit-ingress']);
+  assert.deepEqual(model.networks['bookorbit-ingress'], { internal: true });
+  assert.deepEqual(Object.keys(compose.services.traefik.networks).sort(), ['bookorbit-ingress', 'proxy']);
+  const guard = dynamic.routers['books-deny-local-auth'];
+  assert.equal(guard.service, 'noop@internal');
+  assert.deepEqual(guard.entryPoints, ['websecure']);
+  assert.ok(guard.priority > dynamic.routers.books.rule.length);
+  const patterns = [...guard.rule.matchAll(/PathRegexp\(`([^`]+)`\)/g)]
+    .map(([, p]) => new RegExp(p.replace(/^\(\?i\)/, ''), 'i'));
+  for (const path of ['/api/v1/auth/setup', '/api/v1/auth/login', '/api/v1/auth/register',
+    '/api/v1/users', '/api/v1/users/shared', '/api/v1/users/42/reset-password',
+    '/api/v1/auth/magic-links/token', '/api/v1/users%252fshared']) {
+    assert.ok(patterns.some(pattern => pattern.test(path)), path);
+  }
+  for (const path of ['/oauth2-callback', '/api/v1/auth/oidc/authentik/start',
+    '/api/v1/kobo/example/v1/library/sync', '/api/v1/auth/login-options']) {
+    assert.ok(!patterns.some(pattern => pattern.test(path)), path);
+  }
 });
 
 test('Mindwtr web requires Authentik; sync API and calendar feeds keep native credentials', () => {

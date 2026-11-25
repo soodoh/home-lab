@@ -446,7 +446,7 @@ else:
     def test_shared_admission_accepts_each_existing_operation_and_policy(self):
         operations = ("compose-native-deploy", "native-site-convergence", "shelfmark-connections",
                       "host-locales", "download-client-credentials", "compose-schedule-convergence",
-                      "grimmory-authentication", "wolf-security")
+                      "wolf-security")
         tasks = []
         for operation in operations:
             tasks += [self.acquire(static=True, operation=operation), self.observe(), self.release_admitted(operation)]
@@ -567,7 +567,6 @@ class ActionModule(ActionBase):
             {"ansible.builtin.copy": {"dest": str(self.work / "wolf.json"), "mode": "0600",
                                       "content": "{{ wolf_security_policy | to_json }}"}},
         ])
-        self.put(self.roles / "grimmory/tasks/directories.yml", [])
         # Docker is an external dependency here; exercise the real task sequence
         # without launching applications or reading a production daemon.
         self.install_docker_adapter()

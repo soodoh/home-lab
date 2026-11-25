@@ -118,8 +118,8 @@
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY == 'shelfmark'
               - shelfmark_settings_merged.prowlarr_clients.QBITTORRENT_CATEGORY_AUDIOBOOK == 'shelfmark-audiobooks'
               - shelfmark_settings_merged.downloads == shelfmark_fixture.downloads | combine(shelfmark_settings.downloads)
-              - shelfmark_settings_merged.downloads.DESTINATION == '/grimmory-bookdrop'
-              - shelfmark_settings_merged.downloads.DESTINATION_AUDIOBOOK == '/grimmory-bookdrop'
+              - shelfmark_settings_merged.downloads.DESTINATION == '/book-dock'
+              - shelfmark_settings_merged.downloads.DESTINATION_AUDIOBOOK == '/book-dock'
               - shelfmark_settings_merged.downloads.FILE_ORGANIZATION_AUDIOBOOK == 'none'
               - not shelfmark_settings_merged.downloads.HARDLINK_TORRENTS
               - not shelfmark_settings_merged.downloads.HARDLINK_TORRENTS_AUDIOBOOK
@@ -201,7 +201,7 @@
               - --network=none
               - --read-only
               - --tmpfs=/tmp:rw,size=128m,mode=1777
-              - --tmpfs=/grimmory-bookdrop:rw,size=4m,mode=1777
+              - --tmpfs=/book-dock:rw,size=4m,mode=1777
               - --tmpfs=/config:rw,size=4m,mode=1777
               - --user=1000:1000
               - --env=CONFIG_DIR=/config

@@ -33,7 +33,7 @@ PROPERTY = 'org.home-lab:'
 CLIENT = '192.168.0.100'
 ROOT = Path('/storage/docker')
 NEXTCLOUD = 'media/nextcloud/data'
-EXPORTS = (NEXTCLOUD, 'media/books', 'media/audiobooks', 'media/tachidesk',
+EXPORTS = (NEXTCLOUD, 'media/tachidesk',
            'media/caro-tachidesk', 'media/frigate/exports', 'media/uchiyomi/downloads')
 
 

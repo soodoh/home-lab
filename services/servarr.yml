@@ -34,8 +34,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: /srv/home-lab-state/grimmory-bookdrop
-        target: /grimmory-bookdrop
+        source: /srv/home-lab-state/bookorbit-data/book-dock
+        target: /book-dock
         bind:
           create_host_path: false
       # Match qBittorrent exactly; Shelfmark cannot mutate seeded files.

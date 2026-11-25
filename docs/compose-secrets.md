@@ -29,22 +29,14 @@ two credentials remain environment-based. The unused `ZWAVE_SECRET` injection
 is removed, but its encrypted source is neither deleted nor revoked.
 `production.env` is CLI interpolation, not a blanket service `env_file`.
 
-Grimmory uses production-SOPS database/bootstrap credentials.
-Its database reads native MariaDB password files; the app reads the protected
-database-password file as `spring.datasource.password` through Spring Boot
-`configtree:`. Grimmory's OIDC secret remains solely in Authentik SOPS and is
-converged through its native settings API, not mounted under a fictional `_FILE`
-setting or copied into Docker environment values. The administrator password is
-controller-only bootstrap/authentication input, not a Compose credential mount.
-The shared production SOPS `HARDCOVER_API_KEY` is merged through that same native
-settings API into `metadataProviderSettings.hardcover.apiKey`, preserving provider
-enablement and unrelated settings/credentials. It is not a Compose credential
-mount or environment input. Per-user reading-progress sync tokens remain
-application-owned.
-The app never receives the database root password. Initialization password files
-do not rotate existing database accounts; rotation needs a separately admitted
-native account change and app restart. See
-[native authentication convergence](operations.md#grimmory-native-authentication-and-library-ownership).
+BookOrbit reads native `POSTGRES_PASSWORD_FILE`, `JWT_SECRET_FILE` and
+`SETUP_BOOTSTRAP_TOKEN_FILE` inputs from protected files. Its dedicated
+PostgreSQL service takes the same SOPS database password through a separate
+reader-specific file. The pinned image requires a setup token in production
+even after initialization. Keep it mounted as a protected startup input;
+OIDC-only mode and ingress still block setup. Do not retain a bootstrap admin
+password after the temporary account is retired, publish uninitialized setup,
+or copy a setup token to shell history.
 
 These declarations are **not proof of current live state**. Frigate camera
 URLs use its native credential placeholders, and Recyclarr API-key references

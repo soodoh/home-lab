@@ -23,27 +23,27 @@
     },
     "books": {
       "services": [
-        "grimmory",
-        "grimmory-db",
         "caro-tachidesk",
         "shelfmark",
         "uchiyomi",
         "uchiyomi-engine"
       ],
       "paths": [
-        "/mnt/storage/media/books",
-        "/mnt/storage/media/audiobooks",
         "/mnt/storage/media/tachidesk",
         "/mnt/storage/media/caro-tachidesk",
         "/mnt/storage/media/uchiyomi/downloads",
-        "/srv/home-lab-state/grimmory-data",
-        "/srv/home-lab-state/grimmory-db-data",
-        "/srv/home-lab-state/grimmory-bookdrop",
         "/srv/home-lab-state/shelfmark-data",
         "/srv/home-lab-state/caro-tachidesk-data",
         "/srv/home-lab-state/tachidesk-data",
         "/srv/home-lab-state/uchiyomi",
         "/srv/home-lab-state/uchiyomi-engine"
+      ]
+    },
+    "bookorbit": {
+      "services": ["bookorbit", "bookorbit-db"],
+      "paths": [
+        "/srv/home-lab-state/bookorbit-data",
+        "/srv/home-lab-state/bookorbit-media"
       ]
     },
     "comics-x": {

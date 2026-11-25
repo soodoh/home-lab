@@ -75,6 +75,17 @@ http:
       rule: "Host(`books.diloreto.com`)"
       entryPoints: [websecure]
       service: books
+    books-deny-local-auth:
+      # Keep setup, local accounts and magic links off the public Books ingress.
+      rule: >-
+        Host(`books.diloreto.com`) &&
+        (PathRegexp(`(?i)%(2f|5c|25)`) ||
+        PathRegexp(`(?i)^/api/v1/auth/magic-links(/|$)`) ||
+        (Method(`POST`) &&
+        PathRegexp(`(?i)^/api/v1/(users(/shared|/[0-9]+/reset-password)?|auth/(setup|login|register|forgot-password|reset-password|change-password))/?$`)))
+      priority: 1000
+      entryPoints: [websecure]
+      service: noop@internal
     nextcloud:
       rule: "Host(`nextcloud.diloreto.com`)"
       entryPoints: [websecure]
@@ -136,7 +147,7 @@ http:
     books:
       loadBalancer:
         servers:
-          - url: http://grimmory:6060
+          - url: http://bookorbit:3000
     nextcloud:
       loadBalancer:
         servers:
