@@ -512,26 +512,13 @@ class Runtime(unittest.TestCase):
         adapter.precopy.assert_not_called()
         adapter.finish_copy.assert_not_called()
 
-    def test_offline_comics_archive_is_captured_and_selectable_for_recovery(self):
-        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-        settings = policy['capture']
-        declared = {*policy['stop_groups']['applications'], *settings['state_snapshot']['online_paths'],
-                    'authentik-server', 'authentik-worker', 'mosquitto'}
-        plan = CAPTURE['capture_plan'](policy, declared)
-        local = Path('/srv/home-lab-state/tachidesk-data')
-        nfs = '/mnt/storage/media/tachidesk'
-        self.assertIn(local, plan.sources.state)
-        self.assertIn(nfs, plan.sources.zfs)
-        books = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']['books']
-        self.assertTrue({str(local), nfs} <= set(books['paths']))
-
     def test_fresh_capture_and_ready_retry_use_the_same_archive_sources(self):
         daily = LOCAL.run
         capacity = CAPTURE['capacity_check']
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         settings = policy['capture']
         state_path = Path('/srv/home-lab-state/omada-data/data')
-        zfs_path = '/mnt/storage/media/tachidesk'
+        zfs_path = '/mnt/storage/media/caro-tachidesk'
         live_path = Path('/mnt/games/roms')
         state_receipt = {'created': 1, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff',
                          'bytes': settings['state_snapshot']['bytes']}

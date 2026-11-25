@@ -96,7 +96,7 @@
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "afbea3bb1c638d4cc54e29c6953d723df5e9207aa450117ff1cd2e708c09e7f4",
+    "adapter_sha256": "602587a8e153817508a012a70a0c2bf1d9b178bbcd9f30df6bc99287ea16625d",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -205,14 +205,6 @@
         ],
         "paths": [
           "/srv/home-lab-state/sabnzbd-data"
-        ]
-      },
-      {
-        "name": "legacy-comics-archive",
-        "services": [],
-        "paths": [
-          "/srv/home-lab-state/tachidesk-data",
-          "/mnt/storage/media/tachidesk"
         ]
       },
       {

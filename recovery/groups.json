@@ -29,12 +29,10 @@
         "uchiyomi-engine"
       ],
       "paths": [
-        "/mnt/storage/media/tachidesk",
         "/mnt/storage/media/caro-tachidesk",
         "/mnt/storage/media/uchiyomi/downloads",
         "/srv/home-lab-state/shelfmark-data",
         "/srv/home-lab-state/caro-tachidesk-data",
-        "/srv/home-lab-state/tachidesk-data",
         "/srv/home-lab-state/uchiyomi",
         "/srv/home-lab-state/uchiyomi-engine"
       ]

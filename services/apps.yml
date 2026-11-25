@@ -26,7 +26,6 @@ services:
       - ${MEDIA_PATH}/tv_shows:/tv_shows
       - ${MEDIA_PATH}/movies:/movies
       - ${MEDIA_PATH}/anime:/anime
-      - ${MEDIA_PATH}/books:/books
       - type: tmpfs
         target: /cache/transcodes
         tmpfs:

@@ -6,9 +6,7 @@ directory. Production activation is not yet qualified.
 ## Scope
 
 The `books` group includes Shelfmark configuration, Uchiyomi and Carolyn’s
-Tachidesk state and downloads. It also includes Paul's retired Tachidesk archive
-(`/srv/home-lab-state/tachidesk-data` and `/mnt/storage/media/tachidesk`) as
-files only, not as a service. Public Uchiyomi's database, config, local library and
+Tachidesk state and downloads. Public Uchiyomi's database, config, local library and
 separate extension-engine state are local. BookOrbit has a separate `bookorbit`
 group: library media, application data (including Library Dock), and a logical
 PostgreSQL export. Its database directory is neither copied nor restored
@@ -185,7 +183,7 @@ are included as explicit recovery inputs, not automatically imported. A group is
 a recovery convenience, not an authorization boundary or an independent snapshot.
 The preparer does not unpack archives, connect databases or start containers.
 
-Coverage includes Carolyn's Tachidesk downloads and the legacy comics archive,
+Coverage includes Carolyn's Tachidesk downloads, public Uchiyomi downloads,
 karaoke database/configuration (not bulk karaoke media), Frigate exports (not
 rolling recordings/previews),
 both production ACME stores/private keys and Wolf settings, pairing data, ROMs,
@@ -198,8 +196,8 @@ save state before relying on this path. A new emulator data root needs an explic
 coverage review. Older backups may also contain formerly selected Steam/Proton
 state.
 
-Nextcloud data, books and audiobooks, both comics download roots and Frigate
-exports retain their original archive paths when Restic reads them through temporary
+Nextcloud data, both comics download roots (Carolyn's Tachidesk and public
+Uchiyomi) and Frigate exports retain their original archive paths when Restic reads them through temporary
 read-only NFS mounts of one ZFS snapshot. Selected local application state keeps
 its original paths on the read-only view of the local volume; ext4 replay writes
 only to an overlay, not into the archived source. Restore the corresponding
