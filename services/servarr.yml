@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   shelfmark:
-    image: ghcr.io/calibrain/shelfmark:v1.7.1@sha256:cb1690b01f2ffb808efc30a6f822a46117633111efc654c9938e7d564bdcadcc
+    image: ghcr.io/calibrain/shelfmark:v1.7.2@sha256:85784338c06994740d66ff377bfa4e350baf0b8e826ef9a58ddf2d1069cbb01c
     container_name: shelfmark
     restart: unless-stopped
     logging: *default-logging
@@ -439,7 +439,7 @@ services:
       - ${MEDIA_PATH}/downloads:/data/downloads
 
   sabnzbd:
-    image: ghcr.io/linuxserver/sabnzbd:5.1.3@sha256:d225bbab93f54784c115a3b1d89711e469b1969c9f32aa6ebb11fb03b5804431
+    image: ghcr.io/linuxserver/sabnzbd:5.1.3@sha256:cc7abeeafa20dfba0637d30c60bc70b79656e427c60681cb411fd7b211a39435
     container_name: sabnzbd
     restart: unless-stopped
     logging: *default-logging
