@@ -210,9 +210,9 @@ Authentik embedded proxy. Authentik intercepts HTTP Basic credentials on the
 WebSocket handshake and authorizes only the `gost-proxy-user` service account's
 exact application binding. Its `gost-proxy` app password is created manually,
 has no expiry, and is stored only as age ciphertext in the work-Mac dotfiles
-profile; it is not a Compose or OpenTofu input. Revoke both the old
-`tailscale-control-proxy` app password and the new app password when applicable;
-terminate active WebSockets when immediate invalidation is required.
+profile; it is not a Compose or OpenTofu input. Revoke the `gost-proxy` app
+password in Authentik and terminate active WebSockets when immediate
+invalidation is required.
 
 GOST has no published host port, no reusable server-side credential and no
 destination whitelist: once Authentik admits the WebSocket handshake, GOST
