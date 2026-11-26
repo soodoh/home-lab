@@ -92,7 +92,7 @@ services:
     networks:
       egress:
         # Must match Home Assistant's trusted_proxies entry.
-        ipv4_address: 172.25.0.250
+        ipv4_address: 172.29.0.250
       auth-ingress: {}
       bookorbit-ingress: {}
       comics-ingress: {}
@@ -144,7 +144,7 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: "172.25.0.0/16"
+        - subnet: "172.29.0.0/16"
   omada-ingress:
     internal: true
     ipam:

@@ -40,7 +40,7 @@ test('the public host allowlist routes to the intended private backends', () => 
     assert.ok(dynamic.services[service].loadBalancer.servers[0].url.startsWith('http://'));
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
-  assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.25.0.1:8123');
+  assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.29.0.1:8123');
   assert.equal(dynamic.services.books.loadBalancer.servers[0].url, 'http://bookorbit:3000');
   assert.equal(dynamic.services.uchiyomi.loadBalancer.servers[0].url, 'http://gluetun-comics:3000');
 });
@@ -119,7 +119,7 @@ test('NAT, Compose, trusted proxy, and certificate persistence agree', () => {
     '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/tcp',
     '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/udp',
   ]);
-  assert.equal(service.networks.egress.ipv4_address, '172.25.0.250');
+  assert.equal(service.networks.egress.ipv4_address, '172.29.0.250');
   assert.equal(service.networks['nextcloud-ingress'].ipv4_address, '172.26.4.2');
   assert.equal(compose.networks.egress.driver_opts['com.docker.network.bridge.enable_icc'], 'false');
   assert.ok(service.volumes.includes('/srv/home-lab-state/traefik-data:/data'));
