@@ -52,7 +52,7 @@ resource "prowlarr_indexer" "nyaa" {
   protocol        = "torrent"
   app_profile_id  = 1
   enable          = true
-  priority        = 10
+  priority        = 4
   redirect        = false
   tags            = [4]
   fields = [

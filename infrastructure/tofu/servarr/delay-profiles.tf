@@ -1,14 +1,16 @@
-# Existing default delay profiles; preserve Usenet preference and no delays.
+# Default delay profiles. Sonarr delays low-scoring torrent grabs by 90 minutes
+# unless the release meets the Custom Format bypass threshold (1650+), avoiding
+# early scene grabs before preferred WEB-DL/anime releases appear.
 resource "sonarr_delay_profile" "existing" {
   tags                                = []
   enable_torrent                      = true
   enable_usenet                       = true
   preferred_protocol                  = "usenet"
-  bypass_if_highest_quality           = true
-  bypass_if_above_custom_format_score = false
-  minimum_custom_format_score         = 0
+  bypass_if_highest_quality           = false
+  bypass_if_above_custom_format_score = true
+  minimum_custom_format_score         = 1650
   order                               = 2147483647
-  torrent_delay                       = 0
+  torrent_delay                       = 90
   usenet_delay                        = 0
 }
 
