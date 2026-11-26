@@ -32,7 +32,7 @@ services:
       - authentik-db
 
   authentik-server:
-    image: ghcr.io/goauthentik/server:2026.8.6@sha256:da89d8338a3b1889800eb033fd61f8d43f7aa9a1c5a042cb5e03d891b1f0c56c
+    image: ghcr.io/goauthentik/server:2026.8.7@sha256:1675a017c46ba7f4f15333aeafeeb64538c581673bcbcd36af872cdf7de4e7f7
     container_name: authentik-server
     restart: unless-stopped
     logging: *default-logging
@@ -84,7 +84,7 @@ services:
       - authentik-egress
 
   authentik-worker:
-    image: ghcr.io/goauthentik/server:2026.8.6@sha256:da89d8338a3b1889800eb033fd61f8d43f7aa9a1c5a042cb5e03d891b1f0c56c
+    image: ghcr.io/goauthentik/server:2026.8.7@sha256:1675a017c46ba7f4f15333aeafeeb64538c581673bcbcd36af872cdf7de4e7f7
     container_name: authentik-worker
     restart: unless-stopped
     logging: *default-logging
@@ -129,7 +129,7 @@ services:
       - authentik-egress
 
   authentik-ldap:
-    image: ghcr.io/goauthentik/ldap:2026.8.6@sha256:aa296faa28d2ac35bc46e2b92d8a94ffeed557ecf8cd213113cecbc46d85d47e
+    image: ghcr.io/goauthentik/ldap:2026.8.7@sha256:b0400c194cd8f4b7b98b2685926cd7c5d79c036d2ca2d6ec61fff3138c90096e
     container_name: authentik-ldap
     restart: unless-stopped
     logging: *default-logging
