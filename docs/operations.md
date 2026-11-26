@@ -1401,9 +1401,9 @@ The public names must no longer reach either UI.
 Keep private and public production ACME stores protected; both are in complete
 capture, including account private keys. Reissuance remains subject to CA limits;
 restored keys are not permission to run competing ACME writers. GOST is an authenticated
-transport, **not** authorization for private backends: test its allowlist with an
-isolated authenticated client without a local bypass as well as testing real
-client credentials. Isolated GOST denials and UDP/HTTP3 private-route negatives
+transport allowing all egress-reachable traffic, **not** authorization for
+private backends: test Authentik's unauthenticated denial as well as real
+client credentials. Private-route UDP/HTTP3 negatives
 must not be called verified until exercised
 in the current environment. Before revoking any credential, inspect independent
 consumers rather than relying on age or past migrations.

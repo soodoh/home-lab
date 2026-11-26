@@ -275,7 +275,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         for port in (":29810:29810/udp", ":29811-29817:29811-29817"):
             self.assertTrue(any(binding.endswith(port) for binding in omada["ports"]))
 
-    def test_tailscale_control_proxy_is_private_and_destination_limited(self) -> None:
+    def test_tailscale_control_proxy_is_private_and_authenticated(self) -> None:
         provider = DESIRED["proxyProviders"]["tailscale-control"]
         application = DESIRED["applications"]["tailscale-control"]
         account = DESIRED["serviceAccounts"]["gost-proxy-user"]

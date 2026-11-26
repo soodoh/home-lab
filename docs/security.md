@@ -87,8 +87,8 @@ file delivery is not universal memory or log redaction. Host files are plaintext
 individually mounted read-only and included in encrypted backup/recovery scope.
 See the [delivery audit](compose-secrets.md) for native readers and caveats. Staging and production certificates have separate
 root-only ACME stores; both production stores and account private keys are in
-the encrypted complete backup. Staging stores remain excluded. Production TLS and tailnet grants do not prove CI/application authentication,
-remote GOST destination denials or UDP/HTTP3 negative paths; verify these
+the encrypted complete backup. Staging stores remain excluded. Production TLS and tailnet grants do not prove CI/application authentication
+or UDP/HTTP3 negative paths; verify these
 against current live state before relying on them. The non-AWS helper
 reads exported provider variables without prompting and creates disposable
 per-run credential files. Do not keep those files across sessions. Proxmox disk
@@ -138,21 +138,18 @@ runtime config. The management UI has no account-only role: its key can read,
 replace or delete OAuth auth files and change settings. Treat UI settings edits
 as drift from Git and SOPS. OAuth refresh/session files in the bind mount are
 sensitive and intentionally enter the encrypted local/NFS/Proton backup chain.
-Never expose the OAuth callback port on any host network interface. The public
-`gost.diloreto.com` WebSocket proxy is now configured for `tailscale.com` and
-its subdomains on ports 80/443 and `*.ts.diloreto.com:443` only; the old
-any-port MagicDNS matcher is removed from the running host config. Authentik
+Never expose the OAuth callback port on any host network interface. The public `gost.diloreto.com` WebSocket proxy has no destination whitelist and
+relays all traffic reachable from the Docker host's `egress` network once
+authenticated. Authentik
 gates the proxy handshake with the existing service-account app password; the
 API and management keys remain separate service credentials. The proxy
-credential permits attempts to reach all listed private routes, including
-Omada, Proxmox, Z-Wave and Uchiyomi X. Omada and Proxmox use native logins;
-Z-Wave retains its Authentik group binding, and Uchiyomi X admits only `paul`
-through its own OIDC client.
+credential permits attempts to reach any destination reachable from the Docker
+host's `egress` network, including public Internet destinations and private
+routes such as Omada, Proxmox, Z-Wave and Uchiyomi X. Omada and Proxmox use
+native logins; Z-Wave retains its Authentik group binding, and Uchiyomi X
+admits only `paul` through its own OIDC client.
 The relay handshake does not authenticate a backend. Tailscale evaluates
-relay egress as the Docker-host node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. The
-operator reports work-Mac first-hop LLM/Omada application access and Tailscale
-coordination working, but its system PAC is **off** and remote authenticated
-whitelist refusal remains untested. Treat loss of the proxy credential as loss
+relay egress as the Docker-host node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. Treat loss of the proxy credential as loss
 of this network boundary and revoke it as described below.
 
 ## Automatic Compose deployment credentials
@@ -217,18 +214,18 @@ profile; it is not a Compose or OpenTofu input. Revoke both the old
 `tailscale-control-proxy` app password and the new app password when applicable;
 terminate active WebSockets when immediate invalidation is required.
 
-GOST has no published host port and no reusable server-side credential. Its
-reviewed whitelist permits `tailscale.com` and subdomains on TCP 80/443, plus
-`*.ts.diloreto.com:443`; it does not declare any-port MagicDNS access or arbitrary
-Internet destinations. Docker's default DNS cannot resolve MagicDNS. Only GOST
+GOST has no published host port, no reusable server-side credential and no
+destination whitelist: once Authentik admits the WebSocket handshake, GOST
+relays all traffic reachable from the Docker host's `egress` network (including
+public Internet destinations, tailnet peers and LAN hosts reachable from that
+bridge). Docker's default DNS cannot resolve MagicDNS. Only GOST
 uses `100.100.100.100` for peer names and the host-observed `1.1.1.1` fallback
-for public Tailscale control names; site convergence checks the resolver pair
+for public names; site convergence checks the resolver pair
 and host's current DNS. Do not disable client TLS verification or remove
-Authentik's identity gate. Check the **live** remote whitelist with an isolated
-authenticated client without a local bypass; source alone does not prove what
-that server currently denies. A stolen relay credential can attempt all listed
-private application routes through the Docker host's identity, subject to
-application authentication and Tailscale policy. Proxmox needs its native
+Authentik's identity gate. A stolen relay credential grants authenticated
+HTTP/CONNECT proxy egress through the Docker host's identity, including
+arbitrary Internet destinations and private application routes, subject to
+application authentication and Tailscale/host firewall policy. Proxmox needs its native
 login; Z-Wave and Uchiyomi X remain Authentik-protected. The bridged private
 Traefik reaches Authentik's embedded proxy at `authentik-server:9000` without a host port;
 Z-Wave's UI port 8091 has no published host binding. Docker publishes private
@@ -308,7 +305,7 @@ connection secrets become sensitive OpenTofu resource attributes, so protect
 remote state and private plans in addition to the encrypted SOPS sources.
 Private Arr provider routes should forward only native API paths over tailnet
 HTTPS. The native API key remains essential authorization: the GOST relay can
-attempt the permitted `*.ts.diloreto.com:443` private routes after its own
+attempt private `*.ts.diloreto.com:443` routes after its own
 handshake, so a private hostname or relay authentication alone is insufficient.
 
 ## Recovery material

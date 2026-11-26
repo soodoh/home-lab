@@ -42,7 +42,7 @@ Application credentials remain separate from network admission. The tracked Omad
 interface uses the system-trusted private Traefik hostname from local controllers.
 Adding an ingress requires fresh backup/ownership checks and separate host/policy
 approval. The work Mac's system PAC is off; reported client access does not qualify
-browser routing or isolated remote GOST denial behavior.
+browser routing.
 
 ## Host-local scheduled deployment
 

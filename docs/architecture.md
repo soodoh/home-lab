@@ -103,16 +103,14 @@ credentials and encrypted bundles live outside Git.
 - Host-side autonomous rollback may outlive a controller only where loss of
   connectivity could otherwise strand the host.
 - `gost.diloreto.com` is an authenticated WebSocket transport for the
-  work Mac's Tailscale coordination and CLIProxyAPI traffic. Traefik terminates
-  public TLS, Authentik admits only the `gost-proxy-user` service account,
-  and the deployed GOST service permits `tailscale.com` on TCP 80/443 plus
-  `*.ts.diloreto.com:443`, not the old any-port MagicDNS matcher. The boundary
-  includes the listed private routes, now including Proxmox and Z-Wave.
-  Proxmox uses native login; Z-Wave retains its Authentik group gate via the
-  existing embedded proxy. Future services need explicit private routers and
-  their own authorization. The operator reports
-  work-Mac first-hop access working; its system PAC remains off. Tailscale
-  evaluates relay egress as the Docker-host node, not the work Mac.
-  GOST alone uses the host-observed MagicDNS and public resolvers because Docker's
-  default DNS cannot resolve tailnet peers. Other Internet destinations remain
-  denied by the remote relay; the work-Mac client dials nonmatches locally.
+  work Mac's proxied traffic. Traefik terminates public TLS, Authentik admits
+  only the `gost-proxy-user` service account, and the GOST service has no
+  destination bypass/whitelist so it relays all traffic reachable from the
+  Docker host's `egress` network (public Internet, tailnet and LAN
+  destinations). Private routes such as `*.ts.diloreto.com` still require their
+  own application authorization: Proxmox uses native login; Z-Wave retains its
+  Authentik group gate via the existing embedded proxy; future services need
+  explicit private routers and their own authorization. Tailscale evaluates
+  relay egress as the Docker-host node, not the work Mac. GOST alone uses the
+  host-observed MagicDNS and public resolvers because Docker's default DNS
+  cannot resolve tailnet peers.

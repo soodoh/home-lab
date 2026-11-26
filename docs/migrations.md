@@ -120,7 +120,7 @@ production ownership. Preserve independent custody of the host decryption identi
 
 Wire the useful dormant controller tests into CI:
 
-- `scripts/controller/test-gost-private-subdomain-boundary.test.cjs`;
+- `scripts/controller/test-gost-relay-boundary.test.cjs`;
 - `scripts/controller/test-mindwtr-service.test.cjs`;
 - `scripts/controller/test-traefik-ingress.test.cjs`;
 - `scripts/controller/test-traefik-tailnet.test.cjs`;
@@ -140,7 +140,6 @@ and source identities before choosing an owner and qualifying recovery behavior.
 
 ## Deferred ingress qualifications
 
-Isolated authenticated GOST destination denials (without a client-side bypass)
-and private-route UDP/HTTP3 negatives remain unqualified. Test these against
+Private-route UDP/HTTP3 negatives remain unqualified. Test these against
 fresh live state before relying on those boundaries. System PAC on the work Mac
 is off; its reported CLIProxyAPI/Omada access is not a browser-path test.
