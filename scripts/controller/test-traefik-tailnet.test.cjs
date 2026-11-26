@@ -31,7 +31,7 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
   assert.equal(privateIngress.network_mode, undefined);
   assert.deepEqual(privateIngress.ports, [`${ingressIp}:443:443/tcp`]);
   assert.deepEqual(privateIngress.networks, [
-    'egress', 'auth-ingress', 'arr-ingress', 'cli-proxy-ingress', 'comics-ingress', 'omada-ingress',
+    'traefik-tailnet-egress', 'auth-ingress', 'arr-ingress', 'cli-proxy-ingress', 'comics-ingress', 'omada-ingress',
   ]);
   assert.deepEqual(infra.services.omada.networks, ['egress', 'omada-ingress']);
   assert.ok(Object.entries(infra.services).every(([name, service]) => {
@@ -133,7 +133,7 @@ test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   assert.ok(authentik.networks.includes('hass-ingress'));
   const zwave = readYaml('services/hass.yml').services.zwave;
   assert.deepEqual(zwave.ports, ['127.0.0.1:3000:3000']);
-  assert.deepEqual(zwave.networks, ['hass-internal', 'hass-ingress', 'egress']);
+  assert.deepEqual(zwave.networks, ['hass', 'hass-ingress']);
   const cli = readYaml('services/cli-proxy-api.yml').services['cli-proxy-api'];
   assert.deepEqual(cli.networks, ['egress', 'cli-proxy-ingress']);
   assert.equal(readYaml('services/cli-proxy-api.yml').networks['cli-proxy-ingress'].internal, true);

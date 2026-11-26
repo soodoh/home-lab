@@ -131,7 +131,7 @@ http:
     hass:
       loadBalancer:
         servers:
-          - url: http://172.29.0.1:8123
+          - url: http://172.30.0.1:8123
     vaultwarden:
       loadBalancer:
         servers:

@@ -90,9 +90,9 @@ services:
       - ./data/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./data/traefik/routes.yml:/etc/traefik/routes.yml:ro
     networks:
-      egress:
+      traefik-egress:
         # Must match Home Assistant's trusted_proxies entry.
-        ipv4_address: 172.29.0.250
+        ipv4_address: 172.30.0.250
       auth-ingress: {}
       bookorbit-ingress: {}
       comics-ingress: {}
@@ -109,11 +109,11 @@ services:
     restart: always
     logging: *default-logging
     # Publish only on the reviewed Tailscale IP; internal bridges reach private
-    # backends and egress reaches Proxmox LAN and Route53 ACME.
+    # backends and traefik-tailnet-egress reaches Proxmox LAN and Route53 ACME.
     ports:
       - 100.116.163.42:443:443/tcp
     networks:
-      - egress
+      - traefik-tailnet-egress
       - auth-ingress
       - arr-ingress
       - cli-proxy-ingress
@@ -139,12 +139,21 @@ networks:
   egress:
     driver: bridge
     driver_opts:
-      # Prevent lateral container-to-container traffic on the shared egress bridge.
+      # Prevent lateral container-to-container traffic on the shared app egress bridge.
       com.docker.network.bridge.enable_icc: "false"
     ipam:
       driver: default
       config:
         - subnet: "172.29.0.0/16"
+  traefik-egress:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.30.0.0/16"
+  traefik-tailnet-egress:
+    ipam:
+      config:
+        - subnet: "172.26.23.0/29"
   omada-ingress:
     internal: true
     ipam:

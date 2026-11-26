@@ -52,9 +52,8 @@ services:
       # The UI is reachable only through Authentik on the internal hass-ingress bridge.
       - 127.0.0.1:3000:3000
     networks:
-      - hass-internal
+      - hass
       - hass-ingress
-      - egress
 
   mosquitto:
     image: eclipse-mosquitto:2.0.23-openssl@sha256:6a332cc7a8dbe011cbc076180cbb76b37c6f0f55809682ea08e7980ef0112ad9
@@ -78,8 +77,7 @@ services:
       - 127.0.0.1:1883:1883
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:1883:1883
     networks:
-      - hass-internal
-      - egress
+      - hass
 
   frigate:
     image: ghcr.io/blakeblackshear/frigate:0.18.3@sha256:d1a3e0008557bb3f3314d442ecd4ba68e9b16ab7872d64612649f7a6e5156635
@@ -125,9 +123,8 @@ services:
       - 127.0.0.1:5000:5000
       - 127.0.0.1:8554:8554 # RTSP feeds for HA camera streams
     networks:
-      - hass-internal
+      - hass
       - hass-ingress
-      - egress
 
 secrets:
   zwave_session_secret:
@@ -168,11 +165,7 @@ secrets:
     file: /etc/docker-compose/credentials/FRIGATE_BACK_HOUSE_PW
 
 networks:
-  hass-internal:
-    internal: true
-    ipam:
-      config:
-        - subnet: "172.26.5.0/28"
+  hass:
   hass-ingress:
     internal: true
     ipam:

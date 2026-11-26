@@ -81,7 +81,7 @@ services:
       - admin-apps-ingress
       - arr-ingress
       - shelfmark-ingress
-      - egress
+      - authentik-egress
 
   authentik-worker:
     image: ghcr.io/goauthentik/server:2026.8.6@sha256:da89d8338a3b1889800eb033fd61f8d43f7aa9a1c5a042cb5e03d891b1f0c56c
@@ -126,7 +126,7 @@ services:
         condition: service_healthy
     networks:
       - authentik-db
-      - egress
+      - authentik-egress
 
   authentik-ldap:
     image: ghcr.io/goauthentik/ldap:2026.8.6@sha256:aa296faa28d2ac35bc46e2b92d8a94ffeed557ecf8cd213113cecbc46d85d47e
@@ -167,5 +167,12 @@ networks:
     ipam:
       config:
         - subnet: "172.26.2.0/28"
+  authentik-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+    ipam:
+      config:
+        - subnet: "172.26.24.0/28"
   jellyfin-auth:
     internal: true
