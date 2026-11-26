@@ -94,7 +94,7 @@ http:
     uchiyomi-x:
       loadBalancer:
         servers:
-          - url: http://gluetun:3001
+          - url: http://gluetun-comics:3001
     proxmox:
       loadBalancer:
         serversTransport: proxmox-lan
@@ -104,7 +104,7 @@ http:
       loadBalancer:
         servers:
           - url: http://authentik-server:9000
-    # Gluetun shares the proxy bridge with this private Traefik instance.
+    # Gluetun shares the internal arr-ingress bridge with this private Traefik instance.
     sonarr-api:
       loadBalancer:
         servers:

@@ -130,8 +130,8 @@ Unknown and revoked feed URLs must not return task data.
 
 Private Traefik terminates HTTPS for CLIProxyAPI at `llm.ts.diloreto.com`
 on tailnet TCP 443; the old Tailscale Serve port 8444 is closed. Traefik
-reaches `cli-proxy-api:8317` on the Docker proxy bridge; the existing host
-binding remains limited to 127.0.0.1:8317.
+reaches `cli-proxy-api:8317` on the dedicated internal `cli-proxy-ingress`
+bridge; the existing host binding remains limited to 127.0.0.1:8317.
 The API key and separate full-privilege management key are age-encrypted in
 `secrets/cli-proxy-api.sops.yaml` and rendered only to a root-owned protected
 runtime config. The management UI has no account-only role: its key can read,

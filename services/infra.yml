@@ -14,7 +14,8 @@ services:
     # Bridge mode requires DHCP option 138 to advertise the host LAN address to
     # devices. Keep device-management ports on the LAN, never the public WAN.
     networks:
-      - omada-backend
+      - egress
+      - omada-ingress
     ports:
       # Retain host loopback until independent consumers are checked live.
       - 127.0.0.1:8043:8043
@@ -50,7 +51,8 @@ services:
       # See: https://pkg.go.dev/time#ParseDuration
       PERIOD: 5m
     networks:
-      - proxy
+      - egress
+      - admin-apps-ingress
 
   tailscale-control-proxy:
     image: gogost/gost:3.3.3@sha256:f266f957c6e4f8d433ed23202a5745fa4969d08f3f0ef034fb9357345e16ad67
@@ -70,7 +72,8 @@ services:
         target: /etc/gost/tailscale-control.yml
         read_only: true
     networks:
-      - proxy
+      - egress
+      - gost-ingress
 
   traefik:
     image: traefik:v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
@@ -78,32 +81,44 @@ services:
     restart: always
     logging: *default-logging
     ports:
-      # Omada forwards public 80/443 to these host ports, including UDP for HTTP/3.
-      - 18080:80/tcp
-      - 18443:443/tcp
-      - 18443:443/udp
+      # Omada forwards public 80/443 to these host LAN ports, including UDP for HTTP/3.
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18080:80/tcp
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/tcp
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/udp
     volumes:
       - /srv/home-lab-state/traefik-data:/data
       - ./data/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./data/traefik/routes.yml:/etc/traefik/routes.yml:ro
     networks:
-      proxy:
+      egress:
         # Must match Home Assistant's trusted_proxies entry.
-        ipv4_address: 172.23.0.250
+        ipv4_address: 172.25.0.250
+      auth-ingress: {}
       bookorbit-ingress: {}
+      comics-ingress: {}
+      media-public-ingress: {}
+      mindwtr-ingress: {}
+      nextcloud-ingress:
+        # Must match Nextcloud's TRUSTED_PROXIES entry.
+        ipv4_address: 172.26.4.2
+      vaultwarden-ingress: {}
 
   traefik-tailnet:
     image: traefik:v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
     container_name: traefik-tailnet
     restart: always
     logging: *default-logging
-    # Publish only on the reviewed Tailscale IP; Docker DNS reaches the
-    # Authentik/CLI backends and a separate bridge reaches Omada.
+    # Publish only on the reviewed Tailscale IP; internal bridges reach private
+    # backends and egress reaches Proxmox LAN and Route53 ACME.
     ports:
       - 100.116.163.42:443:443/tcp
     networks:
-      - proxy
-      - omada-backend
+      - egress
+      - auth-ingress
+      - arr-ingress
+      - cli-proxy-ingress
+      - comics-ingress
+      - omada-ingress
     environment:
       AWS_SHARED_CREDENTIALS_FILE: /run/secrets/traefik_tailnet_aws_credentials
       AWS_REGION: us-east-1
@@ -121,14 +136,32 @@ secrets:
     file: /etc/docker-compose/credentials/traefik-tailnet-aws-credentials
 
 networks:
-  infra:
+  egress:
+    driver: bridge
+    driver_opts:
+      # Prevent lateral container-to-container traffic on the shared egress bridge.
+      com.docker.network.bridge.enable_icc: "false"
     ipam:
       driver: default
       config:
-        - subnet: "172.22.0.0/16"
-  proxy:
+        - subnet: "172.25.0.0/16"
+  omada-ingress:
+    internal: true
     ipam:
-      driver: default
       config:
-        - subnet: "172.23.0.0/16"
-  omada-backend: {}
+        - subnet: "172.26.7.0/29"
+  auth-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.8.0/28"
+  gost-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.9.0/29"
+  admin-apps-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.14.0/28"

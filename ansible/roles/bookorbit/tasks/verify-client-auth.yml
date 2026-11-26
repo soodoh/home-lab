@@ -1,0 +1,17 @@
+---
+- name: Test the private Arr bridge and refuse an unauthenticated qBittorrent backend
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - bookorbit
+      - node
+      - -e
+      - >-
+        fetch('http://gluetun:8081/api/v2/app/version', {redirect:'manual', signal: AbortSignal.timeout(5000)})
+        .then((version) => {
+          if (![401, 403].includes(version.status)) process.exitCode = 1;
+        }).catch(() => { process.exitCode = 1; });
+  become: true
+  changed_when: false
+  check_mode: false

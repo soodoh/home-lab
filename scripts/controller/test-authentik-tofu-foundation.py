@@ -270,7 +270,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(network["dhcp_options"], [{"code": 138, "value": "192.168.0.100"}])
         omada = yaml.safe_load((REPO / "services/infra.yml").read_text())["services"]["omada"]
         self.assertNotEqual(omada.get("network_mode"), "host")
-        self.assertEqual(omada["networks"], ["omada-backend"])
+        self.assertEqual(omada["networks"], ["egress", "omada-ingress"])
         self.assertIn("127.0.0.1:8043:8043", omada["ports"])
         for port in (":29810:29810/udp", ":29811-29817:29811-29817"):
             self.assertTrue(any(binding.endswith(port) for binding in omada["ports"]))
@@ -318,7 +318,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         proxy = yaml.safe_load((REPO / "services/infra.yml").read_text())["services"]["tailscale-control-proxy"]
         self.assertRegex(proxy["image"], r"^gogost/gost:[^@]+@sha256:[0-9a-f]{64}$")
         self.assertFalse(proxy.get("ports"))
-        self.assertIn("proxy", proxy["networks"])
+        self.assertIn("gost-ingress", proxy["networks"])
+        self.assertIn("egress", proxy["networks"])
 
     def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
         authentik = yaml.safe_load((REPO / "services/authentik.yml").read_text())

@@ -44,19 +44,19 @@
   vars:
     shelfmark_controller_root: "{{ compose_native_controller_root }}"
 
-- name: Verify BookOrbit cannot bypass qBittorrent authentication via its new route
+- name: Verify BookOrbit cannot bypass qBittorrent authentication over the private Arr bridge
   ansible.builtin.include_role:
     name: bookorbit
-    tasks_from: verify-proxy
-  when: "'bookorbit-acquisition' in compose_native_new_services.stdout_lines"
+    tasks_from: verify-client-auth
+  when: "'bookorbit' in compose_native_new_services.stdout_lines"
 
-- name: Apply BookOrbit connection credentials after the providers and proxy are ready
+- name: Apply BookOrbit connection credentials after the providers are ready
   ansible.builtin.include_role:
     name: bookorbit
   vars:
     bookorbit_controller_root: "{{ compose_native_controller_root }}"
   when:
-    - "'bookorbit-acquisition' in compose_native_new_services.stdout_lines"
+    - "'bookorbit' in compose_native_new_services.stdout_lines"
     - not (compose_native_automated | bool)
 
 - name: Verify the complete deployed model and required health before accepting source

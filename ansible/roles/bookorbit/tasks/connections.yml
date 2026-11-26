@@ -8,7 +8,7 @@
         adapter: prowlarr
         fields:
           name: Home Lab Prowlarr
-          baseUrl: http://bookorbit-acquisition:9696
+          baseUrl: http://gluetun:9696
           allowPrivateAddress: true
           syncNewIndexers: false
           inheritSeedLimits: true
@@ -20,7 +20,7 @@
         adapter: qbittorrent
         fields: >-
           {{ bookorbit_persistence_client_settings | combine({
-             'name': 'Home Lab qBittorrent', 'baseUrl': 'http://bookorbit-acquisition:8081', 'enabled': true,
+             'name': 'Home Lab qBittorrent', 'baseUrl': 'http://gluetun:8081', 'enabled': true,
              'username': bookorbit_download_clients.qbittorrent_username, 'password': bookorbit_download_clients.qbittorrent_password,
              'pathMappings': [{'remotePath': bookorbit_qbit_path, 'localPath': '/acquisition/qbittorrent'}]}) }}
       - collection: download-clients
@@ -29,7 +29,7 @@
         adapter: sabnzbd
         fields: >-
           {{ bookorbit_persistence_client_settings | combine({
-             'name': 'Home Lab SABnzbd', 'baseUrl': 'http://bookorbit-acquisition:8080', 'enabled': bookorbit_sab_enabled,
+             'name': 'Home Lab SABnzbd', 'baseUrl': 'http://gluetun:8080', 'enabled': bookorbit_sab_enabled,
              'password': bookorbit_download_clients.sabnzbd_api_key,
              'pathMappings': [{'remotePath': bookorbit_sab_path, 'localPath': '/acquisition/sabnzbd'}]}) }}
   module_defaults:

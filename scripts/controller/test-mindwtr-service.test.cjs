@@ -15,9 +15,10 @@ test('Mindwtr runs a pinned, token-authenticated cloud without publishing a host
   const app = compose['mindwtr-app'];
   for (const service of [cloud, app]) {
     assert.match(service.image, /@sha256:[0-9a-f]{64}$/);
-    assert.deepEqual(service.networks, ['proxy']);
+    assert.deepEqual(service.networks, ['mindwtr-ingress']);
     assert.equal(service.ports, undefined);
   }
+  assert.equal(yaml.load(fs.readFileSync('services/apps.yml', 'utf8')).networks['mindwtr-ingress'].internal, true);
   assert.equal(cloud.environment.MINDWTR_CLOUD_AUTH_TOKENS, undefined);
   assert.equal(cloud.environment.MINDWTR_CLOUD_AUTH_TOKENS_FILE, '/run/secrets/mindwtr_cloud_tokens');
   assert.equal(cloud.user, '0:0');

@@ -6,7 +6,7 @@
       "enabled": true,
       "failure_result": false,
       "group": null,
-      "group_ref": "cwa-users",
+      "group_ref": "book-users",
       "negate": false,
       "order": 0,
       "pk": null,
@@ -1155,7 +1155,7 @@
       "external_host": "https://shelfmark.diloreto.com",
       "import_existing": false,
       "intercept_header_auth": true,
-      "internal_host": "http://gluetun:8084",
+      "internal_host": "http://gluetun-shelfmark:8084",
       "internal_host_ssl_validation": true,
       "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
       "jwt_federation_providers": [],
@@ -1271,7 +1271,7 @@
       "external_host": "https://seerr.diloreto.com",
       "import_existing": true,
       "intercept_header_auth": true,
-      "internal_host": "http://gluetun:5055",
+      "internal_host": "http://seerr:5055",
       "internal_host_ssl_validation": true,
       "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
       "jwt_federation_providers": [],
@@ -1664,7 +1664,7 @@
       "pk": "653a9fd8-ea6e-4d83-bb6e-e8a1510bde46",
       "roles": []
     },
-    "cwa-users": {
+    "book-users": {
       "attributes": {},
       "is_superuser": false,
       "membership_set": "personal",

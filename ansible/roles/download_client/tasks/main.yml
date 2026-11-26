@@ -17,12 +17,17 @@
     fail_msg: Download-client SOPS source is incomplete.
   no_log: true
 
-- name: Observe Gluetun's current bridge address
-  ansible.builtin.command:
-    argv: [docker, exec, gluetun, hostname, -i]
-  register: download_client_bridge_ips
-  changed_when: false
-  check_mode: false
+- name: Observe Gluetun's Arr-interface address for host-side native maintenance
+  community.docker.docker_container_info:
+    name: gluetun
+  register: download_client_gluetun
+  no_log: true
+
+- name: Select the observed address on the adopted Arr bridge
+  ansible.builtin.set_fact:
+    download_client_arr_ip: "{{ download_client_gluetun.container.NetworkSettings.Networks['docker-compose_arr_network'].IPAddress | default('') }}"
+    cacheable: false
+  no_log: true
 
 - name: Read current application credential settings
   ansible.builtin.slurp:
@@ -60,7 +65,7 @@
 - name: Refuse unknown application credentials or bridge topology
   ansible.builtin.assert:
     that:
-      - download_client_bridge_ips.stdout.split() | length >= 1
+      - download_client_arr_ip is match('^172[.]21[.][0-9]{1,3}[.][0-9]{1,3}$')
       - download_client_qbit_match.stdout in ['in_sync', 'out_of_sync']
       - download_client_sab_keys | length == 1
     fail_msg: Download-client credential observation is incomplete.
@@ -68,7 +73,7 @@
 
 - name: Require qBittorrent WebUI preferences reachable through the existing private bridge
   ansible.builtin.uri:
-    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8081/api/v2/app/preferences"
+    url: "http://{{ download_client_arr_ip }}:8081/api/v2/app/preferences"
     method: GET
     status_code: 200
     return_content: false
@@ -78,7 +83,7 @@
 
 - name: Set both qBittorrent WebUI credentials only when the stored hash differs
   ansible.builtin.uri:
-    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8081/api/v2/app/setPreferences"
+    url: "http://{{ download_client_arr_ip }}:8081/api/v2/app/setPreferences"
     method: POST
     body_format: form-urlencoded
     body:
@@ -121,7 +126,7 @@
 
 - name: Set SABnzbd's API key only when the existing key differs
   ansible.builtin.uri:
-    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8080/api"
+    url: "http://{{ download_client_arr_ip }}:8080/api"
     method: POST
     body_format: form-urlencoded
     body:
@@ -144,7 +149,7 @@
 
 - name: Verify SABnzbd authenticates the desired full API key
   ansible.builtin.uri:
-    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8080/api"
+    url: "http://{{ download_client_arr_ip }}:8080/api"
     method: POST
     body_format: form-urlencoded
     body:

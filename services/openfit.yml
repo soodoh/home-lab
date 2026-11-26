@@ -35,4 +35,5 @@ services:
       start_interval: 5s
       retries: 3
     networks:
-      - proxy
+      - egress
+      - admin-apps-ingress

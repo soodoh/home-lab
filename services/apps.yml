@@ -40,8 +40,10 @@ services:
       JELLYFIN_SERVERS: $INTERNAL_HOST_IP
       JELLYFIN_PublishedServerUrl: $JELLYFIN_PublishedServerUrl
     networks:
-      - proxy
+      - egress
+      - media-public-ingress
       - jellyfin-auth
+      - seerr-jellyfin
 
   karaoke-eternal:
     image: radrootllc/karaoke-eternal:2.1.0@sha256:ea6ab55254702443bfc16fe9c21128aa0a79262c739a8419e8f72c67267ee0f1
@@ -54,7 +56,8 @@ services:
       - /srv/home-lab-state/karaoke-eternal-data:/config
       - ${MEDIA_PATH}/karaoke:/mnt/karaoke
     networks:
-      - proxy
+      - egress
+      - media-public-ingress
 
   vaultwarden:
     image: ghcr.io/dani-garcia/vaultwarden:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
@@ -87,7 +90,8 @@ services:
     volumes:
       - /srv/home-lab-state/vaultwarden-data:/data
     networks:
-      - proxy
+      - egress
+      - vaultwarden-ingress
 
   mindwtr-cloud:
     image: ghcr.io/dongdongbh/mindwtr-cloud:1.3.9@sha256:9bd240a1da46f18e38ca93fe105faad7d79667d1bf12a156250a92700a28aede
@@ -119,7 +123,7 @@ services:
         bind:
           create_host_path: false
     networks:
-      - proxy
+      - mindwtr-ingress
 
   mindwtr-app:
     image: ghcr.io/dongdongbh/mindwtr-app:1.3.9@sha256:91eb0e968593e898bbeae02e86879b76bc56b93f1bb03a5fa7a27e18c2db54cf
@@ -130,7 +134,7 @@ services:
       mindwtr-cloud:
         condition: service_healthy
     networks:
-      - proxy
+      - mindwtr-ingress
 
 secrets:
   vaultwarden_smtp_password:
@@ -139,3 +143,20 @@ secrets:
     file: /etc/docker-compose/credentials/vaultwarden-sso-client-secret
   mindwtr_cloud_tokens:
     file: /etc/docker-compose/credentials/mindwtr-cloud-tokens
+
+networks:
+  vaultwarden-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.11.0/29"
+  media-public-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.12.0/28"
+  mindwtr-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.13.0/28"

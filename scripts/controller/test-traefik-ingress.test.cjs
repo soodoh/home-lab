@@ -40,9 +40,9 @@ test('the public host allowlist routes to the intended private backends', () => 
     assert.ok(dynamic.services[service].loadBalancer.servers[0].url.startsWith('http://'));
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
-  assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.23.0.1:8123');
+  assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.25.0.1:8123');
   assert.equal(dynamic.services.books.loadBalancer.servers[0].url, 'http://bookorbit:3000');
-  assert.equal(dynamic.services.uchiyomi.loadBalancer.servers[0].url, 'http://gluetun:3000');
+  assert.equal(dynamic.services.uchiyomi.loadBalancer.servers[0].url, 'http://gluetun-comics:3000');
 });
 
 test('Books isolates the backend and denies local auth without blocking the OIDC callback or Kobo', () => {
@@ -51,9 +51,14 @@ test('Books isolates the backend and denies local auth without blocking the OIDC
   assert.equal(app.environment.APP_URL, 'https://books.diloreto.com');
   assert.equal(app.environment.DISABLE_LOCAL_AUTH, 'true');
   assert.equal(app.ports, undefined);
-  assert.deepEqual(app.networks.sort(), ['bookorbit-acquisition', 'bookorbit-db', 'bookorbit-egress', 'bookorbit-ingress']);
+  assert.deepEqual(app.networks.sort(), ['bookorbit-arr', 'bookorbit-db', 'bookorbit-ingress', 'egress']);
   assert.deepEqual(model.networks['bookorbit-ingress'], { internal: true });
-  assert.deepEqual(Object.keys(compose.services.traefik.networks).sort(), ['bookorbit-ingress', 'proxy']);
+  assert.equal(model.networks['bookorbit-db'].internal, true);
+  assert.equal(model.networks['bookorbit-arr'].internal, true);
+  assert.deepEqual(Object.keys(compose.services.traefik.networks).sort(), [
+    'auth-ingress', 'bookorbit-ingress', 'comics-ingress', 'egress',
+    'media-public-ingress', 'mindwtr-ingress', 'nextcloud-ingress', 'vaultwarden-ingress',
+  ]);
   const guard = dynamic.routers['books-deny-local-auth'];
   assert.equal(guard.service, 'noop@internal');
   assert.deepEqual(guard.entryPoints, ['websecure']);
@@ -109,8 +114,14 @@ test('redirects, certificates, HTTP/3, and uniform HSTS preserve ingress policy'
 
 test('NAT, Compose, trusted proxy, and certificate persistence agree', () => {
   const service = compose.services.traefik;
-  assert.deepEqual(service.ports, ['18080:80/tcp', '18443:443/tcp', '18443:443/udp']);
-  assert.equal(service.networks.proxy.ipv4_address, '172.23.0.250');
+  assert.deepEqual(service.ports, [
+    '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18080:80/tcp',
+    '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/tcp',
+    '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/udp',
+  ]);
+  assert.equal(service.networks.egress.ipv4_address, '172.25.0.250');
+  assert.equal(service.networks['nextcloud-ingress'].ipv4_address, '172.26.4.2');
+  assert.equal(compose.networks.egress.driver_opts['com.docker.network.bridge.enable_icc'], 'false');
   assert.ok(service.volumes.includes('/srv/home-lab-state/traefik-data:/data'));
   assert.ok(service.volumes.includes('./data/traefik/traefik.yml:/etc/traefik/traefik.yml:ro'));
   assert.ok(service.volumes.includes('./data/traefik/routes.yml:/etc/traefik/routes.yml:ro'));
@@ -123,4 +134,29 @@ test('NAT, Compose, trusted proxy, and certificate persistence agree', () => {
   assert.ok(recovery.services.includes('traefik'));
   assert.ok(!recovery.paths.includes('/srv/home-lab-state/traefik-data'));
   assert.ok(!fs.readFileSync('services/data/restic/files-from', 'utf8').split('\n').includes('/srv/home-lab-state/traefik-data'));
+});
+
+test('databases, caches, and internal-only services stay off routable egress networks', () => {
+  const authentik = readYaml('services/authentik.yml');
+  assert.deepEqual(authentik.services.postgres.networks, ['authentik-db']);
+  assert.equal(authentik.networks['authentik-db'].internal, true);
+  assert.deepEqual(authentik.services['authentik-worker'].networks, ['authentik-db', 'egress']);
+  assert.deepEqual(authentik.services['authentik-ldap'].networks, ['authentik-outpost', 'jellyfin-auth']);
+  assert.equal(authentik.networks['authentik-outpost'].internal, true);
+
+  const nextcloud = readYaml('services/nextcloud.yml');
+  assert.equal(nextcloud.services.nextcloud.environment.TRUSTED_PROXIES, '172.26.4.2');
+  assert.deepEqual(nextcloud.services['nextcloud-db'].networks, ['nextcloud-data']);
+  assert.deepEqual(nextcloud.services['nextcloud-redis'].networks, ['nextcloud-data']);
+  assert.equal(nextcloud.networks['nextcloud-data'].internal, true);
+  assert.equal(nextcloud.networks['nextcloud-ingress'].internal, true);
+
+  const servarr = readYaml('services/servarr.yml');
+  assert.equal(servarr.services.shelfmark.network_mode, 'service:gluetun-shelfmark');
+  assert.equal(servarr.services.seerr.network_mode, undefined);
+  assert.deepEqual(servarr.services.unpackerr.networks, ['arr-internal']);
+  assert.equal(servarr.networks['arr-internal'].internal, true);
+  assert.equal(servarr.networks['shelfmark-ingress'].internal, true);
+  assert.equal(servarr.networks['shelfmark-arr'].internal, true);
+  assert.equal(servarr.networks['comics-ingress'].internal, true);
 });

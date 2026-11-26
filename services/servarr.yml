@@ -10,9 +10,9 @@ services:
     container_name: shelfmark
     restart: unless-stopped
     logging: *default-logging
-    network_mode: service:gluetun
+    network_mode: service:gluetun-shelfmark
     depends_on:
-      gluetun:
+      gluetun-shelfmark:
         condition: service_healthy
         restart: true
     environment:
@@ -25,8 +25,8 @@ services:
       PROXY_AUTH_ADMIN_GROUP_NAME: App Operators
       PROXY_AUTH_LOGOUT_URL: https://shelfmark.diloreto.com/outpost.goauthentik.io/sign_out
       # Download destinations, naming and seeding policy are native Ansible-owned settings.
-      PROWLARR_URL: http://localhost:9696
-      QBITTORRENT_URL: http://localhost:8081
+      PROWLARR_URL: http://gluetun:9696
+      QBITTORRENT_URL: http://gluetun:8081
     volumes:
       - type: bind
         source: /srv/home-lab-state/shelfmark-data
@@ -58,11 +58,6 @@ services:
     container_name: seerr
     restart: unless-stopped
     logging: *default-logging
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
     environment:
       TZ: $TZ
       LOG_LEVEL: debug
@@ -75,6 +70,11 @@ services:
       timeout: 3s
       interval: 15s
       retries: 3
+    networks:
+      - egress
+      - admin-apps-ingress
+      - seerr-arr
+      - seerr-jellyfin
 
   gluetun:
     image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
@@ -109,8 +109,69 @@ services:
       - wireguard_addresses
       - mam_initial_id
     networks:
-      - proxy
       - arr_network
+      - arr-ingress
+      - arr-internal
+      - bookorbit-arr
+      - shelfmark-arr
+      - seerr-arr
+
+  gluetun-comics:
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    container_name: gluetun-comics
+    hostname: gluetun-comics
+    restart: always
+    logging: *default-logging
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - gluetun_comics_data:/gluetun
+    environment:
+      TZ: $TZ
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY_SECRETFILE: /run/secrets/wireguard_comics_private_key
+      WIREGUARD_ADDRESSES_SECRETFILE: /run/secrets/wireguard_comics_addresses
+      VPN_SERVICE_PROVIDER: $VPN_PROVIDER
+      # Use DoH instead of DoT — port 853 gets reset by ProtonVPN (gluetun#3121)
+      DNS_UPSTREAM_RESOLVER_TYPE: doh
+      SERVER_COUNTRIES: $SERVER_COUNTRIES
+    secrets:
+      - wireguard_comics_private_key
+      - wireguard_comics_addresses
+    networks:
+      - egress
+      - comics-ingress
+
+  gluetun-shelfmark:
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    container_name: gluetun-shelfmark
+    hostname: gluetun-shelfmark
+    restart: always
+    logging: *default-logging
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - gluetun_shelfmark_data:/gluetun
+    environment:
+      TZ: $TZ
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY_SECRETFILE: /run/secrets/wireguard_shelfmark_private_key
+      WIREGUARD_ADDRESSES_SECRETFILE: /run/secrets/wireguard_shelfmark_addresses
+      VPN_SERVICE_PROVIDER: $VPN_PROVIDER
+      # Use DoH instead of DoT — port 853 gets reset by ProtonVPN (gluetun#3121)
+      DNS_UPSTREAM_RESOLVER_TYPE: doh
+      SERVER_COUNTRIES: $SERVER_COUNTRIES
+    secrets:
+      - wireguard_shelfmark_private_key
+      - wireguard_shelfmark_addresses
+    networks:
+      - egress
+      - shelfmark-ingress
+      - shelfmark-arr
 
   uchiyomi:
     image: ghcr.io/angelosha/uchiyomi:v0.109.0@sha256:06ae606993cec99664d8ea86fe0be9b18fb3b65c88c8090018f533aff54550a6
@@ -118,9 +179,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 40s
     logging: *default-logging
-    network_mode: service:gluetun
+    network_mode: service:gluetun-comics
     depends_on:
-      gluetun:
+      gluetun-comics:
         condition: service_healthy
         restart: true
       uchiyomi-engine:
@@ -176,11 +237,13 @@ services:
     container_name: uchiyomi-engine
     restart: unless-stopped
     logging: *default-logging
-    network_mode: service:gluetun
+    network_mode: service:gluetun-comics
     depends_on:
-      gluetun:
+      gluetun-comics:
         condition: service_healthy
         restart: true
+      uchiyomi-solver:
+        condition: service_healthy
     mem_limit: 2g
     environment:
       TZ: $TZ
@@ -207,6 +270,29 @@ services:
           printf 'GET /api/v1/settings/about HTTP/1.0\r\n\r\n' >&3;
           head -1 <&3 | grep -q ' 200 '
       start_period: 90s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  uchiyomi-solver:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
+    container_name: uchiyomi-solver
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun-comics
+    depends_on:
+      gluetun-comics:
+        condition: service_healthy
+        restart: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: $TZ
+      HOST: 127.0.0.1
+      PORT: "8191"
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8191/health', timeout=5).close()"]
+      start_period: 60s
       interval: 30s
       timeout: 10s
       retries: 3
@@ -331,7 +417,7 @@ services:
     volumes:
       - ${MEDIA_PATH}/downloads:/data/downloads
     networks:
-      - arr_network
+      - arr-internal
 
   qbittorrent:
     image: ghcr.io/linuxserver/qbittorrent:5.2.4@sha256:1ea873647c43d566f251a7122aee330b184509c57ee3257ed19f62dac0f8f24b
@@ -376,6 +462,14 @@ secrets:
     file: /etc/docker-compose/credentials/wireguard-private-key
   wireguard_addresses:
     file: /etc/docker-compose/credentials/wireguard-addresses
+  wireguard_comics_private_key:
+    file: /etc/docker-compose/credentials/wireguard-comics-private-key
+  wireguard_comics_addresses:
+    file: /etc/docker-compose/credentials/wireguard-comics-addresses
+  wireguard_shelfmark_private_key:
+    file: /etc/docker-compose/credentials/wireguard-shelfmark-private-key
+  wireguard_shelfmark_addresses:
+    file: /etc/docker-compose/credentials/wireguard-shelfmark-addresses
   mam_initial_id:
     file: /etc/docker-compose/credentials/mam-initial-id
   sonarr_api_key:
@@ -391,6 +485,8 @@ secrets:
 
 volumes:
   uchiyomi_cache:
+  gluetun_comics_data:
+  gluetun_shelfmark_data:
 
 networks:
   arr_network:
@@ -398,3 +494,38 @@ networks:
       driver: default
       config:
         - subnet: "172.21.0.0/16"
+  arr-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.15.0/28"
+  arr-internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.16.0/28"
+  comics-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.17.0/28"
+  shelfmark-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.18.0/29"
+  shelfmark-arr:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.19.0/29"
+  seerr-arr:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.21.0/29"
+  seerr-jellyfin:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.22.0/29"

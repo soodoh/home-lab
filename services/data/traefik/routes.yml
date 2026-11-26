@@ -127,11 +127,11 @@ http:
     uchiyomi:
       loadBalancer:
         servers:
-          - url: http://gluetun:3000
+          - url: http://gluetun-comics:3000
     hass:
       loadBalancer:
         servers:
-          - url: http://172.23.0.1:8123
+          - url: http://172.25.0.1:8123
     vaultwarden:
       loadBalancer:
         servers:

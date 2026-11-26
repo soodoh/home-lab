@@ -67,44 +67,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # Keep the application out of the shared Arr namespace and bridge.
+    # Keep the application isolated on dedicated internal bridges and ICC-off egress.
     networks:
-      - bookorbit-egress
+      - egress
       - bookorbit-db
       - bookorbit-ingress
-      - bookorbit-acquisition
-
-  bookorbit-acquisition:
-    image: traefik:v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
-    container_name: bookorbit-acquisition
-    restart: unless-stopped
-    logging: *default-logging
-    user: "65534:65534"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    healthcheck:
-      test: [CMD, traefik, healthcheck, --ping]
-      interval: 15s
-      timeout: 5s
-      retries: 4
-    volumes:
-      - type: bind
-        source: ./data/bookorbit-acquisition/traefik.yml
-        target: /etc/traefik/traefik.yml
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ./data/bookorbit-acquisition/routes.yml
-        target: /etc/traefik/routes.yml
-        read_only: true
-        bind:
-          create_host_path: false
-    networks:
-      bookorbit-acquisition:
-        ipv4_address: 172.26.253.2
-      arr_network: {}
+      - bookorbit-arr
 
   bookorbit-db:
     image: pgvector/pgvector:0.8.3-pg18@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84
@@ -148,13 +116,10 @@ secrets:
 networks:
   bookorbit-db:
     internal: true
-  bookorbit-egress: {}
   bookorbit-ingress:
     internal: true
-  bookorbit-acquisition:
+  bookorbit-arr:
     internal: true
     ipam:
       config:
-        - subnet: 172.26.253.0/29
-          # Reserve .2 for the proxy even if BookOrbit joins the bridge first.
-          ip_range: 172.26.253.4/30
+        - subnet: "172.26.20.0/29"

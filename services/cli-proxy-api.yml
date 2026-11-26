@@ -21,4 +21,12 @@ services:
         source: /srv/home-lab-state/cli-proxy-api/auths
         target: /root/.cli-proxy-api
     networks:
-      - proxy
+      - egress
+      - cli-proxy-ingress
+
+networks:
+  cli-proxy-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.10.0/29"

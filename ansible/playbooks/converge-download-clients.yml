@@ -53,7 +53,7 @@
     - name: Refuse to rotate credentials while BookOrbit acquisition is only partially activated
       ansible.builtin.assert:
         that: >-
-          ('bookorbit-acquisition' in compose_native_declared_services.stdout_lines) ==
+          ('bookorbit' in compose_native_declared_services.stdout_lines) ==
           (bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined)
         fail_msg: Complete BookOrbit acquisition activation with the scoped SOPS key before rotating credentials.
 
@@ -63,10 +63,10 @@
         tasks_from: preflight
       when: bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined
 
-    - name: Verify that BookOrbit reaches the restricted client endpoint before rotating native credentials
+    - name: Verify that BookOrbit requires qBittorrent authentication before rotating native credentials
       ansible.builtin.include_role:
         name: bookorbit
-        tasks_from: verify-proxy
+        tasks_from: verify-client-auth
       when: bookorbit_production.BOOKORBIT_CONVERGENCE_API_KEY is defined
 
     - name: Converge download-client credentials

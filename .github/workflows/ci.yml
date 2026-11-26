@@ -344,10 +344,8 @@ jobs:
           # Fixture helpers intentionally omit action-only environment variables.
           tofu_wrapper: false
 
-      - name: Test BookOrbit credential reconciliation and the native private proxy
-        run: |
-          python scripts/test-bookorbit-convergence.py
-          python scripts/test-bookorbit-proxy.py
+      - name: Test BookOrbit credential reconciliation
+        run: python scripts/test-bookorbit-convergence.py
 
       - name: Test native Wolf security behavior
         env:

@@ -20,8 +20,7 @@
       - bookorbit_existing_connections | length <= 1
       - >-
         bookorbit_existing_connections | length == 0 or
-        (bookorbit_existing_connections[0][bookorbit_record.discriminator] == bookorbit_record.adapter and
-        bookorbit_existing_connections[0].baseUrl == bookorbit_record.fields.baseUrl)
+        bookorbit_existing_connections[0][bookorbit_record.discriminator] == bookorbit_record.adapter
 
 - name: Create the missing managed connection or resubmit the current authoritative credentials
   ansible.builtin.uri:

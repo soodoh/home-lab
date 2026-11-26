@@ -95,6 +95,11 @@ data "authentik_flow" "referenced" {
   slug     = each.key
 }
 
+moved {
+  from = authentik_group.managed["cwa-users"]
+  to   = authentik_group.managed["book-users"]
+}
+
 resource "authentik_group" "managed" {
   for_each = local.groups
 

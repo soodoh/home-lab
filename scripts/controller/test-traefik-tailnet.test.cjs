@@ -30,13 +30,15 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
   const privateIngress = infra.services['traefik-tailnet'];
   assert.equal(privateIngress.network_mode, undefined);
   assert.deepEqual(privateIngress.ports, [`${ingressIp}:443:443/tcp`]);
-  assert.deepEqual(privateIngress.networks, ['proxy', 'omada-backend']);
-  assert.deepEqual(infra.services.omada.networks, ['omada-backend']);
+  assert.deepEqual(privateIngress.networks, [
+    'egress', 'auth-ingress', 'arr-ingress', 'cli-proxy-ingress', 'comics-ingress', 'omada-ingress',
+  ]);
+  assert.deepEqual(infra.services.omada.networks, ['egress', 'omada-ingress']);
   assert.ok(Object.entries(infra.services).every(([name, service]) => {
     const networks = Array.isArray(service.networks) ? service.networks : Object.keys(service.networks || {});
-    return ['omada', 'traefik-tailnet'].includes(name) || !networks.includes('omada-backend');
+    return ['omada', 'traefik-tailnet'].includes(name) || !networks.includes('omada-ingress');
   }));
-  assert.deepEqual(infra.networks['omada-backend'], {});
+  assert.equal(infra.networks['omada-ingress'].internal, true);
   assert.equal(privateIngress.image, infra.services.traefik.image);
   assert.ok(privateIngress.volumes.includes('/srv/home-lab-state/traefik-tailnet-data:/data'));
   assert.ok(privateIngress.volumes.includes('./data/traefik-tailnet/traefik.yml:/etc/traefik/traefik.yml:ro'));
@@ -55,7 +57,11 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
     assert.equal(service.environment?.AWS_SECRET_ACCESS_KEY, undefined);
     assert.equal(service.environment?.AWS_SHARED_CREDENTIALS_FILE, undefined);
   }
-  assert.deepEqual(infra.services.traefik.ports, ['18080:80/tcp', '18443:443/tcp', '18443:443/udp']);
+  assert.deepEqual(infra.services.traefik.ports, [
+    '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18080:80/tcp',
+    '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/tcp',
+    '${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:18443:443/udp',
+  ]);
   assert.ok(recovery.services.includes('traefik-tailnet'));
   assert.ok(!recovery.paths.includes('/srv/home-lab-state/traefik-tailnet-data'));
 });
@@ -90,7 +96,7 @@ test('Uchiyomi X uses the private listener and its separate backend', () => {
   assert.deepEqual(router.tls, { certResolver: 'tailnet', domains: [{ main: '*.ts.diloreto.com' }] });
   assert.equal(router.service, 'uchiyomi-x');
   const port = readYaml('services/uchiyomi-x.yml').services['uchiyomi-x'].environment.PORT;
-  assert.deepEqual(routes.services[router.service].loadBalancer.servers, [{ url: 'http://gluetun:' + port }]);
+  assert.deepEqual(routes.services[router.service].loadBalancer.servers, [{ url: 'http://gluetun-comics:' + port }]);
 });
 
 test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
@@ -116,17 +122,19 @@ test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   assert.equal(routes.services.proxmox.loadBalancer.servers[0].url, 'https://192.168.0.123:8006');
   assert.equal(routes.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(routes.services.authentik.loadBalancer.serversTransport, undefined);
-  assert.ok(readYaml('services/servarr.yml').services.gluetun.networks.includes('proxy'));
+  assert.ok(readYaml('services/servarr.yml').services.gluetun.networks.includes('arr-ingress'));
   for (const [name, port] of Object.entries({ 'sonarr-api': 8989, 'radarr-api': 7878, 'prowlarr-api': 9696 })) {
     assert.equal(routes.services[name].loadBalancer.servers[0].url, `http://gluetun:${port}`);
     assert.equal(routes.services[name].loadBalancer.serversTransport, undefined);
   }
   const authentik = readYaml('services/authentik.yml').services['authentik-server'];
   assert.equal(authentik.ports, undefined);
-  assert.ok(authentik.networks.includes('proxy'));
+  assert.ok(authentik.networks.includes('auth-ingress'));
+  assert.ok(authentik.networks.includes('hass-ingress'));
   const zwave = readYaml('services/hass.yml').services.zwave;
   assert.deepEqual(zwave.ports, ['127.0.0.1:3000:3000']);
-  assert.deepEqual(zwave.networks, ['hass', 'proxy']);
+  assert.deepEqual(zwave.networks, ['hass-internal', 'hass-ingress', 'egress']);
   const cli = readYaml('services/cli-proxy-api.yml').services['cli-proxy-api'];
-  assert.ok(cli.networks.includes('proxy'));
+  assert.deepEqual(cli.networks, ['egress', 'cli-proxy-ingress']);
+  assert.equal(readYaml('services/cli-proxy-api.yml').networks['cli-proxy-ingress'].internal, true);
 });

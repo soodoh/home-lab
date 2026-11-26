@@ -5,7 +5,7 @@ bookorbit_media_root: /mnt/storage/media
 bookorbit_qbit_path: /data/downloads/complete/bookorbit
 bookorbit_sab_path: /data/downloads/sabnzbd/complete/bookorbit
 # Preserve local namespace hooks and the existing host-side maintenance API.
-# Neither the acquisition proxy nor the Authentik outpost bypasses native auth.
+# Neither BookOrbit nor the Authentik outpost bypasses native auth.
 bookorbit_qbit_trusted_peers: ['127.0.0.1/32', '172.21.0.1/32']
 bookorbit_sab_enabled: false
 bookorbit_auto_grab_enabled: false

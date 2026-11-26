@@ -60,7 +60,7 @@ services:
       MYSQL_DATABASE: $NEXTCLOUD_DB
       MYSQL_USER: $NEXTCLOUD_DB_USER
       APACHE_DISABLE_REWRITE_IP: "1"
-      TRUSTED_PROXIES: 172.23.0.250
+      TRUSTED_PROXIES: 172.26.4.2
       NEXTCLOUD_INIT_HTACCESS: "true"
       PHP_MEMORY_LIMIT: 1G
     secrets:
@@ -70,8 +70,9 @@ services:
       - nextcloud-db
       - nextcloud-redis
     networks:
-      - proxy
-      - nextcloud
+      - egress
+      - nextcloud-data
+      - nextcloud-ingress
 
   nextcloud-cron:
     image: *nextcloud-image
@@ -92,7 +93,8 @@ services:
       - nextcloud-db
       - nextcloud-redis
     networks:
-      - nextcloud
+      - egress
+      - nextcloud-data
 
   nextcloud-db:
     image: mariadb:11.8.9-ubi9@sha256:a1b7db3e8cb405a2cef339058e88972a8fbf04b2edbbacbcf48b72bb58da09e8
@@ -116,7 +118,7 @@ services:
       - nextcloud_mariadb_root_password
       - nextcloud_mysql_password
     networks:
-      - nextcloud
+      - nextcloud-data
 
   nextcloud-redis:
     image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
@@ -128,7 +130,7 @@ services:
     volumes:
       - /srv/home-lab-state/nextcloud-redis-data:/data
     networks:
-      - nextcloud
+      - nextcloud-data
 
 secrets:
   nextcloud_smtp_password:
@@ -139,8 +141,15 @@ secrets:
     file: /etc/docker-compose/credentials/nextcloud-mariadb-root-password
 
 networks:
-  nextcloud:
+  nextcloud-data:
+    internal: true
     ipam:
-      driver: default
       config:
-        - subnet: "172.24.0.0/16"
+        - subnet: "172.26.3.0/28"
+  nextcloud-ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.4.0/29"
+          # Reserve .2 for Traefik so Nextcloud's TRUSTED_PROXIES stays stable.
+          ip_range: "172.26.4.4/30"

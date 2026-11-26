@@ -100,8 +100,8 @@ run "authentication_and_onboarding_preserve_behavior" {
       !authentik_application.applications["bookorbit"].meta_hide &&
       authentik_application.applications["bookorbit"].meta_launch_url == "https://books.diloreto.com/" &&
       length([for binding in values(local.application_policy_bindings) : binding if binding.application_slug == "bookorbit"]) == 1 &&
-      authentik_policy_binding.application_access["d8de5f8e-3eed-410d-85f4-661d300731ad"].group == authentik_group.managed["cwa-users"].id &&
-      toset(authentik_group.managed["cwa-users"].users) == toset([5003, 5004])
+      authentik_policy_binding.application_access["d8de5f8e-3eed-410d-85f4-661d300731ad"].group == authentik_group.managed["book-users"].id &&
+      toset(authentik_group.managed["book-users"].users) == toset([5003, 5004])
     )
     error_message = "BookOrbit must have its own signed OIDC client, only the exact web and native callbacks, and only the two Books Users."
   }
@@ -192,7 +192,7 @@ run "authentication_and_onboarding_preserve_behavior" {
     condition = alltrue([for key, members in {
       "jellyfin"          = [5000, 5001, 5002, 5003, 5004]
       "karaoke-users"     = [5000, 5001, 5002, 5003, 5004]
-      "cwa-users"         = [5003, 5004]
+      "book-users"        = [5003, 5004]
       "camera-viewers"    = [5003, 5004]
       "vaultwarden-users" = [5003, 5004]
       "app-operators"     = [5003]
@@ -203,7 +203,7 @@ run "authentication_and_onboarding_preserve_behavior" {
   assert {
     condition = alltrue([for group_key, binding_key in {
       "karaoke-users"     = "b3104c79-adca-4847-b398-aaa7130cf25a"
-      "cwa-users"         = "d8de5f8e-3eed-410d-85f4-661d300731ad"
+      "book-users"        = "d8de5f8e-3eed-410d-85f4-661d300731ad"
       "camera-viewers"    = "9fcefd65-0127-45d3-8d48-31e7e0804683"
       "vaultwarden-users" = "182dbb79-78ab-4144-9625-8b042e985eaa"
     } : authentik_policy_binding.application_access[binding_key].group == authentik_group.managed[group_key].id && authentik_policy_binding.application_access[binding_key].user == null && !authentik_policy_binding.application_access[binding_key].negate])
@@ -221,8 +221,13 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = authentik_application.applications["shelfmark"].protocol_provider == tonumber(authentik_provider_proxy.providers["shelfmark"].id) && authentik_provider_proxy.providers["shelfmark"].mode == "proxy" && authentik_provider_proxy.providers["shelfmark"].external_host == "https://shelfmark.diloreto.com" && authentik_provider_proxy.providers["shelfmark"].internal_host == "http://gluetun:8084" && authentik_policy_binding.application_access["edc3ca1b-a374-4bc9-8a58-1f9075ef154f"].target == authentik_application.applications["shelfmark"].uuid
+    condition     = authentik_application.applications["shelfmark"].protocol_provider == tonumber(authentik_provider_proxy.providers["shelfmark"].id) && authentik_provider_proxy.providers["shelfmark"].mode == "proxy" && authentik_provider_proxy.providers["shelfmark"].external_host == "https://shelfmark.diloreto.com" && authentik_provider_proxy.providers["shelfmark"].internal_host == "http://gluetun-shelfmark:8084" && authentik_policy_binding.application_access["edc3ca1b-a374-4bc9-8a58-1f9075ef154f"].target == authentik_application.applications["shelfmark"].uuid
     error_message = "Shelfmark must be reachable only through its operator-gated embedded Authentik proxy."
+  }
+
+  assert {
+    condition     = authentik_provider_proxy.providers["17"].internal_host == "http://seerr:5055"
+    error_message = "Seerr must route to its dedicated container outside Gluetun."
   }
 
   assert {

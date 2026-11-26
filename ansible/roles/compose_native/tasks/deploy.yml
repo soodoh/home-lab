@@ -47,7 +47,7 @@
     bookorbit_controller_root: "{{ compose_native_controller_root }}"
   when:
     - not (compose_native_automated | bool)
-    - lookup('ansible.builtin.fileglob', compose_native_controller_root ~ '/services/data/bookorbit-acquisition/traefik.yml') | length > 0
+    - lookup('ansible.builtin.fileglob', compose_native_controller_root ~ '/services/bookorbit.yml') | length > 0
 
 - name: Report the check-mode boundary
   ansible.builtin.debug:

@@ -91,13 +91,22 @@ class ComposeDelivery(unittest.TestCase):
         self.assertNotIn("AWS_ACCESS_KEY_ID", private["environment"])
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", private["environment"])
         self.assertNotIn("secrets", services["traefik"])
+        for service_name, secret_prefix, port_forward in (
+            ("gluetun", "wireguard_", True),
+            ("gluetun-comics", "wireguard_comics_", False),
+            ("gluetun-shelfmark", "wireguard_shelfmark_", False),
+        ):
+            vpn = services[service_name]
+            self.assertEqual(vpn["environment"]["VPN_TYPE"], "wireguard")
+            if port_forward:
+                self.assertEqual(vpn["environment"]["PORT_FORWARD_ONLY"], "on")
+            else:
+                self.assertNotIn("PORT_FORWARD_ONLY", vpn["environment"])
+            for name in ("private_key", "addresses"):
+                self.assertEqual(vpn["environment"]["WIREGUARD_" + name.upper() + "_SECRETFILE"],
+                                 "/run/secrets/" + secret_prefix + name)
+                self.assertNotIn("WIREGUARD_" + name.upper(), vpn["environment"])
         gluetun = services["gluetun"]
-        self.assertEqual(gluetun["environment"]["VPN_TYPE"], "wireguard")
-        self.assertEqual(gluetun["environment"]["PORT_FORWARD_ONLY"], "on")
-        for name in ("private_key", "addresses"):
-            self.assertEqual(gluetun["environment"]["WIREGUARD_" + name.upper() + "_SECRETFILE"],
-                             "/run/secrets/wireguard_" + name)
-            self.assertNotIn("WIREGUARD_" + name.upper(), gluetun["environment"])
         self.assertEqual(gluetun["environment"]["MAM_ID_FILE"], "/run/secrets/mam_initial_id")
         self.assertNotIn("MAM_ID", gluetun["environment"])
         self.assertEqual([name for name, service in services.items()
@@ -131,7 +140,7 @@ class ComposeDelivery(unittest.TestCase):
         self.assertTrue(set(step['paths']) <= set(books['paths']))
         for name in step['services']:
             service = self.model['services'][name]
-            self.assertEqual(service['network_mode'], 'service:gluetun')
+            self.assertEqual(service['network_mode'], 'service:gluetun-comics')
             self.assertNotIn('ports', service)
             for volume in service['volumes']:
                 if volume['type'] == 'bind':
@@ -173,7 +182,7 @@ class ComposeDelivery(unittest.TestCase):
         self.assertEqual(engine['environment']['BIND_IP'], '127.0.0.1')
         self.assertEqual(solver['environment']['HOST'], '127.0.0.1')
         for service in (x, engine, solver):
-            self.assertEqual(service['network_mode'], 'service:gluetun')
+            self.assertEqual(service['network_mode'], 'service:gluetun-comics')
             self.assertFalse(service.get('ports'))
             for mount in service.get('volumes', []):
                 if mount['type'] == 'bind':
@@ -245,8 +254,9 @@ class NativeFileRendering(unittest.TestCase):
                 item.update(path=str(work / Path(item["path"]).name), owner=uid, group=gid)
             production = {key: "synthetic-" + key for key in credentials["environment_keys"]}
             production.update({item["key"]: 'synthetic-$value-"quoted"-\\tail' for item in credentials["files"] if "key" in item and item["key"] not in {"VAULTWARDEN_SSO_CLIENT_SECRET", "MAM_INITIAL_ID"}})
-            production["WIREGUARD_PRIVATE_KEY"] = "A" * 43 + "="
-            production["WIREGUARD_ADDRESSES"] = "10.2.0.2/32"
+            for prefix in ("WIREGUARD", "WIREGUARD_COMICS", "WIREGUARD_SHELFMARK"):
+                production[f"{prefix}_PRIVATE_KEY"] = "A" * 43 + "="
+                production[f"{prefix}_ADDRESSES"] = "10.2.0.2/32"
             production["TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID"] = "ASYNTHETICKEY12345678"
             production["TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY"] = "SyntheticKey/With+Base64=Characters12345678"
             tasks = yaml.safe_load((ROOT / "ansible/roles/compose_native/tasks/credentials.yml").read_text())[1:]
@@ -352,6 +362,10 @@ class NativeFileRendering(unittest.TestCase):
                 ("WIREGUARD_ADDRESSES", "2a07:b944::2:2/128"),
                 ("WIREGUARD_ADDRESSES", "bad-address"),
                 ("WIREGUARD_PRIVATE_KEY", "bad-key"),
+                ("WIREGUARD_COMICS_ADDRESSES", "bad-address"),
+                ("WIREGUARD_COMICS_PRIVATE_KEY", "bad-key"),
+                ("WIREGUARD_SHELFMARK_ADDRESSES", "bad-address"),
+                ("WIREGUARD_SHELFMARK_PRIVATE_KEY", "bad-key"),
             ]:
                 credential = next(item for item in credentials["files"] if item.get("key") == key)
                 before = Path(credential["path"]).read_bytes()

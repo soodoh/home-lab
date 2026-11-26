@@ -29,7 +29,7 @@ services:
     secrets:
       - authentik_db_password
     networks:
-      - authentik
+      - authentik-db
 
   authentik-server:
     image: ghcr.io/goauthentik/server:2026.8.6@sha256:da89d8338a3b1889800eb033fd61f8d43f7aa9a1c5a042cb5e03d891b1f0c56c
@@ -73,8 +73,15 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - authentik
-      - proxy
+      - authentik-db
+      - authentik-outpost
+      - auth-ingress
+      - gost-ingress
+      - hass-ingress
+      - admin-apps-ingress
+      - arr-ingress
+      - shelfmark-ingress
+      - egress
 
   authentik-worker:
     image: ghcr.io/goauthentik/server:2026.8.6@sha256:da89d8338a3b1889800eb033fd61f8d43f7aa9a1c5a042cb5e03d891b1f0c56c
@@ -118,8 +125,8 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - authentik
-      - proxy
+      - authentik-db
+      - egress
 
   authentik-ldap:
     image: ghcr.io/goauthentik/ldap:2026.8.6@sha256:aa296faa28d2ac35bc46e2b92d8a94ffeed557ecf8cd213113cecbc46d85d47e
@@ -136,7 +143,7 @@ services:
       authentik-server:
         condition: service_healthy
     networks:
-      - authentik
+      - authentik-outpost
       - jellyfin-auth
 
 secrets:
@@ -150,11 +157,15 @@ secrets:
     file: /etc/docker-compose/credentials/authentik-ldap-token
 
 networks:
-  authentik:
+  authentik-db:
+    internal: true
     ipam:
-      driver: default
       config:
-        # Keep authentik network addresses stable for service-to-service integrations.
-        - subnet: "172.20.0.0/16"
+        - subnet: "172.26.1.0/28"
+  authentik-outpost:
+    internal: true
+    ipam:
+      config:
+        - subnet: "172.26.2.0/28"
   jellyfin-auth:
     internal: true

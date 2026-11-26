@@ -11,9 +11,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 40s
     logging: *default-logging
-    network_mode: service:gluetun
+    network_mode: service:gluetun-comics
     depends_on:
-      gluetun:
+      gluetun-comics:
         condition: service_healthy
         restart: true
       uchiyomi-x-engine:
@@ -69,9 +69,9 @@ services:
     container_name: uchiyomi-x-engine
     restart: unless-stopped
     logging: *default-logging
-    network_mode: service:gluetun
+    network_mode: service:gluetun-comics
     depends_on:
-      gluetun:
+      gluetun-comics:
         condition: service_healthy
         restart: true
       uchiyomi-x-solver:
@@ -111,9 +111,9 @@ services:
     container_name: uchiyomi-x-solver
     restart: unless-stopped
     logging: *default-logging
-    network_mode: service:gluetun
+    network_mode: service:gluetun-comics
     depends_on:
-      gluetun:
+      gluetun-comics:
         condition: service_healthy
         restart: true
     security_opt:
