@@ -39,8 +39,9 @@ run "grant_only_governed_lifecycle" {
       authentik_rbac_permission_role.object["apply/groups/jellyfin/authentik_core.add_user_to_group"].object_id == local.desired.groups.jellyfin.pk &&
       authentik_rbac_permission_role.object["apply/ldapProviders/jellyfin/authentik_providers_ldap.change_ldapprovider"].object_id == "975" &&
       authentik_rbac_permission_role.object["refresh/certificates/jellyfin-ldap/authentik_crypto.view_certificatekeypair_key"].model == "authentik_crypto.certificatekeypair" &&
-      authentik_rbac_permission_role.object["refresh/oauthProviders/15/authentik_providers_oauth2.change_oauth2provider"].object_id == "15" &&
-      !contains(keys(local.scoped_objects), "signingCertificates/bookorbit-oidc")
+      authentik_rbac_permission_role.object["refresh/oauthProviders/47/authentik_providers_oauth2.change_oauth2provider"].object_id == "47" &&
+      !contains(keys(local.scoped_objects), "signingCertificates/bookorbit-oidc") &&
+      !contains(keys(local.scoped_objects), "signingCertificates/vaultwarden-oidc")
     )
     error_message = "Attach scoped grants only to known IDs in the managed app declarations, not by guessing new IDs."
   }
@@ -57,6 +58,20 @@ run "grant_only_governed_lifecycle" {
       tolist(authentik_rbac_initial_permissions.controller["refresh"].permissions) == tolist([21, 22])
     )
     error_message = "Native Initial Permissions should handle new managed objects without broadening global grants."
+  }
+
+  assert {
+    condition = (
+      authentik_user.controller["plan"].username == "home-lab-opentofu-plan" &&
+      authentik_user.controller["plan"].type == "service_account" &&
+      length(authentik_user.controller["plan"].groups) == 0 &&
+      length(authentik_user.controller["plan"].roles) == 1 &&
+      authentik_user.controller["apply"].username == "home-lab-opentofu-apply" &&
+      authentik_user.controller["apply"].type == "service_account" &&
+      length(authentik_user.controller["apply"].groups) == 0 &&
+      length(authentik_user.controller["apply"].roles) == 2
+    )
+    error_message = "Controller accounts must stay group-free service accounts bound only to their declared roles."
   }
 }
 
@@ -84,7 +99,7 @@ run "reject_duplicate_target" {
   command = plan
 
   variables {
-    authentik_access_adopted_object_ids = { "oauthProviders/bookorbit" = "15" }
+    authentik_access_adopted_object_ids = { "oauthProviders/bookorbit" = "21" }
   }
 
   expect_failures = [authentik_rbac_role.controller["apply"], authentik_rbac_role.controller["refresh"]]

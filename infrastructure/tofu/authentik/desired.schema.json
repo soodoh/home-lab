@@ -207,14 +207,14 @@
     },
     "oauthProviders": {
       "type": "object",
-      "maxProperties": 6,
+      "maxProperties": 5,
       "propertyNames": {
         "pattern": "^([1-9][0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/oauthProvider"
       },
-      "minProperties": 6
+      "minProperties": 5
     },
     "customBlueprints": {
       "type": "object",

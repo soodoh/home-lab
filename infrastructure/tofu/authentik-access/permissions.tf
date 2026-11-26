@@ -4,6 +4,21 @@ locals {
     refresh = "home-lab-opentofu-managed-group-read"
   }
 
+  controller_users = {
+    plan = {
+      username = "home-lab-opentofu-plan"
+      name     = "Home Lab OpenTofu Plan"
+      path     = "users"
+      roles    = ["refresh"]
+    }
+    apply = {
+      username = "home-lab-opentofu-apply"
+      name     = "Home Lab OpenTofu Apply"
+      path     = "users"
+      roles    = ["apply", "refresh"]
+    }
+  }
+
   # Global application lifecycle grants and read permissions needed for shared
   # references. Creation of the scoped models below also needs a global grant.
   global_permissions = {
@@ -17,6 +32,7 @@ locals {
       "authentik_core.view_application",
       "authentik_core.view_user",
       "authentik_flows.view_flow",
+      "authentik_flows.view_stage",
       "authentik_providers_oauth2.view_scopemapping",
       "authentik_rbac.view_system_settings",
       "authentik_stages_password.view_passwordstage",

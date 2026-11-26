@@ -64,9 +64,9 @@ Nextcloud is not an Authentik application in this root. Its existing Paul/Sarabe
 native accounts and data remain independently owned; no unused Nextcloud access
 group claims to enforce login. OIDC integration is a separate reviewed change that
 must preserve user IDs, data ownership and independent recovery.
-Every username must resolve to a distinct user. The group's existing external role
-association is preserved, but that role and administrator/break-glass memberships
-remain independently administered. Group updates send a complete membership list:
+Every username must resolve to a distinct user. Managed application groups carry
+no Authentik RBAC roles; administrator/break-glass memberships remain independently
+administered. Group updates send a complete membership list:
 serialize applies against manual membership edits and review removals as access
 changes, even when the resource itself is not being deleted. After invitation
 enrollment, add the admitted user's username to desired membership before the next
@@ -111,47 +111,42 @@ outside this root; a change to their recipient policy requires separate approval
 
 ## Signing material
 
-`jellyfin-oidc.pem` is public certificate material for Jellyfin OIDC's existing
-self-signed signing key. Its private key is authoritative in the separately
-encrypted `signing-keys.sops.json`, decrypted only into the current private
-controller session through `TF_VAR_authentik_signing_keys_path`. The provider's
-private-key read must succeed before planning; its reader silently omits key data
-on an unsuccessful private-key export, which would otherwise cause a false update.
+Dedicated OIDC signing certificates (`bookorbit-oidc.pem`, `uchiyomi-oidc.pem`,
+`uchiyomi-x-oidc.pem`, and `vaultwarden-oidc.pem`) are public certificate material
+whose private keys are authoritative in the separately encrypted
+`signing-keys.sops.json`, decrypted only into the current private controller
+session through `TF_VAR_authentik_signing_keys_path`. The provider's private-key
+read must succeed before planning; its reader silently omits key data on an
+unsuccessful private-key export, which would otherwise cause a false update.
 Keep remote state, saved plans and all decrypted inputs protected. Configuration
 preserves the native export representation and adds the pinned reader's newline.
-Imported material can retain a terminal newline in its native export, whereas
-API-created material is trimmed on ingestion. Match the supplied public PEM and
-encrypted private-key text to their respective exports; do not universally trim
-existing signers or add an extra OpenSSL newline to new ones. Representation
+API-created material is trimmed on ingestion; keep the supplied public PEM and
+encrypted private-key text trimmed to match their respective exports. Representation
 qualification must prove identical certificate/key content and a fresh no-op plan,
-not apply an unexplained rewrite. This does not rotate cryptographic material.
+not apply an unexplained rewrite.
 
 OAuth client secrets and the LDAP bind/TLS material retain their independent
-`client-secrets.sops.json` authority. Signing-key adoption must preserve the existing
-key and provider identifier; any rotation is a separate reviewed change requiring
-consumer/JWKS and fresh-login verification. The certificate resource manages supplied
-material, not issuance or automatic renewal.
-
-Vaultwarden's discovery-managed signing certificate remains owned by Authentik's
-certificate discovery and its protected Compose bind mounts. Do not import it into
-OpenTofu without first resolving the competing writer and key custody. Removing a
-managed certificate or declaration must produce a reviewed destroy plan, never an
-orphaned state entry.
+`client-secrets.sops.json` authority. Any signing-key rotation is a separate
+reviewed change requiring consumer/JWKS and fresh-login verification. The
+certificate resource manages supplied material, not issuance or automatic renewal.
+Removing a managed certificate or declaration must produce a reviewed destroy
+plan, never an orphaned state entry.
 
 ## Controller permissions
 
 The owner-only [`authentik-access` OpenTofu root](../infrastructure/tofu/authentik-access)
-owns the two controller roles, their declared global and object grants, and their
-native [Initial Permissions](https://docs.goauthentik.io/users-sources/access-control/initial_permissions/).
-The normal controller identities must not be able to modify these grants or write
-their state. Verify all effective roles, including legacy assignments, before
-claiming that boundary. Token issuance and role membership are independently bootstrapped: assign
+owns the two controller service accounts (`home-lab-opentofu-plan` and
+`home-lab-opentofu-apply`), their two controller roles, their exact role
+assignments, their declared global and object grants, and their native
+[Initial Permissions](https://docs.goauthentik.io/users-sources/access-control/initial_permissions/).
+The normal controller identities must not be able to modify these accounts, roles,
+grants, or state. Token issuance remains independently bootstrapped. Assign
 `home-lab-opentofu-authentik-apply` only to `home-lab-opentofu-apply` and
 `home-lab-opentofu-managed-group-read` (the shared refresh role) only to
-`home-lab-opentofu-plan` and `home-lab-opentofu-apply`. Neither role may be
-assigned to a group. Independently verify these assignments and all effective
-grants; OpenTofu manages tracked grants, not the complete live role membership
-or arbitrary grants added outside state. See [owner operations](operations.md#authentik-controller-permissions).
+`home-lab-opentofu-plan` and `home-lab-opentofu-apply`; neither account belongs
+to any group, and neither role may be assigned to a group. Independently verify
+all effective grants; OpenTofu manages tracked grants, not arbitrary manual grants
+added directly to a role outside state. See [owner operations](operations.md#authentik-controller-permissions).
 
 Applications have model-wide lifecycle grants. Other admitted models get global
 `add` where needed and object-scoped writes. Existing objects get scoped grants

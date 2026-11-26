@@ -113,12 +113,6 @@ services:
         source: /srv/home-lab-state/authentik-data/media
         target: /media
       - type: bind
-        source: /srv/home-lab-state/authentik-data/certs/live
-        target: /certs
-      - type: bind
-        source: /srv/home-lab-state/authentik-data/certs/archive
-        target: /archive
-      - type: bind
         source: /srv/home-lab-state/authentik-data/custom-templates
         target: /templates
     depends_on:

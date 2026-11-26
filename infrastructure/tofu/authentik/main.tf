@@ -49,8 +49,8 @@ check "desired_inventory" {
       length(local.desired.applications) == 20 &&
       length(local.desired.proxyProviders) == 14 &&
       (!var.authentik_enable_management || (
-        length(local.desired.oauthProviders) == 6 &&
-        length(local.desired.retainedOAuthProviders) == 1 &&
+        length(local.desired.oauthProviders) == 5 &&
+        length(local.desired.retainedOAuthProviders) == 0 &&
         length(local.desired.applicationPolicyBindings) == 22 &&
         length(local.desired.authenticatorValidateStages) == 2 &&
         length(local.desired.certificates) == 1 &&
@@ -226,8 +226,7 @@ resource "authentik_provider_oauth2" "providers" {
   signing_key = (
     try(each.value.signing_certificate_ref, null) != null ?
     authentik_certificate_key_pair.signing[each.value.signing_certificate_ref].id :
-    each.value.signing_key == local.desired.signingCertificates["jellyfin-oidc"].pk ?
-    authentik_certificate_key_pair.signing["jellyfin-oidc"].id : each.value.signing_key
+    each.value.signing_key
   )
   encryption_key           = each.value.encryption_key
   grant_types              = each.value.grant_types

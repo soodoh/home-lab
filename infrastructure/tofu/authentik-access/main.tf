@@ -128,3 +128,28 @@ resource "authentik_rbac_permission_role" "object" {
   model      = each.value.model
   object_id  = each.value.object_id
 }
+
+resource "authentik_user" "controller" {
+  for_each = local.controller_users
+
+  username  = each.value.username
+  name      = each.value.name
+  path      = each.value.path
+  type      = "service_account"
+  is_active = true
+  groups    = []
+  roles     = [for role_key in each.value.roles : authentik_rbac_role.controller[role_key].id]
+
+  lifecycle {
+    # A mistaken import must not rename or claim someone else's account.
+    ignore_changes = [username]
+    postcondition {
+      condition     = self.username == each.value.username
+      error_message = "The live account username must match the dedicated controller account. Verify the import ID and account ownership."
+    }
+    postcondition {
+      condition     = length(self.groups) == 0
+      error_message = "Controller accounts must not belong to any Authentik group."
+    }
+  }
+}

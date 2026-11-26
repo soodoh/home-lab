@@ -76,8 +76,8 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   override_resource {
-    target = authentik_certificate_key_pair.signing["jellyfin-oidc"]
-    values = { id = "synthetic-existing-signer" }
+    target = authentik_certificate_key_pair.signing["vaultwarden-oidc"]
+    values = { id = "synthetic-vaultwarden-signer" }
   }
 
   assert {
@@ -137,13 +137,13 @@ run "authentication_and_onboarding_preserve_behavior" {
 
   assert {
     condition = (
-      length(local.existing_signing_certificates) == 1 &&
+      length(local.existing_signing_certificates) == 0 &&
       length(authentik_certificate_key_pair.signing) == 4 &&
-      authentik_certificate_key_pair.signing["bookorbit-oidc"].id != authentik_certificate_key_pair.signing["jellyfin-oidc"].id &&
+      authentik_certificate_key_pair.signing["bookorbit-oidc"].id != authentik_certificate_key_pair.signing["vaultwarden-oidc"].id &&
       authentik_certificate_key_pair.signing["bookorbit-oidc"].certificate_data == "${trimspace(file("${path.module}/bookorbit-oidc.pem"))}\n" &&
       authentik_certificate_key_pair.signing["bookorbit-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["bookorbit-oidc"].private_key)}\n"
     )
-    error_message = "The new signer must remain separately owned, supplied from its matching encrypted authority, and excluded from imports."
+    error_message = "Managed signers must remain separately owned, supplied from their encrypted authority, and excluded from imports."
   }
 
   assert {
@@ -211,7 +211,7 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = alltrue([for key, group in authentik_group.managed : !group.is_superuser && length(group.parents) == 0 && (key == "jellyfin" || length(group.roles) == 0)])
+    condition     = alltrue([for group in authentik_group.managed : !group.is_superuser && length(group.parents) == 0 && length(group.roles) == 0])
     error_message = "Access groups must never inherit administrator privileges or acquire management roles."
   }
 
@@ -269,12 +269,12 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = authentik_provider_oauth2.providers["15"].signing_key == authentik_certificate_key_pair.signing["jellyfin-oidc"].id && authentik_provider_oauth2.providers["47"].signing_key == local.desired.oauthProviders["47"].signing_key
-    error_message = "Only the independently adopted signing key becomes owned; discovery-owned signing material remains external."
+    condition     = !contains(keys(local.existing_signing_certificates), "vaultwarden-oidc") && authentik_provider_oauth2.providers["47"].signing_key == authentik_certificate_key_pair.signing["vaultwarden-oidc"].id
+    error_message = "Vaultwarden OIDC must use its dedicated OpenTofu-managed signing certificate."
   }
 
   assert {
-    condition     = authentik_certificate_key_pair.signing["jellyfin-oidc"].certificate_data == "${file("${path.module}/jellyfin-oidc.pem")}\n" && authentik_certificate_key_pair.signing["jellyfin-oidc"].key_data == "${jsondecode(file(var.authentik_signing_keys_path)).certificates["jellyfin-oidc"].private_key}\n"
+    condition     = authentik_certificate_key_pair.signing["vaultwarden-oidc"].certificate_data == "${trimspace(file("${path.module}/vaultwarden-oidc.pem"))}\n" && authentik_certificate_key_pair.signing["vaultwarden-oidc"].key_data == "${trimspace(jsondecode(file(var.authentik_signing_keys_path)).certificates["vaultwarden-oidc"].private_key)}\n"
     error_message = "PEM comparison must match the pinned reader's appended newline without rotating material."
   }
 }

@@ -17,14 +17,14 @@ from jsonschema import Draft202012Validator
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "47", "bookorbit", "uchiyomi", "uchiyomi-x"}
+OAUTH_PROVIDER_IDS = {"21", "47", "bookorbit", "uchiyomi", "uchiyomi-x"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 6)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
-        self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
+        self.assertEqual(DESIRED["retainedOAuthProviders"], [])
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {
             "passwordless-webauthn", "default-authentication-mfa-validation",
         })
@@ -160,11 +160,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
                     granted.update(DESIRED["membershipSets"][group["membership_set"]])
             self.assertEqual(granted, members, slug)
             self.assertEqual(DESIRED["applications"][slug]["policy_engine_mode"], "any")
-        for key, group in DESIRED["groups"].items():
+        for group in DESIRED["groups"].values():
             self.assertFalse(group["is_superuser"])
             self.assertEqual(group["parents"], [])
-            if key != "jellyfin":
-                self.assertEqual(group["roles"], [])
+            self.assertEqual(group["roles"], [])
         self.assertEqual(DESIRED["groups"]["jellyfin"]["name"], "Jellyfin")
         self.assertEqual(DESIRED["groups"]["jellyfin"]["pk"], "7cc8f9fe-b4e6-4762-be05-263403a828e9")
 
@@ -387,29 +386,33 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             certificate = (ROOT / value["certificate_file"]).read_text()
             self.assertIn("-----BEGIN CERTIFICATE-----", certificate)
             self.assertNotIn("PRIVATE KEY", certificate)
-        self.assertEqual(DESIRED["oauthProviders"]["15"]["signing_key"], DESIRED["signingCertificates"]["jellyfin-oidc"]["pk"])
-        self.assertIsNone(DESIRED["signingCertificates"]["bookorbit-oidc"]["pk"])
-        self.assertIsNone(DESIRED["oauthProviders"]["bookorbit"]["signing_key"])
-        self.assertEqual(DESIRED["oauthProviders"]["bookorbit"]["signing_certificate_ref"], "bookorbit-oidc")
-        self.assertNotIn(DESIRED["oauthProviders"]["47"]["signing_key"],
-                         {value["pk"] for value in DESIRED["signingCertificates"].values()})
+        for key, provider_key in (
+            ("bookorbit-oidc", "bookorbit"),
+            ("uchiyomi-oidc", "uchiyomi"),
+            ("uchiyomi-x-oidc", "uchiyomi-x"),
+            ("vaultwarden-oidc", "47"),
+        ):
+            self.assertIsNone(DESIRED["signingCertificates"][key]["pk"])
+            self.assertIsNone(DESIRED["oauthProviders"][provider_key]["signing_key"])
+            self.assertEqual(DESIRED["oauthProviders"][provider_key]["signing_certificate_ref"], key)
 
-    def test_bookorbit_signer_is_current_rsa_material_without_a_live_identity(self) -> None:
-        certificate = ROOT / DESIRED["signingCertificates"]["bookorbit-oidc"]["certificate_file"]
-        validity = subprocess.run(
-            ["openssl", "x509", "-in", str(certificate), "-noout", "-checkend", "2592000"],
-            capture_output=True,
-        )
-        self.assertEqual(validity.returncode, 0, "Prepare and review renewal before the dedicated signer expires.")
-        public = subprocess.run(
-            ["openssl", "x509", "-in", str(certificate), "-pubkey", "-noout"],
-            capture_output=True, check=True,
-        ).stdout
-        key = subprocess.run(
-            ["openssl", "rsa", "-pubin", "-text", "-noout"], input=public,
-            capture_output=True, check=True,
-        ).stdout.decode()
-        self.assertRegex(key, r"Public-Key: \(3072 bit\)")
+    def test_managed_signers_are_current_rsa_material_without_a_live_identity(self) -> None:
+        for key, entry in DESIRED["signingCertificates"].items():
+            certificate = ROOT / entry["certificate_file"]
+            validity = subprocess.run(
+                ["openssl", "x509", "-in", str(certificate), "-noout", "-checkend", "2592000"],
+                capture_output=True,
+            )
+            self.assertEqual(validity.returncode, 0, f"Prepare and review renewal before signer {key} expires.")
+            public = subprocess.run(
+                ["openssl", "x509", "-in", str(certificate), "-pubkey", "-noout"],
+                capture_output=True, check=True,
+            ).stdout
+            key_text = subprocess.run(
+                ["openssl", "rsa", "-pubin", "-text", "-noout"], input=public,
+                capture_output=True, check=True,
+            ).stdout.decode()
+            self.assertRegex(key_text, r"Public-Key: \(3072 bit\)")
 
     def test_plan_policy_allowlist_is_exact_for_reviewed_addresses(self) -> None:
         allow = set((REPO / "infrastructure" / "policy" / "allow" / "authentik.txt").read_text().splitlines())

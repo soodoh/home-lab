@@ -49,13 +49,11 @@ that source on the controller to render Home Assistant's protected `!secret`
 entry and Vaultwarden's protected client-secret file.
 Only the public Vaultwarden client ID
 is added to Compose's interpolation environment, from Authentik's reviewed `desired.json`.
-Jellyfin OIDC's existing signing key has separate authority in
-`infrastructure/tofu/authentik/signing-keys.sops.json`. BookOrbit’s dedicated RSA
-signer uses that same authority. Public certificates are not secret. Private-key
-exports must be readable by the plan identity, and
-both decrypted secret inputs, state and plans remain protected. Discovery-owned
-signing certificates must not acquire a competing writer; see
-[Authentik ownership](authentik-ownership.md).
+Dedicated OIDC RSA signing keys (BookOrbit, Uchiyomi, Uchiyomi X and Vaultwarden)
+have separate authority in `infrastructure/tofu/authentik/signing-keys.sops.json`.
+Public certificates are not secret. Private-key exports must be readable by the
+plan identity, and both decrypted secret inputs, state and plans remain protected;
+see [Authentik ownership](authentik-ownership.md).
 Shelfmark consumes the existing Prowlarr key, Hardcover token
 (`HARDCOVER_API_KEY` in production SOPS) and download-client credentials
 through Ansible-managed fields in its native settings JSON, protected as

@@ -61,8 +61,8 @@ check "authentication_ownership" {
         !group.is_superuser && length(group.parents) == 0 &&
         contains(keys(local.desired.membershipSets), group.membership_set)
       ]) &&
-      alltrue([for key, group in local.desired.groups :
-        key == "jellyfin" || length(group.roles) == 0
+      alltrue([for group in values(local.desired.groups) :
+        length(group.roles) == 0
       ]) &&
       alltrue([for members in values(local.desired.membershipSets) :
         length(members) > 0 && length(members) == length(distinct(members))

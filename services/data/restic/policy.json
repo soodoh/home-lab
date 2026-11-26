@@ -239,9 +239,7 @@
         ],
         "paths": [
           "/srv/home-lab-state/authentik-data/media",
-          "/srv/home-lab-state/authentik-data/custom-templates",
-          "/srv/home-lab-state/authentik-data/certs/live",
-          "/srv/home-lab-state/authentik-data/certs/archive"
+          "/srv/home-lab-state/authentik-data/custom-templates"
         ],
         "databases": [
           {

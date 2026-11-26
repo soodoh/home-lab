@@ -952,49 +952,6 @@
       "jwt_federation_sources": [],
       "jwt_federation_providers": []
     },
-    "15": {
-      "access_code_validity": "minutes=1",
-      "access_token_validity": "minutes=5",
-      "allowed_redirect_uris": [
-        {
-          "matching_mode": "strict",
-          "redirect_uri_type": "authorization",
-          "url": "https://watch.diloreto.com/sso/OID/redirect/authentik"
-        }
-      ],
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "client_id": "LJAbW3YSNnWNQAvR8eFx6Nlvliv81Xe63rvE1HQD",
-      "client_type": "confidential",
-      "encryption_key": null,
-      "grant_types": [
-        "authorization_code",
-        "hybrid",
-        "implicit",
-        "client_credentials",
-        "password",
-        "urn:ietf:params:oauth:grant-type:device_code",
-        "refresh_token"
-      ],
-      "include_claims_in_id_token": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "issuer_mode": "per_provider",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "logout_method": "backchannel",
-      "logout_uri": "",
-      "name": "Jellyfin OIDC",
-      "pk": 15,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_threshold": "seconds=0",
-      "refresh_token_validity": "days=30",
-      "signing_key": "d5259cb9-db22-467a-9d72-6911b16a459f",
-      "sub_mode": "hashed_user_id"
-    },
     "21": {
       "access_code_validity": "minutes=1",
       "access_token_validity": "minutes=5",
@@ -1084,7 +1041,8 @@
       ],
       "refresh_token_threshold": "hours=1",
       "refresh_token_validity": "days=30",
-      "signing_key": "a9cda053-bb5a-4787-9223-2806ac3d4a87",
+      "signing_certificate_ref": "vaultwarden-oidc",
+      "signing_key": null,
       "sub_mode": "hashed_user_id"
     }
   },
@@ -1556,9 +1514,7 @@
       "name": "Jellyfin LDAP directory search"
     }
   },
-  "retainedOAuthProviders": [
-    "15"
-  ],
+  "retainedOAuthProviders": [],
   "schemaVersion": 6,
   "scopeMappings": {
     "vaultwarden-email": {
@@ -1650,9 +1606,7 @@
       "name": "Jellyfin",
       "parents": [],
       "pk": "7cc8f9fe-b4e6-4762-be05-263403a828e9",
-      "roles": [
-        "f21af265-8e36-43b6-862d-87ee1591cb4d"
-      ],
+      "roles": [],
       "membership_set": "family"
     },
     "karaoke-users": {
@@ -1880,10 +1834,10 @@
       "name": "Uchiyomi OIDC",
       "pk": null
     },
-    "jellyfin-oidc": {
-      "certificate_file": "jellyfin-oidc.pem",
-      "name": "authentik Self-signed Certificate",
-      "pk": "d5259cb9-db22-467a-9d72-6911b16a459f"
+    "vaultwarden-oidc": {
+      "certificate_file": "vaultwarden-oidc.pem",
+      "name": "Vaultwarden OIDC signing",
+      "pk": null
     }
   },
   "systemSettings": {

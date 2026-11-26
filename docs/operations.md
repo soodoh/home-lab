@@ -310,9 +310,9 @@ aws sts get-caller-identity
 tofu -chdir="$root" init -lockfile=readonly -backend-config="bucket=$AUTHENTIK_ACCESS_BACKEND_BUCKET"
 ```
 
-For adoption, identify existing roles and templates by exact live ID and verify
-their assignments, other effective grants and consumers against the
-[ownership boundary](authentik-ownership.md#controller-permissions).
+For adoption, identify existing roles, controller service accounts and templates
+by exact live ID and verify their assignments, other effective grants and consumers
+against the [ownership boundary](authentik-ownership.md#controller-permissions).
 After backend initialization, preserve the protected state version (or confirm
 there is no state yet). With separate approval, use native **state-only** imports
 for existing objects before making any permission changes. For example, with the
@@ -321,12 +321,14 @@ observed IDs in your private session:
 ```sh
 tofu -chdir="$root" import -input=false 'authentik_rbac_role.controller["apply"]' "$apply_role_uuid"
 tofu -chdir="$root" import -input=false 'authentik_rbac_initial_permissions.controller["apply"]' "$apply_template_id"
+tofu -chdir="$root" import -input=false 'authentik_user.controller["apply"]' "$apply_user_id"
 ```
 
-Use `refresh` for the shared role and its template. Import only existing objects;
-plan creation for an absent template. Reobserve the imports and review a fresh
-full saved plan separately. Do not recreate existing roles or use a combined
-import-and-update to bypass plan review.
+Use `refresh` for the shared role and its template, and `plan` for the plan
+service account. Import only existing objects; plan creation for an absent
+template. Reobserve the imports and review a fresh full saved plan separately.
+Do not recreate existing roles or accounts, or use a combined import-and-update to
+bypass plan review.
 
 Compare scoped grants with the app root's state ownership and live IDs. For
 already-owned objects without a pinned primary key that still need owner grants,
