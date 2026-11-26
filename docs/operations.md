@@ -849,7 +849,10 @@ not qualify a real Moonlight audio/video/input session.
 Pacific time, with up to 30 minutes of randomized delay and persistent catch-up.
 Under the production and backup locks, it delegates to native
 `docker image prune --all --force`: all images unreferenced by any container
-are eligible, regardless of age. Containers, volumes and build cache are not
+are eligible, regardless of age. If an active backup holds the backup lock,
+pruning defers cleanly (`docker_image_prune=deferred reason=backup_lock_active`)
+without acquiring production ownership; a missing backup lock or an existing
+production or reconciliation lock still fails closed with an explicit refusal. Containers, volumes and build cache are not
 pruned. Missing deployment images are pulled by digest from their registry;
 unused images are not a rollback archive. Registry availability is required
 for a cache miss, and restoring an older image does not restore application data.
@@ -967,8 +970,11 @@ production ownership and any source before-image for inspection; never automatic
 clear a failed lock. Controller scratch and systemd credential copies are cleaned
 without deleting host recovery material.
 
-Automatic deployment compares the host's accepted source archive with the selected
-Git archive, under production ownership. It refuses additions/deletions, configuration
+Automatic deployment pre-classifies the selected Git archive against the host's
+accepted source archive before acquiring production ownership, so non-routine
+commits on `main` refuse cleanly without stranding the production lock or
+running unnecessary backup reads; it then re-verifies admission under
+production ownership before publication. It refuses additions/deletions, configuration
 or secret changes, image identity/variant changes, majors, downgrades and floating
 or prerelease image updates, except for the exact Wolf channel digest-only
 exceptions above. Both old and new references must retain their approved repository,

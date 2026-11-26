@@ -53,11 +53,25 @@
       }
       trap cleanup EXIT HUP INT TERM
 
+      if [[ ! -f $backup_lock || -L $backup_lock ]]; then
+        /usr/bin/printf '%s\n' 'docker_image_prune=refused reason=backup_lock_missing' >&2
+        exit 1
+      fi
       exec 9< "$backup_lock"
-      /usr/bin/flock --exclusive --nonblock 9
+      if ! /usr/bin/flock --exclusive --nonblock 9; then
+        /usr/bin/printf '%s\n' 'docker_image_prune=deferred reason=backup_lock_active'
+        exit 0
+      fi
       {% for path in docker_maintenance_reconciliation_locks %}
-      [[ ! -e {{ path | quote }} && ! -L {{ path | quote }} ]]
+      if [[ -e {{ path | quote }} || -L {{ path | quote }} ]]; then
+        /usr/bin/printf '%s\n' 'docker_image_prune=refused reason=reconciliation_lock_present' >&2
+        exit 1
+      fi
       {% endfor %}
+      if [[ -e $apply_lock || -L $apply_lock ]]; then
+        /usr/bin/printf '%s\n' 'docker_image_prune=refused reason=production_lock_present' >&2
+        exit 1
+      fi
 
       staging=$(/usr/bin/mktemp --directory "${apply_lock}.acquiring.XXXXXXXXXX")
       /usr/bin/printf 'controller=systemd\noperation=docker-image-prune\nstarted=%s\n' \

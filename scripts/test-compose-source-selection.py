@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -81,7 +82,7 @@ class SourceSelectionTests(unittest.TestCase):
         self.work = self.base / self.id().split(".")[-1]
         self.work.mkdir(exist_ok=True)
 
-    def select(self, *, whole_job=False):
+    def select(self, *, whole_job=False, extra_vars=None):
         variables = {
             "compose_schedule_api_base": f"http://127.0.0.1:{self.http.server_port}",
             "compose_schedule_git_url": str(self.remote),
@@ -89,7 +90,10 @@ class SourceSelectionTests(unittest.TestCase):
             "compose_schedule_source_root": str(ROOT),
             "ansible_user": "root", "ansible_connection": "local",
             "ansible_become": False,
+            "ansible_python_interpreter": sys.executable,
         }
+        if extra_vars:
+            variables.update(extra_vars)
         if not whole_job:
             variables["compose_schedule_workspace"] = {"path": str(self.work)}
         variable_file = self.work / "variables.json"
@@ -173,6 +177,29 @@ class SourceSelectionTests(unittest.TestCase):
         self.assertIn("no qualifying CI run", result.stdout)
         self.assertIn("Remove only this run's controller checkout", result.stdout)
         self.assertEqual(list(self.work.glob("home-lab-compose-*")), [])
+        self.assertNotIn("Acquire durable production ownership", result.stdout)
+
+    def test_actual_daily_job_refuses_non_routine_source_before_acquiring_ownership(self):
+        active_archive = self.work / "active-source.tar"
+        subprocess.check_call([
+            "git", "-C", str(self.remote), "archive", "--format=tar",
+            "--mtime=2000-01-01T00:00:00Z", f"--output={active_archive}",
+            "HEAD^{tree}", "--", "docker-compose.yml",
+        ])
+        (self.remote / "services").mkdir(exist_ok=True)
+        (self.remote / "services/extra.yml").write_text("services: {}\n")
+        git(self.remote, "add", "services/extra.yml")
+        git(self.remote, "commit", "-m", "add non-routine service file")
+        result = self.select(whole_job=True, extra_vars={
+            "compose_native_source_archive_path": str(active_archive),
+            "compose_native_source_paths": ["docker-compose.yml", "services"],
+        })
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("compose_upgrade=refused reason=source_set_changed", result.stdout + result.stderr)
+        self.assertIn("Remove the private precheck archive", result.stdout)
+        self.assertIn("Remove only this run's controller checkout", result.stdout)
+        self.assertEqual(list(self.work.glob("home-lab-compose-*")), [])
+        self.assertEqual(list(self.work.glob("*.tar")), [active_archive])
         self.assertNotIn("Acquire durable production ownership", result.stdout)
 
 

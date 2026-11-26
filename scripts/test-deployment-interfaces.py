@@ -80,7 +80,7 @@ class DeploymentInterfaces(unittest.TestCase):
             shutil.copytree(ROOT / "ansible/roles" / name, self.roles / name)
         # Observe/credential/runtime tasks are independent external operations.
         # The actual apply, admission and convergence task sequences stay intact.
-        for name in ("observe", "credentials", "runtime-paths"):
+        for name in ("observe", "credentials", "runtime-paths", "admit-automated"):
             self.put(self.roles / f"compose_native/tasks/{name}.yml", [])
         # Redirect the one inline application directory too; the task sequence
         # and source routing remain real, but nothing writes into host /srv.
@@ -888,6 +888,87 @@ class ActionModule(ActionBase):
                 shutil.rmtree(before_images[0].parent)
                 self.owner.unlink()
                 self.lock.rmdir()
+
+    def test_docker_image_prune_defers_on_active_backup_and_refuses_other_locks(self):
+        import fcntl
+        shutil.copytree(ROOT / "ansible/roles/docker_maintenance", self.roles / "docker_maintenance")
+        helper = self.work / "home-lab-docker-image-prune"
+        backup_lock = self.work / "backup.lock"
+        recon_lock = self.work / "reconciliation.lock"
+        docker_calls = self.work / "docker-calls"
+        docker_fail = self.work / "docker-fail"
+        docker_shim = self.work / "fake-docker"
+        docker_shim.write_text(
+            "#!/usr/bin/env bash\n"
+            f"printf '%s\\n' \"$*\" >> {str(docker_calls)!r}\n"
+            f"if [[ -e {str(docker_fail)!r} ]]; then exit 1; fi\n"
+        )
+        docker_shim.chmod(0o755)
+        tasks = yaml.safe_load((ROOT / "ansible/roles/docker_maintenance/tasks/main.yml").read_text())
+        render_task = next(task for task in tasks if task.get("name") == "Install coordinated native Docker image-prune helper")
+        render_task = dict(render_task)
+        render_task["ansible.builtin.copy"] = dict(render_task["ansible.builtin.copy"])
+        render_task["ansible.builtin.copy"]["dest"] = str(helper)
+        render_task["ansible.builtin.copy"]["content"] = render_task["ansible.builtin.copy"]["content"].replace(
+            "/usr/bin/docker", str(docker_shim)
+        )
+        self.success(self.run_tasks([render_task], variables={
+            "docker_maintenance_apply_lock_path": str(self.lock),
+            "docker_maintenance_backup_lock_path": str(backup_lock),
+            "docker_maintenance_reconciliation_locks": [str(recon_lock)],
+        }))
+        self.assertTrue(helper.is_file())
+
+        # 1. Missing backup lock fails closed.
+        missing = subprocess.run([str(helper)], capture_output=True, text=True, check=False)
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn("docker_image_prune=refused reason=backup_lock_missing", missing.stderr)
+        self.assertFalse(self.lock.exists())
+        self.assertFalse(docker_calls.exists())
+
+        # 2. Active backup lock defers cleanly with exit 0 and no production lock.
+        backup_lock.touch(mode=0o660)
+        with backup_lock.open("r+") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            deferred = subprocess.run([str(helper)], capture_output=True, text=True, check=False)
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        self.assertEqual(deferred.returncode, 0, deferred.stdout + deferred.stderr)
+        self.assertIn("docker_image_prune=deferred reason=backup_lock_active", deferred.stdout)
+        self.assertFalse(self.lock.exists())
+        self.assertFalse(docker_calls.exists())
+
+        # 3. Present reconciliation lock refuses.
+        recon_lock.touch()
+        recon_res = subprocess.run([str(helper)], capture_output=True, text=True, check=False)
+        self.assertEqual(recon_res.returncode, 1)
+        self.assertIn("docker_image_prune=refused reason=reconciliation_lock_present", recon_res.stderr)
+        self.assertFalse(self.lock.exists())
+        recon_lock.unlink()
+
+        # 4. Existing production lock refuses without removing it.
+        self.lock.mkdir(mode=0o700)
+        self.owner.write_text("controller=manual\n")
+        prod_res = subprocess.run([str(helper)], capture_output=True, text=True, check=False)
+        self.assertEqual(prod_res.returncode, 1)
+        self.assertIn("docker_image_prune=refused reason=production_lock_present", prod_res.stderr)
+        self.assertEqual(self.owner.read_text(), "controller=manual\n")
+        self.owner.unlink()
+        self.lock.rmdir()
+
+        # 5. Normal run prunes and releases ownership.
+        ok_res = subprocess.run([str(helper)], capture_output=True, text=True, check=False)
+        self.assertEqual(ok_res.returncode, 0, ok_res.stdout + ok_res.stderr)
+        self.assertEqual(docker_calls.read_text().splitlines(), ["image prune --all --force"])
+        self.assertFalse(self.lock.exists())
+
+        # 6. Docker failure retains production ownership.
+        docker_fail.touch()
+        fail_res = subprocess.run([str(helper)], capture_output=True, text=True, check=False)
+        self.assertNotEqual(fail_res.returncode, 0)
+        self.assertIn("Docker image prune failed; production ownership retained.", fail_res.stderr)
+        self.assertTrue(self.owner.is_file())
+        self.owner.unlink()
+        self.lock.rmdir()
 
 
 if __name__ == "__main__":

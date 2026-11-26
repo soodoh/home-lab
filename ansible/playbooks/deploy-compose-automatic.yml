@@ -26,6 +26,13 @@
             name: compose_schedule
             tasks_from: select
 
+        - name: Classify the selected Compose archive before acquiring production ownership
+          ansible.builtin.include_role:
+            name: compose_native
+            tasks_from: admit-automated
+          vars:
+            compose_native_controller_root: "{{ compose_schedule_workspace.path }}/source"
+
         - name: Converge routine images through the shared deployment interface
           ansible.builtin.include_role:
             name: compose_native

@@ -1,0 +1,78 @@
+---
+- name: Validate automated precheck archive inputs
+  ansible.builtin.assert:
+    that:
+      - compose_native_source_paths | length > 0
+      - compose_native_source_paths | unique | length == compose_native_source_paths | length
+      - compose_native_source_archive_path | length > 0
+    fail_msg: Automated precheck requires a nonempty source set and active archive path.
+
+- name: Inspect tracked candidate checkout state before automated classification
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/git
+      - --no-optional-locks
+      - status
+      - --porcelain=v1
+      - --untracked-files=no
+    chdir: "{{ compose_native_controller_root }}"
+  register: compose_native_precheck_status
+  changed_when: false
+  check_mode: false
+  environment:
+    HOME: /
+    LANG: C
+    LC_ALL: C
+    GIT_CONFIG_GLOBAL: /dev/null
+    GIT_CONFIG_NOSYSTEM: "1"
+    GIT_OPTIONAL_LOCKS: "0"
+    GIT_TERMINAL_PROMPT: "0"
+
+- name: Refuse an uncommitted candidate checkout before acquiring ownership
+  ansible.builtin.assert:
+    that:
+      - compose_native_precheck_status.stdout == ''
+    fail_msg: Candidate controller checkout must be clean before automated classification.
+
+- name: Classify the candidate Compose archive before acquiring production ownership
+  block:
+    - name: Create a private precheck archive
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .tar
+      register: compose_native_precheck_archive
+
+    - name: Archive committed candidate Compose source for precheck classification
+      ansible.builtin.command:
+        argv: >-
+          {{ ['/usr/bin/git', '--no-optional-locks', 'archive', '--format=tar',
+              '--mtime=2000-01-01T00:00:00Z',
+              '--output=' ~ compose_native_precheck_archive.path,
+              'HEAD^{tree}', '--'] + compose_native_source_paths }}
+        chdir: "{{ compose_native_controller_root }}"
+      changed_when: false
+      environment:
+        HOME: /
+        LANG: C
+        LC_ALL: C
+        GIT_CONFIG_GLOBAL: /dev/null
+        GIT_CONFIG_NOSYSTEM: "1"
+        GIT_OPTIONAL_LOCKS: "0"
+        GIT_TERMINAL_PROMPT: "0"
+
+    - name: Require routine-only Compose changes before acquiring production ownership
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter | default('/usr/bin/python3') }}"
+          - "{{ compose_native_implementation_root }}/scripts/compose-upgrade-admission.py"
+          - --active-archive
+          - "{{ compose_native_source_archive_path }}"
+          - --candidate-archive
+          - "{{ compose_native_precheck_archive.path }}"
+      changed_when: false
+  always:
+    - name: Remove the private precheck archive
+      ansible.builtin.file:
+        path: "{{ compose_native_precheck_archive.path | default('/nonexistent-compose-precheck-archive') }}"
+        state: absent
+      when: compose_native_precheck_archive.path | default('') | length > 0
