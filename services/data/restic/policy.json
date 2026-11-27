@@ -67,7 +67,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "951beb06282c2d31542a41b15d0e5a3ad574999dc70d54eec1350db6f9ebdc70",
+    "sha256": "d9148c2b56133d71ee726beeb2539b4d9f81af1cb307f1f389546d5f2f446b09",
     "policy_path": "/etc/home-lab/restic-policy.json",
     "files_from_path": "/etc/home-lab/restic/files-from",
     "exclude_file_path": "/etc/home-lab/restic/excludes",
@@ -79,23 +79,12 @@
     "artifact_hash_path": "/var/lib/docker-compose/current-artifact.sha256"
   },
   "stop_groups": {
-    "applications": [
-      "shelfmark",
-      "bookorbit",
-      "nextcloud-cron",
-      "nextcloud",
-      "frigate",
-      "sabnzbd",
-      "uchiyomi",
-      "uchiyomi-engine",
-      "uchiyomi-x",
-      "uchiyomi-x-engine"
-    ],
+    "applications": [],
     "databases": []
   },
   "capture": {
     "stage": "/mnt/games/home-lab-backup/capture",
-    "adapter_sha256": "9e23249d7bbe4219178501daec970665e5e74ef60de914455a377ec987b879f4",
+    "adapter_sha256": "78beb734bae9f2f997f20f95aa72b4191cb69e948f900d77936f130392b8d991",
     "reserve_bytes": 21474836480,
     "estimate_paths": [
       "/srv/home-lab-state/authentik-data/postgresql",
@@ -115,15 +104,25 @@
         "sonarr": "/srv/home-lab-state/sonarr-data",
         "radarr": "/srv/home-lab-state/radarr-data",
         "qbittorrent": "/srv/home-lab-state/qbittorrent-data",
+        "sabnzbd": "/srv/home-lab-state/sabnzbd-data",
         "homeassistant": "/srv/home-lab-state/hass-data",
         "zwave": "/srv/home-lab-state/zwave-data",
-        "omada": "/srv/home-lab-state/omada-data/data"
+        "omada": "/srv/home-lab-state/omada-data/data",
+        "frigate": "/srv/home-lab-state/frigate-data",
+        "shelfmark": "/srv/home-lab-state/shelfmark-data",
+        "uchiyomi": "/srv/home-lab-state/uchiyomi",
+        "uchiyomi-engine": "/srv/home-lab-state/uchiyomi-engine",
+        "uchiyomi-x": "/srv/home-lab-state/uchiyomi-x"
       }
     },
     "zfs": {
       "dataset_guid": "8756195246383642806",
       "expiry_seconds": 259200,
-      "broker_ipv4": "100.113.54.34"
+      "broker_ipv4": "100.113.54.34",
+      "online_paths": {
+        "frigate": "/mnt/storage/media/frigate/exports",
+        "uchiyomi": "/mnt/storage/media/uchiyomi/downloads"
+      }
     },
     "mounts": [
       {
@@ -149,26 +148,11 @@
         }
       }
     ],
-    "cold": [
-      {
-        "name": "bookorbit",
-        "precopy": true,
-        "services": ["shelfmark", "bookorbit"],
-        "paths": [
-          "/srv/home-lab-state/shelfmark-data",
-          "/srv/home-lab-state/bookorbit-data",
-          "/srv/home-lab-state/bookorbit-media"
-        ],
-        "databases": [
-          {
-            "engine": "postgres",
-            "container": "bookorbit-db",
-            "name": "bookorbit.dump"
-          }
-        ]
-      },
+    "cold": [],
+    "maintenance": [
       {
         "name": "nextcloud",
+        "native": "nextcloud",
         "services": [
           "nextcloud-cron",
           "nextcloud"
@@ -185,47 +169,6 @@
             "container": "nextcloud-db",
             "name": "nextcloud.sql"
           }
-        ]
-      },
-      {
-        "name": "frigate",
-        "services": [
-          "frigate"
-        ],
-        "paths": [
-          "/srv/home-lab-state/frigate-data",
-          "/mnt/storage/media/frigate/exports"
-        ]
-      },
-      {
-        "name": "sabnzbd",
-        "services": [
-          "sabnzbd"
-        ],
-        "paths": [
-          "/srv/home-lab-state/sabnzbd-data"
-        ]
-      },
-      {
-        "name": "uchiyomi",
-        "services": [
-          "uchiyomi",
-          "uchiyomi-engine"
-        ],
-        "paths": [
-          "/srv/home-lab-state/uchiyomi",
-          "/srv/home-lab-state/uchiyomi-engine",
-          "/mnt/storage/media/uchiyomi/downloads"
-        ]
-      },
-      {
-        "name": "uchiyomi-x",
-        "services": [
-          "uchiyomi-x",
-          "uchiyomi-x-engine"
-        ],
-        "paths": [
-          "/srv/home-lab-state/uchiyomi-x"
         ]
       }
     ],
@@ -246,6 +189,25 @@
             "engine": "postgres",
             "container": "authentik-postgres",
             "name": "authentik.dump"
+          }
+        ]
+      },
+      {
+        "name": "bookorbit",
+        "native": "postgres",
+        "services": [
+          "bookorbit",
+          "shelfmark"
+        ],
+        "paths": [
+          "/srv/home-lab-state/bookorbit-data",
+          "/srv/home-lab-state/bookorbit-media"
+        ],
+        "databases": [
+          {
+            "engine": "postgres",
+            "container": "bookorbit-db",
+            "name": "bookorbit.dump"
           }
         ]
       },

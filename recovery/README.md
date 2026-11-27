@@ -145,9 +145,15 @@ layout. Its `.locks` SQLite shards are runtime coordination and are recreated by
 the application rather than restored. Mosquitto's
 `mosquitto.db` is its fresh native online persistence output, restored through the
 normal broker startup, not a separate SQL import. Physical database captures
-retain their journals; restore them together into an empty destination. Sonarr,
-Radarr, Prowlarr, Seerr and Karaoke Eternal are captured while running from the
-local state snapshot. On restore, SQLite recovers as after an abrupt shutdown.
+retain their journals; restore them together into an empty destination. No
+application containers are stopped during capture. Sonarr, Radarr, Prowlarr,
+Seerr, Karaoke Eternal, SABnzbd, Shelfmark, Frigate, Uchiyomi, Uchiyomi X and their engines
+are captured while running from the local state snapshot (with Frigate exports
+and public Uchiyomi downloads read from the ZFS snapshot). Because the ZFS and
+local state snapshots are taken sequentially while those apps stay running,
+in-flight Frigate exports or Uchiyomi downloads may skew slightly across the two
+snapshots and require re-sync or cleanup on restore. On restore, their embedded
+databases (SQLite/WAL and Suwayomi H2) recover as after an abrupt shutdown.
 Omada's `/srv/home-lab-state/omada-data/data` is also captured while running.
 Restore its WiredTiger files, journal and keystore together into an empty data
 root. Start the matching pinned controller with networking disabled and no
@@ -163,12 +169,21 @@ Logical exports and native archives remain in `recovery-exports/`:
   Restore media, templates and certificates from that same capture before
   starting the restored instance. The database is captured online while the
   companion files are verified unchanged across the copy and dump.
-- `databases/bookorbit.dump`: native PostgreSQL custom format. Start from an empty
-  compatible PostgreSQL with pgvector, restore the dump, then check the library
-  files, covers, individual users and reading state from the same capture.
-- `databases/nextcloud.sql`: native MariaDB logical
-  exports for compatible empty databases. Restore database and coupled files
-  from this same capture before enabling application/background writers.
+- `databases/bookorbit.dump`: native PostgreSQL custom format. BookOrbit
+  stays running; the database is captured online while `bookorbit-data` and
+  `bookorbit-media` are copied and verified unchanged
+  across the copy and dump (decoupled from the shared ZFS/state snapshot
+  window). Start from an empty compatible PostgreSQL with pgvector, restore the
+  dump, then check the library files, covers, individual users and reading state
+  from the same capture.
+- `databases/nextcloud.sql`: native MariaDB logical export for compatible empty
+  databases. Nextcloud and `nextcloud-cron` stay running under native Nextcloud
+  maintenance mode (`occ maintenance:mode --on`, verified on Apache's
+  `status.php`, then draining active cron, writable file handles and MariaDB
+  sessions) across the SQL export, ZFS snapshot and local state snapshot. Because `nextcloud-config/config.php` is
+  captured while maintenance mode is active, a restored instance starts in
+  maintenance mode; verify the restored database and data before running
+  `occ maintenance:mode --off`.
 - `native/jellyfin.zip`: use Jellyfin's supported backup restore facility with
   the compatible pinned application. It includes metadata/subtitles but not
   generated attachments/fonts, trickplay or transcoding caches. The file layout

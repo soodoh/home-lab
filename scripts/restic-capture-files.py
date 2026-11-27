@@ -33,14 +33,31 @@ class CaptureError(ValueError):
     pass
 
 
+ONLINE_SOURCE_RETRY_DELAYS = (2, 4, 8, 12, 16)
+
+
 def retry(operation, attempts=3):
-    for attempt in range(attempts):
+    """Retry transient capture operations, with progressive backoff on live file churn."""
+    base_attempts = max(1, attempts)
+    churn_limit = 1 if attempts <= 1 else max(base_attempts, len(ONLINE_SOURCE_RETRY_DELAYS) + 1)
+    churn_failures = 0
+    non_churn_failures = 0
+    while True:
         try:
             return operation()
-        except (OSError, sqlite3.Error, CaptureError):
-            if attempt + 1 == attempts:
-                raise CaptureError('capture_phase_failed') from None
-            time.sleep(2)
+        except (OSError, sqlite3.Error, CaptureError) as error:
+            is_source_churn = isinstance(error, CaptureError) and str(error) == 'online_source_changed'
+            if is_source_churn:
+                churn_failures += 1
+                if churn_failures >= churn_limit:
+                    raise CaptureError('capture_phase_failed') from None
+                delay = ONLINE_SOURCE_RETRY_DELAYS[min(churn_failures - 1, len(ONLINE_SOURCE_RETRY_DELAYS) - 1)]
+            else:
+                non_churn_failures += 1
+                if non_churn_failures >= base_attempts:
+                    raise CaptureError('capture_phase_failed') from None
+                delay = 2
+            time.sleep(delay)
 
 
 def command(argv, output=None):
@@ -81,24 +98,124 @@ def copy_paths(paths, target, excludes, online_sqlite=False, *, exclude=(), sync
              '--exclude-from=' + str(excludes), *options, '--', *paths, str(target) + '/'])
 
 
-def file_inventory(paths, *, exclude=()):
+def _glob_to_regex(pattern):
+    parts = ['^']
+    index = 0
+    while index < len(pattern):
+        if pattern[index:index + 3] == '**/' and (index == 0 or pattern[index - 1] == '/'):
+            parts.append('(?:.*/)?')
+            while pattern[index:index + 3] == '**/':
+                index += 3
+        elif pattern[index:index + 2] == '**':
+            parts.append('.*')
+            index += 2
+        elif pattern[index] == '*':
+            parts.append('[^/]*')
+            index += 1
+        elif pattern[index] == '?':
+            parts.append('[^/]')
+            index += 1
+        else:
+            parts.append(re.escape(pattern[index]))
+            index += 1
+    return ''.join(parts)
+
+
+class ExcludeRule(NamedTuple):
+    pattern: re.Pattern[str]
+    child_pattern: re.Pattern[str] | None = None
+
+
+def _iter_policy_exclude_lines(policy_file):
+    for line in Path(policy_file).read_text().splitlines():
+        if not line or line.startswith('#'):
+            continue
+        if (not (line.startswith('/') or line.startswith('**/'))
+                or line.endswith('/')
+                or '//' in line
+                or '***' in line
+                or '**/**' in line
+                or any(char in line for char in ('[', ']', '\\'))):
+            raise CaptureError('snapshot_exclude_shape')
+        if line.endswith('/**'):
+            base = line[:-3]
+            if not base or base == '**' or base.endswith('/') or base.endswith('/**'):
+                raise CaptureError('snapshot_exclude_shape')
+        yield line
+
+
+def load_policy_excludes(policy_file, *, paths=None):
+    source_strings = tuple(str(Path(path)) for path in paths) if paths is not None else None
+    patterns = []
+    for line in _iter_policy_exclude_lines(policy_file):
+        is_subtree = line.endswith('/**')
+        raw = line[:-3] if is_subtree else line
+        if source_strings is not None and raw.startswith('/'):
+            prefix = re.split(r'[*?]', raw, maxsplit=1)[0]
+            if not any(source.startswith(prefix) or prefix.startswith(source) for source in source_strings):
+                continue
+        if is_subtree:
+            base_regex = _glob_to_regex(raw)
+            rule = ExcludeRule(
+                re.compile(base_regex + r'\Z', re.DOTALL),
+                re.compile(base_regex + r'/.*\Z', re.DOTALL),
+            )
+        else:
+            rule = ExcludeRule(re.compile(_glob_to_regex(raw) + r'\Z', re.DOTALL))
+        patterns.append(rule)
+    return tuple(patterns)
+
+
+def _path_excluded(path, excluded, policy_excludes):
+    text = str(path)
+    if any(path == root or root in path.parents for root in excluded):
+        return True
+    return any(
+        (rule.child_pattern is None and rule.pattern.match(text))
+        or (rule.child_pattern is not None and rule.child_pattern.match(text))
+        for rule in policy_excludes
+    )
+
+
+def file_inventory(paths, *, exclude=(), excludes_file=None):
     """lstat only: never traverse links or inspect a file's private payload."""
     excluded = tuple(Path(path) for path in exclude)
+    resolved = [safe_source(source) for source in paths]
+    policy_excludes = load_policy_excludes(excludes_file, paths=resolved) if excludes_file is not None else ()
     result = {}
-    for source in paths:
-        source = safe_source(source)
+    for source in resolved:
+        # Match rsync --relative, which evaluates non-subtree excludes against ancestor dirs too.
+        if any(rule.child_pattern is None and rule.pattern.match(str(parent))
+               for parent in source.parents for rule in policy_excludes):
+            continue
         pending = [source]
         while pending:
             path = pending.pop()
-            if any(path == root or root in path.parents for root in excluded):
+            text = str(path)
+            if _path_excluded(path, excluded, policy_excludes):
                 continue
-            info = path.lstat()
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                if path != source:
+                    raise CaptureError('online_source_changed') from None
+                raise
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)):
                 raise CaptureError('capture_special_file')
-            result[str(path)] = (info.st_mode, info.st_dev, info.st_ino, info.st_size,
-                                 info.st_mtime_ns, info.st_ctime_ns, info.st_uid, info.st_gid)
             if stat.S_ISDIR(info.st_mode):
-                pending.extend(path.iterdir())
+                if any(rule.child_pattern is not None and rule.pattern.match(text) for rule in policy_excludes):
+                    # rsync `dir/**` copies `dir` itself while excluding children:
+                    # verify type/identity without failing on child-churn timestamps.
+                    result[text] = (info.st_mode, info.st_dev, info.st_ino, None, None, None, info.st_uid, info.st_gid)
+                    continue
+                try:
+                    pending.extend(path.iterdir())
+                except FileNotFoundError:
+                    if path != source:
+                        raise CaptureError('online_source_changed') from None
+                    raise
+            result[text] = (info.st_mode, info.st_dev, info.st_ino, info.st_size,
+                            info.st_mtime_ns, info.st_ctime_ns, info.st_uid, info.st_gid)
     return result
 
 
@@ -118,7 +235,7 @@ def database_fingerprints(names, inventory):
 
 def precopy(paths, target, excludes):
     """Seed private staging while writers are online; this is NOT recovery data."""
-    before = file_inventory(paths)
+    before = file_inventory(paths, excludes_file=excludes)
     copy_paths(paths, target, excludes)
     return before
 
@@ -130,7 +247,7 @@ def finish_copy(paths, target, excludes, *, baseline):
     Only changed staged files are discarded; the final rsync owns deletion and
     metadata preservation. There are no hard links back to the production tree.
     """
-    after = file_inventory(paths)
+    after = file_inventory(paths, excludes_file=excludes)
     for path, signature in after.items():
         if signature == baseline.get(path) or stat.S_ISDIR(signature[0]):
             continue
@@ -215,9 +332,9 @@ def mosquitto(step, target, excludes, *, container, running):
             if time.monotonic() >= deadline:
                 raise CaptureError('mqtt_flush_timeout')
             time.sleep(.1)
-    before = file_inventory(step['paths'])
+    before = file_inventory(step['paths'], excludes_file=excludes)
     copy_paths(step['paths'], target, excludes, synchronize=True)
-    if before != file_inventory(step['paths']):
+    if before != file_inventory(step['paths'], excludes_file=excludes):
         raise CaptureError('online_source_changed')
 
 
@@ -229,7 +346,7 @@ def online_tree(paths, target, excludes, *, sqlite_paths, json_roots=(), ephemer
     rebuild a private wal-index and advance data_version without a real commit;
     that connection-local cache epoch is not an application-write detector.
     """
-    before = file_inventory(paths, exclude=ephemeral)
+    before = file_inventory(paths, exclude=ephemeral, excludes_file=excludes)
     if any(stat.S_ISLNK(signature[0]) for signature in before.values()):
         raise CaptureError('online_source_symlink')
     if not sqlite_paths and not json_roots:
@@ -257,7 +374,7 @@ def online_tree(paths, target, excludes, *, sqlite_paths, json_roots=(), ephemer
         if os.geteuid() == 0:
             info = Path(name).stat()
             os.chown(destination, info.st_uid, info.st_gid)
-    after = file_inventory(paths, exclude=ephemeral)
+    after = file_inventory(paths, exclude=ephemeral, excludes_file=excludes)
     selected = lambda inventory: {name: value for name, value in inventory.items() if name not in omitted}
     if (selected(before) != selected(after) or
             before_databases != database_fingerprints(database_files, after)):
@@ -279,13 +396,34 @@ ZFS_EXPIRY = 72 * 3600
 ZFS_BROKER_PORT = 2444
 
 
+def _validate_online_paths(online_paths, *, base, key_error, path_error):
+    if (not isinstance(online_paths, dict) or
+            any(not isinstance(k, str) or not k or not isinstance(v, str) or not v
+                for k, v in online_paths.items())):
+        raise CaptureError(key_error)
+    if (any(str(Path(v)) != v or '..' in Path(v).parts or not Path(v).is_relative_to(base) or Path(v) == base
+            for v in online_paths.values()) or
+            len(set(online_paths.values())) != len(online_paths)):
+        raise CaptureError(path_error)
+    return online_paths
+
+
+def _validate_zfs_online_paths(online_paths):
+    return _validate_online_paths(
+        online_paths, base=ZFS_BASE, key_error='snapshot_policy', path_error='snapshot_policy',
+    )
+
+
 def zfs_spec(policy):
     spec = policy['capture']['zfs']
-    if (set(spec) != {'dataset_guid', 'expiry_seconds', 'broker_ipv4'} or
+    if (not isinstance(spec, dict) or
+            set(spec) - {'online_paths'} != {'dataset_guid', 'expiry_seconds', 'broker_ipv4'} or
             not re.fullmatch('[1-9][0-9]{0,19}', spec['dataset_guid']) or
             ipaddress.ip_address(spec['broker_ipv4']) not in ipaddress.ip_network('100.64.0.0/10') or
             spec['expiry_seconds'] != ZFS_EXPIRY):
         raise CaptureError('snapshot_policy')
+    if 'online_paths' in spec:
+        _validate_zfs_online_paths(spec['online_paths'])
     return spec
 
 
@@ -457,9 +595,9 @@ def zfs_unmount(stage):
 STATE_BASE = Path('/srv/home-lab-state')
 
 
-def state_snapshot_roots(cold_paths, online_paths):
+def state_snapshot_roots(shared_paths, online_paths):
     """Select only declared application trees, not the whole state volume."""
-    paths = [Path(path) for path in cold_paths if Path(path).is_relative_to(STATE_BASE)]
+    paths = [Path(path) for path in shared_paths if Path(path).is_relative_to(STATE_BASE)]
     paths.extend(map(Path, online_paths))
     if (not paths or len(set(paths)) != len(paths) or
             any(not path.is_relative_to(STATE_BASE) or path == STATE_BASE or '..' in path.parts or
@@ -472,15 +610,11 @@ def state_snapshot_exclusions(stage, policy_file):
     # Restic sees the archive paths rather than the originals seen by rsync.
     # The reviewed list uses only anchored paths and recursive glob patterns.
     result = []
-    for line in Path(policy_file).read_text().splitlines():
-        if not line or line.startswith('#'):
-            continue
+    for line in _iter_policy_exclude_lines(policy_file):
         if line.startswith('/'):
             result.append(str(archive_path(stage, line)))
-        elif line.startswith('**/'):
-            result.append(line)
         else:
-            raise CaptureError('snapshot_exclude_shape')
+            result.append(line)
     return result
 
 
@@ -733,6 +867,150 @@ def sqlite_backup(source, target, *, reader=None):
         temporary.unlink(missing_ok=True)
 
 
+MARIADB_CLIENT_PROLOGUE = (
+    'umask 077; f=$(mktemp); trap \'rm -f "$f"\' EXIT; '
+    'trap \'rm -f "$f"; exit 130\' INT; '
+    'trap \'rm -f "$f"; exit 143\' TERM; '
+    'trap \'rm -f "$f"; exit 129\' HUP; '
+    'p=${MARIADB_ROOT_PASSWORD_FILE:-$MYSQL_ROOT_PASSWORD_FILE}; '
+    r"""password=$(printf '%s' "$(cat "$p")" | """
+    r"""sed ':a;$!{N;ba;};s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r/\\r/g;s/\t/\\t/g'); """
+    'printf \'[client]\\nuser=root\\npassword="%s"\\n\' "$password" > "$f"; '
+)
+
+
+NEXTCLOUD_WRITE_FD_TARGET_RE = re.compile(
+    r'^(?:/var/www/html/(?:data|config|custom_apps|themes)/|/(?:tmp|var/tmp)/(?:php|oc_tmp_))'
+)
+NEXTCLOUD_LOG_FD_RE = re.compile(r'^/var/www/html/data/nextcloud\.log(?:\.[0-9]+)?(?: \(deleted\))?\Z')
+FDINFO_FLAGS_RE = re.compile(r'^flags:\s*([0-7]+)\s*$', re.MULTILINE)
+
+
+NEXTCLOUD_CRON_PROBE = (
+    'busybox pidof php >/dev/null 2>&1; rc=$?; '
+    '[ "$rc" -eq 0 ] && exit 10; '
+    '[ "$rc" -eq 1 ] && exit 0; '
+    'exit 2'
+)
+
+
+NEXTCLOUD_WEB_STATUS_PROBE = (
+    "$ch = curl_init('http://127.0.0.1/status.php');"
+    " if ($ch === false) exit(2);"
+    " curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 5,"
+    " CURLOPT_TIMEOUT => 10, CURLOPT_FOLLOWLOCATION => false]);"
+    " $body = curl_exec($ch);"
+    " if ($body === false || curl_getinfo($ch, CURLINFO_HTTP_CODE) !== 200) exit(1);"
+    " echo $body;"
+)
+
+
+def _run_probe(argv, *, timeout=30):
+    try:
+        return subprocess.run(
+            argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, check=False,
+            env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/var/empty', 'LC_ALL': 'C', 'TZ': 'UTC'},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise CaptureError('capture_command') from None
+
+
+def nextcloud_web_status(container):
+    result = _run_probe(['/usr/bin/docker', 'exec', '--user', 'www-data', container,
+                         'php', '-r', NEXTCLOUD_WEB_STATUS_PROBE], timeout=30)
+    if result.returncode != 0:
+        raise CaptureError('nextcloud_web_status')
+    try:
+        value = json.loads(result.stdout)
+    except ValueError as error:
+        raise CaptureError('nextcloud_web_status') from error
+    if not isinstance(value, dict):
+        raise CaptureError('nextcloud_web_status')
+    return value
+
+
+def nextcloud_cron_busy(container):
+    result = _run_probe(['/usr/bin/docker', 'exec', container,
+                         'busybox', 'sh', '-c', NEXTCLOUD_CRON_PROBE], timeout=30)
+    if result.returncode == 10:
+        return True
+    if result.returncode == 0:
+        return False
+    raise CaptureError('nextcloud_drain_check')
+
+
+def _container_host_pids(container):
+    result = _run_probe(['/usr/bin/docker', 'top', container, '-eo', 'pid'], timeout=30)
+    if result.returncode != 0:
+        raise CaptureError('nextcloud_drain_check')
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) < 2 or lines[0] != 'PID' or any(not (line.isascii() and line.isdigit()) or int(line) <= 0 for line in lines[1:]):
+        raise CaptureError('nextcloud_drain_check')
+    return [int(line) for line in lines[1:]]
+
+
+def nextcloud_write_fds_busy(container, *, proc_root=Path('/proc')):
+    """Inspect container worker FDs from host /proc so root has CAP_SYS_PTRACE.
+
+    Inside a default-capability container, root cannot read www-data Apache
+    worker /proc/<pid>/fd entries without CAP_SYS_PTRACE. Failing closed on
+    PermissionError prevents silent false-idle results.
+    """
+    pids = _container_host_pids(container)
+    for pid in pids:
+        pid_dir = proc_root / str(pid)
+        try:
+            entries = list((pid_dir / 'fd').iterdir())
+        except PermissionError:
+            raise CaptureError('nextcloud_drain_check') from None
+        except (FileNotFoundError, ProcessLookupError):
+            return True
+        except OSError:
+            raise CaptureError('nextcloud_drain_check') from None
+        for entry in entries:
+            try:
+                target = os.readlink(entry)
+            except PermissionError:
+                raise CaptureError('nextcloud_drain_check') from None
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            except OSError:
+                raise CaptureError('nextcloud_drain_check') from None
+            if not NEXTCLOUD_WRITE_FD_TARGET_RE.match(target) or NEXTCLOUD_LOG_FD_RE.match(target):
+                continue
+            try:
+                info = (pid_dir / 'fdinfo' / entry.name).read_text(encoding='utf-8', errors='replace')
+            except PermissionError:
+                raise CaptureError('nextcloud_drain_check') from None
+            except (FileNotFoundError, ProcessLookupError):
+                return True
+            except OSError:
+                raise CaptureError('nextcloud_drain_check') from None
+            match = FDINFO_FLAGS_RE.search(info)
+            if match is None or (int(match.group(1), 8) & 3) != 0:
+                return True
+    return False
+
+
+def mariadb_idle(container):
+    """Return True when no active query or open InnoDB transaction touches the DB."""
+    argv = ['sh', '-ec', MARIADB_CLIENT_PROLOGUE +
+            'mariadb --defaults-extra-file="$f" --connect-timeout=10 -N -B "${MARIADB_DATABASE:-$MYSQL_DATABASE}" -e '
+            '"SET STATEMENT max_statement_time=15 FOR '
+            'SELECT (SELECT COUNT(*) FROM information_schema.PROCESSLIST '
+            'WHERE COALESCE(USER, \'\') != \'system user\' '
+            'AND COALESCE(COMMAND, \'\') NOT IN (\'Sleep\', \'Daemon\') '
+            'AND ID != CONNECTION_ID()) + '
+            '(SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id != CONNECTION_ID())"']
+    result = _run_probe(['/usr/bin/docker', 'exec', container, *argv], timeout=30)
+    if result.returncode != 0:
+        raise CaptureError('mariadb_drain_check')
+    raw = result.stdout.strip()
+    if not (raw.isascii() and raw.isdigit()):
+        raise CaptureError('mariadb_drain_check')
+    return int(raw) == 0
+
+
 def database_dump(spec, target):
     """Use native in-image clients; passwords are read inside the container."""
     if spec['engine'] == 'postgres':
@@ -743,11 +1021,7 @@ def database_dump(spec, target):
         # Quote option-file values and escape their native syntax, not shell
         # syntax. Command substitution matches the image's password-file reader
         # by stripping trailing newlines before encoding embedded control bytes.
-        argv = ['sh', '-ec', 'umask 077; f=$(mktemp); trap \'rm -f "$f"\' EXIT; '
-                'p=${MARIADB_ROOT_PASSWORD_FILE:-$MYSQL_ROOT_PASSWORD_FILE}; '
-                r"""password=$(printf '%s' "$(cat "$p")" | """
-                r"""sed ':a;$!{N;ba;};s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r/\\r/g;s/\t/\\t/g'); """
-                'printf \'[client]\\nuser=root\\npassword="%s"\\n\' "$password" > "$f"; '
+        argv = ['sh', '-ec', MARIADB_CLIENT_PROLOGUE +
                 'mariadb-dump --defaults-extra-file="$f" --single-transaction --quick '
                 '--routines --events --triggers --hex-blob --default-character-set=utf8mb4 '
                 '"${MARIADB_DATABASE:-$MYSQL_DATABASE}"']
@@ -761,16 +1035,33 @@ def database_dump(spec, target):
         raise CaptureError('empty_dump')
 
 
-def online_postgres(paths, files, excludes, *, spec, target):
+def online_postgres(paths, files, excludes, *, spec, target, verified=None):
     """Pair a native PostgreSQL dump with a stable local companion-file tree."""
     if not paths or spec['engine'] != 'postgres':
         raise CaptureError('online_postgres_scope')
-    before = file_inventory(paths)
-    # A rejected attempt can leave staged bytes whose size and mtime match a
-    # revised source file. Reconcile deletions and compare bytes on the retry.
-    copy_paths(paths, files, excludes, synchronize=True, checksum=True)
+    before = {path: file_inventory([path], excludes_file=excludes) for path in paths}
+    # Reconcile each root independently. On a retry, skip roots whose inventory
+    # is unchanged since a previously verified clean copy, and enable --checksum
+    # only for roots that already have unverified staged content.
+    for path in paths:
+        staged_path = files / str(Path(path)).lstrip('/')
+        is_staged = staged_path.exists() or staged_path.is_symlink()
+        if verified is not None and is_staged and verified.get(path) == before[path]:
+            continue
+        if verified is not None:
+            verified.pop(path, None)
+        copy_paths([path], files, excludes, synchronize=True, checksum=is_staged)
     database_dump(spec, target)
-    if before != file_inventory(paths):
+    changed = False
+    for path in paths:
+        if before[path] == file_inventory([path], excludes_file=excludes):
+            if verified is not None:
+                verified[path] = before[path]
+        else:
+            changed = True
+            if verified is not None:
+                verified.pop(path, None)
+    if changed:
         raise CaptureError('online_source_changed')
 
 
@@ -1050,31 +1341,77 @@ class CaptureSources(NamedTuple):
     live_games: list[Path]
 
 
-def capture_sources(settings):
-    """Select archive mounts from reviewed policy, also usable on a ready retry."""
-    cold_paths = [path for step in settings.get('cold', []) for path in step['paths']]
+def _validate_state_online_paths(online_paths):
+    return _validate_online_paths(
+        online_paths,
+        base=STATE_BASE,
+        key_error='state_snapshot_online_services',
+        path_error='state_snapshot_scope',
+    )
+
+
+def _parse_snapshot_settings(settings):
+    zfs_setting = settings.get('zfs')
+    if zfs_setting is not None and (not isinstance(zfs_setting, (dict, bool)) or (isinstance(zfs_setting, dict) and not zfs_setting)):
+        raise CaptureError('snapshot_policy')
+    zfs_online = {}
+    if isinstance(zfs_setting, dict) and 'online_paths' in zfs_setting:
+        zfs_online = _validate_zfs_online_paths(zfs_setting['online_paths'])
+    state_setting = settings.get('state_snapshot')
+    if state_setting is not None and (not isinstance(state_setting, dict) or not state_setting):
+        raise CaptureError('state_snapshot_scope')
+    state_online = _validate_state_online_paths(state_setting.get('online_paths', {})) if state_setting else {}
+    return zfs_setting, zfs_online, state_setting, state_online
+
+
+def _build_capture_sources(settings, *, shared_paths, zfs_setting, zfs_online, state_setting, state_online):
     zfs, state = [], []
-    if settings.get('zfs'):
+    if zfs_setting:
         # Use the native adapter's fixed mount order, not policy ordering.
         zfs = zfs_paths()
-        declared = [path for path in cold_paths if Path(path).is_relative_to(ZFS_BASE)]
+        declared = [path for path in (*shared_paths, *zfs_online.values())
+                    if Path(path).is_relative_to(ZFS_BASE)]
         if sorted(declared) != sorted(zfs):
             raise CaptureError('snapshot_policy_scope')
-    if settings.get('state_snapshot'):
+    if state_setting:
         if not zfs:
             raise CaptureError('state_snapshot_requires_shared_capture')
-        state = state_snapshot_roots(cold_paths, settings['state_snapshot'].get('online_paths', {}).values())
+        state = state_snapshot_roots(shared_paths, state_online.values())
     return CaptureSources(zfs, state, live_games_roots(settings.get('live_games_paths', [])))
+
+
+def capture_sources(settings):
+    """Select archive mounts from reviewed policy, also usable on a ready retry."""
+    cold = settings.get('cold', [])
+    if not isinstance(cold, list) or any(not isinstance(step, dict) or not _valid_path_list(step.get('paths')) for step in cold):
+        raise CaptureError('capture_stop_scope')
+    maintenance = settings.get('maintenance', [])
+    if not isinstance(maintenance, list) or any(not isinstance(step, dict) or not _valid_path_list(step.get('paths')) for step in maintenance):
+        raise CaptureError('maintenance_capture_scope')
+    shared_paths = [path for step in (*cold, *maintenance) for path in step['paths']]
+    zfs_setting, zfs_online, state_setting, state_online = _parse_snapshot_settings(settings)
+    return _build_capture_sources(
+        settings,
+        shared_paths=shared_paths,
+        zfs_setting=zfs_setting,
+        zfs_online=zfs_online,
+        state_setting=state_setting,
+        state_online=state_online,
+    )
 
 
 class CapturePlan(NamedTuple):
     sources: CaptureSources
     pause_services: list[str]
+    maintenance: list[dict]
     precopy: list[str]
     paused_copy: list[str]
     cold_dumps: list[dict]
+    maintenance_dumps: list[dict]
     cold_names: list[str]
+    maintenance_names: list[str]
     state_names: list[str]
+    zfs_names: list[str]
     online: list[dict]
     online_stores: list[str]
     live_files: list[str]
@@ -1085,42 +1422,148 @@ class CapturePlan(NamedTuple):
 
     @property
     def databases(self):
-        return [dump for step in self.online for dump in step.get('databases', [])] + self.cold_dumps
+        return (
+            [dump for step in self.online for dump in step.get('databases', [])]
+            + self.maintenance_dumps
+            + self.cold_dumps
+        )
+
+
+CONTAINER_NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$')
+
+
+def _valid_database_spec(dump, engine):
+    return (isinstance(dump, dict) and dump.get('engine') == engine
+            and isinstance(dump.get('container'), str) and CONTAINER_NAME.fullmatch(dump['container']) is not None
+            and isinstance(dump.get('name'), str) and bool(dump['name'])
+            and '/' not in dump['name'] and dump['name'] not in {'.', '..'})
+
+
+def _valid_path_list(paths):
+    return isinstance(paths, list) and bool(paths) and all(isinstance(path, str) and bool(path) for path in paths)
+
+
+def _valid_service_list(services):
+    return (isinstance(services, list) and bool(services)
+            and all(isinstance(service, str) and bool(service) for service in services)
+            and len(set(services)) == len(services))
+
+
+NEXTCLOUD_MAINTENANCE_SERVICES = frozenset({'nextcloud', 'nextcloud-cron'})
+
+
+def _validate_maintenance_steps(maintenance, declared, stopped):
+    if not isinstance(maintenance, list):
+        raise CaptureError('maintenance_capture_scope')
+    names, maintenance_services = [], set()
+    for step in maintenance:
+        if not isinstance(step, dict):
+            raise CaptureError('maintenance_capture_scope')
+        services = step.get('services', [])
+        databases = step.get('databases', [])
+        if (step.get('native') != 'nextcloud' or step.get('name') != 'nextcloud'
+                or step['name'] in names or not _valid_service_list(services)
+                or not set(services) <= declared or set(services) & stopped
+                or 'nextcloud' not in services or not set(services) <= NEXTCLOUD_MAINTENANCE_SERVICES
+                or ('nextcloud-cron' in declared and 'nextcloud-cron' not in services)
+                or not _valid_path_list(step.get('paths'))
+                or not isinstance(databases, list) or len(databases) != 1
+                or any(not _valid_database_spec(dump, 'mariadb') for dump in databases)):
+            raise CaptureError('maintenance_capture_scope')
+        names.append(step['name'])
+        maintenance_services.update(services)
+    return names, maintenance_services
+
+
+def _validate_cold_steps(cold):
+    if not isinstance(cold, list):
+        raise CaptureError('capture_stop_scope')
+    names, selected = [], []
+    for step in cold:
+        if not isinstance(step, dict):
+            raise CaptureError('capture_stop_scope')
+        services = step.get('services')
+        databases = step.get('databases', [])
+        if (not isinstance(step.get('name'), str) or not step['name']
+                or not _valid_service_list(services)
+                or not _valid_path_list(step.get('paths'))
+                or not isinstance(databases, list)
+                or any(not isinstance(dump, dict) or dump.get('engine') not in {'postgres', 'mariadb'}
+                       or not _valid_database_spec(dump, dump['engine']) for dump in databases)):
+            raise CaptureError('capture_stop_scope')
+        names.append(step['name'])
+        selected.extend(services)
+    return names, selected
+
+
+def _validate_online_steps(online, declared, exclusive_services):
+    if not isinstance(online, list):
+        raise CaptureError('online_capture_scope')
+    names = []
+    for step in online:
+        if not isinstance(step, dict):
+            raise CaptureError('online_capture_scope')
+        native = step.get('native')
+        if native == 'postgres':
+            services = step.get('services')
+            databases = step.get('databases')
+            if (not isinstance(step.get('name'), str) or not step['name']
+                    or not _valid_service_list(services)
+                    or not set(services) <= declared or set(services) & exclusive_services
+                    or not isinstance(databases, list) or len(databases) != 1
+                    or not _valid_database_spec(databases[0], 'postgres')
+                    or not _valid_path_list(step.get('paths'))):
+                raise CaptureError('online_postgres_scope')
+        elif native == 'mosquitto':
+            service = step.get('service')
+            if not isinstance(service, str) or service not in declared or service in exclusive_services:
+                raise CaptureError('online_mosquitto_scope')
+        elif 'native' in step:
+            raise CaptureError('unknown_native_capture')
+        if native != 'postgres' and 'databases' in step:
+            raise CaptureError('online_capture_scope')
+        if (not isinstance(step.get('name'), str) or not step['name'] or step['name'] in names
+                or not _valid_path_list(step.get('paths'))):
+            raise CaptureError('online_capture_scope')
+        names.append(step['name'])
+    return names
 
 
 def capture_plan(policy, declared):
     """Resolve one fresh capture's source selection before doing capture I/O."""
     settings = policy['capture']
-    cold = settings['cold']
+    cold = settings.get('cold', [])
+    maintenance = settings.get('maintenance', [])
     online = settings.get('online', [])
+    cold_names, selected = _validate_cold_steps(cold)
     pause = policy['stop_groups']['applications']
     stopped = set(pause + policy['stop_groups']['databases'])
-    selected = [service for step in cold for service in step['services']]
     if len(pause) != len(selected) or len(set(selected)) != len(selected) or set(pause) != set(selected):
         raise CaptureError('capture_stop_scope')
     if not set(pause) <= declared:
         raise CaptureError('capture_service_missing')
-    state_online = settings.get('state_snapshot', {}).get('online_paths', {})
-    if not state_online.keys() <= declared or state_online.keys() & stopped:
+    maintenance_names, maintenance_services = _validate_maintenance_steps(maintenance, declared, stopped)
+    exclusive_services = stopped | maintenance_services
+    zfs_setting, zfs_online, state_setting, state_online = _parse_snapshot_settings(settings)
+    if not state_online.keys() <= declared or state_online.keys() & exclusive_services:
         raise CaptureError('state_snapshot_online_services')
-    for step in online:
-        native = step.get('native')
-        if native == 'postgres':
-            services = set(step['services'])
-            if (not services or not services <= declared or services & stopped or len(step['databases']) != 1
-                    or step['databases'][0]['engine'] != 'postgres' or not step['paths']):
-                raise CaptureError('online_postgres_scope')
-        elif native == 'mosquitto':
-            if step['service'] not in declared or step['service'] in stopped:
-                raise CaptureError('online_mosquitto_scope')
-        elif 'native' in step:
-            raise CaptureError('unknown_native_capture')
-    sources = capture_sources(settings)
+    if not zfs_online.keys() <= declared or zfs_online.keys() & exclusive_services:
+        raise CaptureError('zfs_snapshot_online_services')
+    online_names = _validate_online_steps(online, declared, exclusive_services)
+    cold_paths = [path for step in cold for path in step['paths']]
+    maintenance_paths = [path for step in maintenance for path in step['paths']]
+    sources = _build_capture_sources(
+        settings,
+        shared_paths=[*cold_paths, *maintenance_paths],
+        zfs_setting=zfs_setting,
+        zfs_online=zfs_online,
+        state_setting=state_setting,
+        state_online=state_online,
+    )
     snapshot = {*sources.zfs, *map(str, sources.state)}
-    precopy, paused_copy, cold_paths = [], [], []
-    for step in cold:
+    precopy, paused_copy = [], []
+    for step in (*cold, *maintenance):
         for path in step['paths']:
-            cold_paths.append(path)
             if path not in snapshot:
                 (precopy if step.get('precopy') else paused_copy).append(path)
     online_stores = settings.get('online_stores', [])
@@ -1132,7 +1575,10 @@ def capture_plan(policy, declared):
     # A stage path cannot be owned by both a copy and a mount, or written by
     # multiple capture steps. Jellyfin's parent and SQL estimate-only roots
     # are budgets, not file writers; auxiliary Jellyfin exports are deliberate.
-    archive_paths = [*cold_paths, *state_online.values(), *online_paths, *live_games]
+    archive_paths = [
+        *cold_paths, *maintenance_paths,
+        *state_online.values(), *zfs_online.values(), *online_paths, *live_games,
+    ]
     roots = set(map(Path, archive_paths))
     if len(roots) != len(archive_paths) or any(
             path.anchor != '/' or path == Path('/') or '..' in path.parts or roots.intersection(path.parents)
@@ -1140,13 +1586,25 @@ def capture_plan(policy, declared):
         raise CaptureError('capture_path_scope')
     capacity_paths = sorted({*precopy, *paused_copy, *online_paths, *settings.get('estimate_paths', []),
                              jellyfin, *live_games})
-    return CapturePlan(
-        sources=sources, pause_services=pause, precopy=precopy, paused_copy=paused_copy,
+    plan = CapturePlan(
+        sources=sources, pause_services=pause, maintenance=maintenance, precopy=precopy, paused_copy=paused_copy,
         cold_dumps=[dump for step in cold for dump in step.get('databases', [])],
-        cold_names=[step['name'] for step in cold], state_names=list(state_online), online=online,
+        maintenance_dumps=[dump for step in maintenance for dump in step.get('databases', [])],
+        cold_names=cold_names, maintenance_names=maintenance_names,
+        state_names=list(state_online), zfs_names=list(zfs_online), online=online,
         online_stores=online_stores, live_files=live_files, online_json=online_json,
         cli_auth=cli_auth, jellyfin=jellyfin, capacity_paths=capacity_paths,
     )
+    step_names = [*cold_names, *maintenance_names, *online_names]
+    snapshot_names = state_online.keys() | zfs_online.keys()
+    if (len(step_names) != len(set(step_names))
+            or set(step_names) & (snapshot_names | {'online'})
+            or 'online' in snapshot_names):
+        raise CaptureError('capture_name_scope')
+    database_names = [dump['name'] for dump in plan.databases]
+    if len(database_names) != len(set(database_names)):
+        raise CaptureError('capture_database_scope')
+    return plan
 
 
 def capacity_check(plan, stage, reserve, excludes):

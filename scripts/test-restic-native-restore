@@ -102,6 +102,7 @@ adapter.fresh_stage(stage, 0)
 policy = {'runner': {'artifact_hash_path': str(artifact_file)}, 'capture': {'radio_max_age_seconds': 0}}
 capture = runner['LocalCapture'](policy)
 plan = SimpleNamespace(sources=SimpleNamespace(zfs=(), state=()), cold_names=['books'],
+                       maintenance_names=[], state_names=[], zfs_names=[],
                        databases=[{'name': 'example.sql', 'engine': 'mariadb'}])
 
 def capture_fixture(_adapter, workspace, _plan):

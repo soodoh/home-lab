@@ -2,6 +2,7 @@
 """Behavior tests for the complete-backup lifecycle and failure boundaries."""
 import configparser
 import contextlib
+from datetime import datetime, timezone
 import fcntl
 import hashlib
 import io
@@ -36,7 +37,11 @@ class Runtime(unittest.TestCase):
         self.assertEqual(policy['replication']['max_capture_age_seconds'], 48 * 3600)
         self.assertEqual(policy['capture']['zfs']['expiry_seconds'], 72 * 3600)
         self.assertEqual(CAPTURE['zfs_spec'](policy), policy['capture']['zfs'])
-        for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet'):
+        self.assertEqual(policy['stop_groups'], {'applications': [], 'databases': []})
+        self.assertEqual(policy['capture']['cold'], [])
+        for service in ('cli-proxy-api', 'traefik', 'traefik-tailnet', 'nextcloud', 'nextcloud-cron',
+                        'bookorbit', 'shelfmark', 'frigate', 'sabnzbd', 'uchiyomi', 'uchiyomi-engine',
+                        'uchiyomi-x', 'uchiyomi-x-engine'):
             self.assertNotIn(service, policy['stop_groups']['applications'])
 
     def test_runner_rechecks_evidence_before_executing_it(self):
@@ -420,6 +425,18 @@ class Runtime(unittest.TestCase):
             accepted = subprocess.run(argv, capture_output=True, timeout=5)
             self.assertEqual(accepted.returncode, 0)
 
+    @staticmethod
+    def _declared_from_policy(policy):
+        settings = policy['capture']
+        return {
+            *policy['stop_groups']['applications'],
+            *settings['state_snapshot']['online_paths'],
+            *settings['zfs']['online_paths'],
+            *(s for step in settings['maintenance'] for s in step['services']),
+            *(s for step in settings['online'] for s in step.get('services', ())),
+            'mosquitto',
+        }
+
     def pause_policy(self, *services, owner=None):
         return {'capture': {'live_files': [], 'online_json': [], 'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin'},
                 'stop_groups': {'applications': list(services), 'databases': []},
@@ -438,7 +455,7 @@ class Runtime(unittest.TestCase):
         policy = self.pause_policy('app', 'inactive', owner='a' * 64)
         recorded = mock.Mock()
         step = {'name': 'example', 'services': ['app', 'inactive'], 'paths': ['/protected'],
-                'databases': [{'engine': 'postgres', 'name': 'db.dump'}]}
+                'databases': [{'engine': 'postgres', 'container': 'app-db', 'name': 'db.dump'}]}
         state = {'app': True, 'inactive': False}
         def compose(_policy, args):
             events.append(args)
@@ -454,60 +471,117 @@ class Runtime(unittest.TestCase):
         self.assertEqual(events, [['stop', '--timeout', '120', 'app'], 'copy', 'dump', 'restart'])
         self.assertEqual(recorded.call_args.args[1]['owner'], policy['_owner'])
 
-    def test_reviewed_capture_plan_keeps_online_writers_and_stops_other_services_at_most_once(self):
+    def test_reviewed_capture_plan_keeps_all_services_running_with_nextcloud_maintenance_and_online_bookorbit(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         snapshot_online = {service: f'/srv/home-lab-state/{service}-data' for service in (
-            'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent', 'zwave')}
+            'karaoke-eternal', 'seerr', 'prowlarr', 'sonarr', 'radarr', 'qbittorrent', 'sabnzbd',
+            'zwave', 'frigate', 'shelfmark')}
         snapshot_online['homeassistant'] = '/srv/home-lab-state/hass-data'
         snapshot_online['omada'] = '/srv/home-lab-state/omada-data/data'
+        snapshot_online['uchiyomi'] = '/srv/home-lab-state/uchiyomi'
+        snapshot_online['uchiyomi-engine'] = '/srv/home-lab-state/uchiyomi-engine'
+        snapshot_online['uchiyomi-x'] = '/srv/home-lab-state/uchiyomi-x'
         kept = {'cli-proxy-api', 'traefik', 'traefik-tailnet', 'gluetun', 'flaresolverr',
                 'ddns-updater', 'recyclarr', 'vaultwarden', 'openfit', 'mindwtr-cloud', 'mosquitto', 'wolf',
-                'authentik-server', 'authentik-worker'} | snapshot_online.keys()
-        declared = kept | {s for step in policy['capture']['cold'] for s in step['services']}
+                'authentik-server', 'authentik-worker', 'bookorbit',
+                'nextcloud', 'nextcloud-cron', 'uchiyomi-x-engine'} | snapshot_online.keys()
+        declared = set(kept)
         plan = CAPTURE['capture_plan'](policy, declared)
+        self.assertEqual(plan.pause_services, [])
+        self.assertEqual(plan.cold_names, [])
+        self.assertEqual(plan.maintenance_names, ['nextcloud'])
+        bookorbit_step = next(step for step in plan.online if step['name'] == 'bookorbit')
+        self.assertEqual(bookorbit_step['native'], 'postgres')
+        self.assertEqual(bookorbit_step['services'], ['bookorbit', 'shelfmark'])
         self.assertTrue(set(map(Path, snapshot_online.values())) <= set(plan.sources.state))
+        for path in ('/srv/home-lab-state/nextcloud-config', '/srv/home-lab-state/nextcloud-custom-apps',
+                     '/srv/home-lab-state/nextcloud-themes'):
+            self.assertIn(Path(path), plan.sources.state)
+        for path in ('/srv/home-lab-state/bookorbit-data', '/srv/home-lab-state/bookorbit-media'):
+            self.assertNotIn(Path(path), plan.sources.state)
+        self.assertEqual(sorted(plan.sources.zfs), sorted([
+            '/mnt/storage/media/nextcloud/data',
+            '/mnt/storage/media/frigate/exports',
+            '/mnt/storage/media/uchiyomi/downloads',
+        ]))
+        self.assertEqual({dump['name'] for dump in plan.databases},
+                         {'authentik.dump', 'bookorbit.dump', 'nextcloud.sql'})
         running = set(declared)
-        stops = []
-        adapter = mock.Mock()
+        events = []
+        maintenance_state = {'active': False}
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
         adapter.retry.side_effect = lambda operation: operation()
-        adapter.database_dump.side_effect = lambda *_: self.assertEqual(running, kept)
+        adapter.nextcloud_web_status.side_effect = CAPTURE['nextcloud_web_status']
+        adapter.nextcloud_cron_busy.side_effect = CAPTURE['nextcloud_cron_busy']
+        adapter.nextcloud_write_fds_busy.side_effect = lambda _c: (events.append('fd_drain'), False)[1]
+        adapter.mariadb_idle.side_effect = lambda container: (events.append('mariadb_idle:' + container), True)[1]
+        adapter.database_dump.side_effect = lambda spec, *_: (
+            self.assertEqual(running, declared),
+            self.assertTrue(maintenance_state['active']),
+            events.append('dump:' + spec['name']),
+        )
         token = 'b' * 32
         adapter.state_snapshot_record.side_effect = CAPTURE['state_snapshot_record']
         adapter.zfs_spec.return_value = policy['capture']['zfs']
         adapter.zfs_record.side_effect = CAPTURE['zfs_record']
         scope = {'capture': token, 'owner': hashlib.sha256(token.encode()).hexdigest()}
         def snapshots(_spec, request):
-            self.assertEqual(running, kept)
+            self.assertEqual(running, declared)
+            self.assertTrue(maintenance_state['active'])
+            events.append(request['action'])
             if request['action'] == 'state-create':
                 return {**scope, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff', 'created': 1,
                         'bytes': policy['capture']['state_snapshot']['bytes']}
             self.assertEqual(request['action'], 'create')
             return {**scope, 'guid': '123', 'created': 1, 'dataset_guid': policy['capture']['zfs']['dataset_guid']}
         adapter.zfs_call.side_effect = snapshots
-        def compose(_policy, args):
-            if args[0] == 'stop':
-                self.assertTrue(kept.isdisjoint(args[3:]))
-                stops.append(args[3:])
-                running.difference_update(args[3:])
-            else:
-                self.assertTrue(kept.isdisjoint(args[1:]))
-                running.update(args[1:])
-            return OK
+        compose = mock.Mock(side_effect=AssertionError('zero containers should be stopped or restarted'))
+        def fake_run(argv, **_kwargs):
+            if argv[:3] == ['/usr/bin/docker', 'inspect', '--format']:
+                return subprocess.CompletedProcess(argv, 0, 'true\n' if argv[-1] in running else 'false\n', '')
+            if '/var/www/html/occ' in argv and 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': maintenance_state['active'], 'needsDbUpgrade': False,
+                }), '')
+            if '/var/www/html/occ' in argv and 'maintenance:mode' in argv:
+                maintenance_state['active'] = '--on' in argv
+                events.append('maintenance:' + ('on' if maintenance_state['active'] else 'off'))
+                return OK
+            if 'http://127.0.0.1/status.php' in ' '.join(argv):
+                events.append('web_maintenance_check')
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': maintenance_state['active'], 'needsDbUpgrade': False,
+                }), '')
+            if argv[-4:-1] == ['busybox', 'sh', '-c'] and 'busybox pidof php' in argv[-1]:
+                events.append('cron_drain')
+                return OK
+            raise AssertionError(f'unexpected command: {argv}')
         cold = LOCAL._pause_writers
         with mock.patch.dict(cold.__globals__, {
             'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
             'durable_unlink': mock.Mock(), 'service_container': lambda _, s: s,
             'service_running': lambda _, s: s in running, 'service_healthy': lambda *_: True,
-            'nextcloud_healthy': lambda *_: True,
-            'compose': compose,
-        }):
+            'nextcloud_data_marker': lambda: True,
+            'nextcloud_healthy': lambda *_: not maintenance_state['active'],
+            'compose': compose, 'run': fake_run,
+        }), mock.patch.dict(CAPTURE['nextcloud_web_status'].__globals__, {
+            '_run_probe': fake_run,
+        }), mock.patch('time.sleep'):
             cold(LOCAL(policy), adapter, plan, Path('/unused'), token)
         self.assertEqual(running, declared)
-        self.assertEqual(stops, [policy['stop_groups']['applications']])
-        self.assertEqual(set(stops[0]), declared - kept)
-        self.assertTrue({'nextcloud', 'nextcloud-cron', 'shelfmark', 'bookorbit', 'sabnzbd'} <= set(stops[0]))
-        self.assertEqual([call.args[1]['action'] for call in adapter.zfs_call.call_args_list],
-                         ['create', 'state-create'])
+        self.assertFalse(maintenance_state['active'])
+        compose.assert_not_called()
+        self.assertEqual(events, [
+            'maintenance:on',
+            'web_maintenance_check',
+            'cron_drain', 'fd_drain', 'mariadb_idle:nextcloud-db',
+            'cron_drain', 'fd_drain', 'mariadb_idle:nextcloud-db',
+            'dump:nextcloud.sql',
+            'web_maintenance_check',
+            'create', 'state-create',
+            'web_maintenance_check',
+            'maintenance:off',
+        ])
         adapter.copy_paths.assert_not_called()
         adapter.precopy.assert_not_called()
         adapter.finish_copy.assert_not_called()
@@ -518,14 +592,13 @@ class Runtime(unittest.TestCase):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         settings = policy['capture']
         state_path = Path('/srv/home-lab-state/omada-data/data')
+        bookorbit_media = Path('/srv/home-lab-state/bookorbit-media')
         zfs_path = '/mnt/storage/media/uchiyomi/downloads'
         live_path = Path('/mnt/games/roms')
         state_receipt = {'created': 1, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff',
                          'bytes': settings['state_snapshot']['bytes']}
         zfs_receipt = {'created': int(time.time()), 'guid': '789', 'dataset_guid': settings['zfs']['dataset_guid']}
-        declared = mock.Mock(return_value={*policy['stop_groups']['applications'],
-                                            *settings['state_snapshot']['online_paths'],
-                                            'authentik-server', 'authentik-worker', 'mosquitto'})
+        declared = mock.Mock(return_value=self._declared_from_policy(policy))
         adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'], capture_plan=CAPTURE['capture_plan'],
                             capture_sources=CAPTURE['capture_sources'], capacity_check=capacity,
                             zfs_record=CAPTURE['zfs_record'], state_snapshot_record=CAPTURE['state_snapshot_record'],
@@ -542,7 +615,7 @@ class Runtime(unittest.TestCase):
                 record.update(capture=token, owner=owner)
             RUNNER['atomic_json'](stage / 'zfs-source.json', {
                 'version': 1, 'capture': token, 'owner': owner, 'production_owner': None,
-                'running_services': [], 'record': zfs_receipt,
+                'running_services': [], 'maintenance_services': ['nextcloud'], 'record': zfs_receipt,
             })
             RUNNER['atomic_json'](stage / 'state-source.json', state_receipt)
         cold = mock.Mock(side_effect=snapshot_receipts)
@@ -554,6 +627,9 @@ class Runtime(unittest.TestCase):
             'capture_adapter': lambda _: adapter, 'rooted': Path, 'declared_services': declared,
             'artifact_hash': lambda _: 'b' * 64, 'restic_result': upload,
             'service_container': lambda _, service: service, 'service_running': lambda *_: True,
+            'running_service_container': lambda _, service: service,
+            'nextcloud_data_marker': lambda: True,
+            'nextcloud_status': lambda *_, **__: {'installed': True, 'maintenance': False, 'needsDbUpgrade': False},
             'inventory': lambda *_: [],
         }), mock.patch.object(LOCAL, 'recover'), mock.patch.object(LOCAL, '_pause_writers', cold), \
                 mock.patch.dict(capacity.__globals__, {
@@ -571,7 +647,10 @@ class Runtime(unittest.TestCase):
         du.assert_called_once()
         estimate = du.call_args.args[0]
         self.assertNotIn(str(state_path), estimate)
+        self.assertIn(str(bookorbit_media), estimate)
         self.assertNotIn(zfs_path, estimate)
+        self.assertIn('/srv/home-lab-state/bookorbit-postgres', estimate)
+        self.assertIn('/srv/home-lab-state/nextcloud-db-data', estimate)
         self.assertIn(str(live_path), estimate)
         self.assertIn('/srv/home-lab-state/authentik-data/media', estimate)
         cold.assert_called_once()
@@ -580,13 +659,22 @@ class Runtime(unittest.TestCase):
         first_state, retry_state = [call.args[-1] for call in adapter.state_snapshot_attached.call_args_list]
         self.assertEqual(first_state, retry_state)
         self.assertIn(state_path, first_state)
+        self.assertNotIn(bookorbit_media, first_state)
         first_live, retry_live = [call.args[0] for call in adapter.live_games_mounted.call_args_list]
         self.assertEqual(first_live, retry_live)
         self.assertIn(live_path, first_live)
         self.assertEqual(manifest['state_source'], state_receipt)
         self.assertEqual(manifest['zfs_source'], zfs_receipt)
         self.assertIn(zfs_path, manifest['zfs_paths'])
-        self.assertIn('omada', [row['name'] for row in manifest['captures']])
+        self.assertEqual({row['name'] for row in manifest['databases']},
+                         {'authentik.dump', 'bookorbit.dump', 'nextcloud.sql'})
+        capture_names = [row['name'] for row in manifest['captures']]
+        for expected_name in ('omada', 'sabnzbd', 'shelfmark', 'frigate', 'uchiyomi', 'uchiyomi-x', 'nextcloud', 'bookorbit'):
+            self.assertIn(expected_name, capture_names)
+        captures_by_name = {row['name']: row for row in manifest['captures']}
+        self.assertNotEqual(captures_by_name['frigate']['started_at'], captures_by_name['frigate']['finished_at'])
+        self.assertLessEqual(captures_by_name['frigate']['started_at'], captures_by_name['frigate']['finished_at'])
+        self.assertEqual(captures_by_name['omada']['started_at'], captures_by_name['omada']['finished_at'])
 
     def test_invalid_capture_scope_refuses_before_staging_or_pausing_writers(self):
         daily = LOCAL.run
@@ -690,7 +778,8 @@ class Runtime(unittest.TestCase):
         daily = LOCAL.run
         reviewed = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         step = next(s for s in reviewed['capture']['online'] if s['name'] == 'authentik')
-        books = next(s for s in reviewed['capture']['cold'] if s['name'] == 'bookorbit')
+        books = {'name': 'synthetic-cold', 'services': ['cold-app'], 'paths': ['/srv/home-lab-state/cold-app'],
+                 'databases': [{'engine': 'postgres', 'container': 'cold-db', 'name': 'cold.dump'}]}
         for outcome in ('ready', 'changed_files', 'overlapping_stop'):
             with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
                 stage = Path(directory).resolve() / 'capture'
@@ -732,12 +821,12 @@ class Runtime(unittest.TestCase):
                     self.assertEqual(events, ['authentik', 'cold', 'upload'])
                     adapter.online_postgres.assert_called_once_with(
                         step['paths'], stage / 'files', Path('/excluded'), spec=step['databases'][0],
-                        target=stage / 'databases/authentik.dump')
+                        target=stage / 'databases/authentik.dump', verified={})
                     manifest = json.loads((stage / 'manifest.json').read_text())
                     self.assertEqual(manifest['databases'], [*step['databases'], *books['databases']])
                     self.assertIn('authentik', [capture['name'] for capture in manifest['captures']])
                 else:
-                    self.assertEqual(events, ['authentik'] * 3 if outcome == 'changed_files' else [])
+                    self.assertEqual(events, ['authentik'] * 6 if outcome == 'changed_files' else [])
                     if outcome == 'overlapping_stop':
                         adapter.fresh_stage.assert_not_called()
                     cold.assert_not_called()
@@ -1284,6 +1373,922 @@ g['main']()
                 restart(LOCAL(policy), {'running_services': ['qbittorrent', 'gluetun']})
         compose.assert_called_once_with(policy, ['start', 'gluetun'])
         unlink.assert_not_called()
+
+    def test_preexisting_nextcloud_maintenance_refuses_without_mutating_or_journaling(self):
+        cold = LOCAL._pause_writers
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        plan = CAPTURE['capture_plan'](policy, self._declared_from_policy(policy))
+        for status, expected_error in (
+            ({'installed': True, 'maintenance': True, 'needsDbUpgrade': False}, 'nextcloud_maintenance_already_active'),
+            ({'installed': True, 'maintenance': False, 'needsDbUpgrade': True}, 'nextcloud_not_ready'),
+            ({'installed': False, 'maintenance': False, 'needsDbUpgrade': False}, 'nextcloud_not_ready'),
+        ):
+            with self.subTest(status=status):
+                adapter = mock.Mock()
+                journal = mock.Mock()
+                run_calls = []
+                def fake_run(argv, **_kwargs):
+                    run_calls.append(argv)
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(status), '')
+                with mock.patch.dict(cold.__globals__, {
+                    'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': journal,
+                    'service_container': lambda _, s: s, 'running_service_container': lambda _, s: s,
+                    'run': fake_run,
+                }), self.assertRaisesRegex(RUNNER['WorkflowError'], expected_error):
+                    cold(LOCAL(policy), adapter, plan, Path('/unused'), 'b' * 32)
+                journal.assert_not_called()
+                adapter.database_dump.assert_not_called()
+                adapter.zfs_call.assert_not_called()
+                self.assertFalse(any('maintenance:mode' in argv for argv in run_calls))
+
+    def test_nextcloud_drain_timeout_disables_maintenance_and_clears_journal(self):
+        cold = LOCAL._pause_writers
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        plan = CAPTURE['capture_plan'](policy, self._declared_from_policy(policy))
+        for blocker in ('cron', 'fd', 'mariadb'):
+            with self.subTest(blocker=blocker):
+                maintenance_active = False
+                events = []
+                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+                adapter.nextcloud_web_status.side_effect = CAPTURE['nextcloud_web_status']
+                adapter.nextcloud_cron_busy.side_effect = lambda _c: blocker == 'cron'
+                adapter.nextcloud_write_fds_busy.side_effect = lambda _c: blocker == 'fd'
+                adapter.mariadb_idle.side_effect = lambda _c: blocker != 'mariadb'
+                unlink = mock.Mock()
+                def fake_run(argv, **_kwargs):
+                    nonlocal maintenance_active
+                    if argv[:3] == ['/usr/bin/docker', 'inspect', '--format']:
+                        return subprocess.CompletedProcess(argv, 0, 'true\n', '')
+                    if '/var/www/html/occ' in argv and 'status' in argv:
+                        return subprocess.CompletedProcess(argv, 0, json.dumps({
+                            'installed': True, 'maintenance': maintenance_active, 'needsDbUpgrade': False,
+                        }), '')
+                    if '/var/www/html/occ' in argv and 'maintenance:mode' in argv:
+                        maintenance_active = '--on' in argv
+                        events.append('maintenance:' + ('on' if maintenance_active else 'off'))
+                        return OK
+                    if 'http://127.0.0.1/status.php' in ' '.join(argv):
+                        return subprocess.CompletedProcess(argv, 0, json.dumps({
+                            'installed': True, 'maintenance': maintenance_active, 'needsDbUpgrade': False,
+                        }), '')
+                    raise AssertionError(f'unexpected command: {argv}')
+                clock = iter([0, 0, 0, 0, 1, 4, 4, 5, 6, 7])
+                with mock.patch.dict(cold.__globals__, {
+                    'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
+                    'durable_unlink': unlink, 'service_container': lambda _, s: s,
+                    'service_running': lambda *_: True, 'testing': lambda: True,
+                    'nextcloud_data_marker': lambda: True,
+                    'nextcloud_healthy': lambda *_: not maintenance_active,
+                    'run': fake_run,
+                }), mock.patch.dict(CAPTURE['nextcloud_web_status'].__globals__, {
+                    '_run_probe': fake_run,
+                }), mock.patch('time.monotonic', side_effect=lambda: next(clock, 100)), mock.patch('time.sleep'):
+                    with self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_writer_drain_timeout'):
+                        cold(LOCAL(policy), adapter, plan, Path('/unused'), 'b' * 32)
+                self.assertEqual(events, ['maintenance:on', 'maintenance:off'])
+                self.assertFalse(maintenance_active)
+                unlink.assert_called_once()
+                adapter.database_dump.assert_not_called()
+                adapter.zfs_call.assert_not_called()
+
+    def test_nextcloud_maintenance_dropped_mid_window_fails_closed(self):
+        cold = LOCAL._pause_writers
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        plan = CAPTURE['capture_plan'](policy, self._declared_from_policy(policy))
+        for dropped_layer in ('cli', 'web', 'web_upgrade', 'during_dump'):
+            with self.subTest(dropped_layer=dropped_layer):
+                maintenance_active = False
+                web_active = False
+                web_needs_upgrade = False
+                adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+                adapter.retry.side_effect = lambda operation: operation()
+                adapter.nextcloud_web_status.side_effect = lambda _c: {
+                    'installed': True, 'maintenance': web_active, 'needsDbUpgrade': web_needs_upgrade,
+                }
+                adapter.nextcloud_cron_busy.return_value = False
+                adapter.nextcloud_write_fds_busy.return_value = False
+                adapter.mariadb_idle.return_value = True
+                adapter.zfs_spec.return_value = policy['capture']['zfs']
+                adapter.zfs_record.side_effect = CAPTURE['zfs_record']
+                adapter.state_snapshot_record.side_effect = CAPTURE['state_snapshot_record']
+                token = 'b' * 32
+                scope = {'capture': token, 'owner': hashlib.sha256(token.encode()).hexdigest()}
+                def drop_during_dump(_spec, _target):
+                    nonlocal maintenance_active, web_active
+                    if dropped_layer == 'during_dump':
+                        maintenance_active = False
+                        web_active = False
+                adapter.database_dump.side_effect = drop_during_dump
+                def drop_during_snapshot(_spec, request):
+                    nonlocal maintenance_active, web_active, web_needs_upgrade
+                    if request['action'] == 'state-create':
+                        if dropped_layer == 'cli':
+                            maintenance_active = False
+                        elif dropped_layer == 'web_upgrade':
+                            web_needs_upgrade = True
+                        else:
+                            web_active = False
+                        return {**scope, 'id': 'abcdef-aaaa-bbbb-cccc-dddd-eeee-ffffff', 'created': 1,
+                                'bytes': policy['capture']['state_snapshot']['bytes']}
+                    return {**scope, 'guid': '123', 'created': 1, 'dataset_guid': policy['capture']['zfs']['dataset_guid']}
+                adapter.zfs_call.side_effect = drop_during_snapshot
+                unlink = mock.Mock()
+                def fake_run(argv, **_kwargs):
+                    nonlocal maintenance_active, web_active
+                    if argv[:3] == ['/usr/bin/docker', 'inspect', '--format']:
+                        return subprocess.CompletedProcess(argv, 0, 'true\n', '')
+                    if '/var/www/html/occ' in argv and 'maintenance:mode' in argv:
+                        maintenance_active = '--on' in argv
+                        web_active = maintenance_active
+                        return OK
+                    if '/var/www/html/occ' in argv and 'status' in argv:
+                        return subprocess.CompletedProcess(argv, 0, json.dumps({
+                            'installed': True, 'maintenance': maintenance_active, 'needsDbUpgrade': False,
+                        }), '')
+                    raise AssertionError(f'unexpected command: {argv}')
+                with mock.patch.dict(cold.__globals__, {
+                    'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
+                    'durable_unlink': unlink, 'service_container': lambda _, s: s,
+                    'service_running': lambda *_: True, 'testing': lambda: True,
+                    'nextcloud_data_marker': lambda: True, 'run': fake_run,
+                }), mock.patch('time.sleep'):
+                    with self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_maintenance_lost'):
+                        cold(LOCAL(policy), adapter, plan, Path('/unused'), token)
+                self.assertFalse(maintenance_active)
+                unlink.assert_called_once()
+                if dropped_layer == 'during_dump':
+                    adapter.zfs_call.assert_not_called()
+                else:
+                    self.assertTrue(adapter.zfs_call.called)
+
+    def test_boot_recovery_disables_nextcloud_maintenance_without_starting_containers(self):
+        main = RUNNER['main']
+        with tempfile.TemporaryDirectory() as directory:
+            root, _, _ = self.coordination_fixture(directory)
+            journal = root / 'var/lib/home-lab-restic/interruption.json'
+            journal.write_text(json.dumps({
+                'version': 1, 'running_services': [], 'stop_order': [],
+                'maintenance_services': ['nextcloud'], 'owner': None,
+            }))
+            journal.chmod(0o600)
+            path = root / 'etc/home-lab/restic-policy.json'
+            policy = json.loads(path.read_text())
+            policy['runner']['journal_path'] = '/var/lib/home-lab-restic/interruption.json'
+            policy['stop_groups'] = {'applications': [], 'databases': []}
+            policy['capture'] = {'maintenance': [{'name': 'nextcloud', 'native': 'nextcloud',
+                                                  'services': ['nextcloud-cron', 'nextcloud'], 'paths': ['/p']}]}
+            path.chmod(0o600); path.write_text(json.dumps(policy)); path.chmod(0o440)
+            maintenance_active = True
+            compose = mock.Mock(side_effect=AssertionError('must not call compose start'))
+            def fake_run(argv, **_kwargs):
+                nonlocal maintenance_active
+                if '/var/www/html/occ' in argv and 'maintenance:mode' in argv and '--off' in argv:
+                    maintenance_active = False
+                    return OK
+                if '/var/www/html/occ' in argv and 'status' in argv:
+                    return subprocess.CompletedProcess(argv, 0, json.dumps({
+                        'installed': True, 'maintenance': maintenance_active, 'needsDbUpgrade': False,
+                    }), '')
+                raise AssertionError(f'unexpected command: {argv}')
+            with mock.patch.dict(os.environ, {
+                'HOME_LAB_RESTIC_TESTING': '1', 'HOME_LAB_RESTIC_TEST_ROOT': str(root),
+            }), mock.patch.object(sys, 'argv', ['restic-backup', 'recover']), mock.patch('signal.signal'), \
+                    mock.patch.dict(main.__globals__, {
+                        'compose': compose, 'service_container': lambda _, s: s,
+                        'running_service_container': lambda _, s: s if s == 'nextcloud' else None,
+                        'nextcloud_data_marker': lambda: True,
+                        'run': fake_run,
+                    }):
+                main()
+            self.assertFalse(maintenance_active)
+            self.assertFalse(journal.exists())
+            compose.assert_not_called()
+
+    def test_recovery_rejects_unknown_maintenance_service_and_retains_journal_on_failure(self):
+        recover = LOCAL.recover
+        restart = mock.Mock()
+        with mock.patch.dict(recover.__globals__, {
+            'journal_path': lambda _: Path('/unused'),
+            'read_json': lambda *_: {'version': 1, 'running_services': [], 'stop_order': [],
+                                     'maintenance_services': ['--unknown']},
+        }), mock.patch.object(LOCAL, '_restart', restart), self.assertRaisesRegex(RUNNER['WorkflowError'], 'journal_schema'):
+            recover(LOCAL({'stop_groups': {'applications': [], 'databases': []}, 'capture': {'maintenance': []}}))
+        with mock.patch.dict(recover.__globals__, {
+            'journal_path': lambda _: Path('/unused'),
+            'read_json': lambda *_: {'version': 1, 'running_services': [], 'stop_order': [],
+                                     'maintenance_services': ['nextcloud']},
+        }), mock.patch.object(LOCAL, '_restart', restart), self.assertRaisesRegex(RUNNER['WorkflowError'], 'maintenance_capture_scope'):
+            recover(LOCAL({'stop_groups': {'applications': [], 'databases': []}, 'capture': {'maintenance': 'bad'}}))
+        restart.assert_not_called()
+        policy = {'stop_groups': {'applications': [], 'databases': []},
+                  'capture': {'maintenance': [{'name': 'nextcloud'}]}}
+        unlink = mock.Mock()
+        with mock.patch.dict(LOCAL._restart.__globals__, {
+            'service_running': lambda *_: True, 'service_container': lambda _, s: s,
+            'run': mock.Mock(return_value=subprocess.CompletedProcess([], 1, '', '')),
+            'durable_unlink': unlink, 'testing': lambda: True,
+        }), mock.patch('time.monotonic', side_effect=[0, 1, 4]), mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], 'service_health'):
+                LOCAL(policy)._restart({'running_services': [], 'stop_order': [],
+                                        'maintenance_services': ['nextcloud']})
+        self.assertEqual(slept.call_count, 1)
+        unlink.assert_not_called()
+
+    def test_nextcloud_maintenance_refuses_closed_when_no_target_container_is_running(self):
+        cold = LOCAL._pause_writers
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        plan = CAPTURE['capture_plan'](policy, self._declared_from_policy(policy))
+        adapter = mock.Mock()
+        journal = mock.Mock()
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': journal,
+            'service_container': lambda _, s: s, 'running_service_container': lambda *_: None,
+        }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_not_running'):
+            cold(LOCAL(policy), adapter, plan, Path('/unused'), 'b' * 32)
+        journal.assert_not_called()
+        adapter.database_dump.assert_not_called()
+        adapter.zfs_call.assert_not_called()
+
+    def test_nextcloud_drain_requires_two_consecutive_quiet_samples(self):
+        drain = RUNNER['_drain_nextcloud_writers']
+        step = {'name': 'nextcloud', 'services': ['nextcloud-cron', 'nextcloud'],
+                'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db'}]}
+        # Quiet, then busy, then two consecutive quiet samples -> succeeds on 4th poll.
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+        adapter.nextcloud_cron_busy.return_value = False
+        adapter.nextcloud_write_fds_busy.return_value = False
+        adapter.mariadb_idle.side_effect = [True, False, True, True]
+        container_lookups = []
+        def fake_lookup(service):
+            container_lookups.append(service)
+            return service
+        with mock.patch.dict(drain.__globals__, {'testing': lambda: True}), mock.patch('time.sleep'):
+            drain(adapter, step, fake_lookup)
+        self.assertEqual(adapter.mariadb_idle.call_count, 4)
+        # Exactly one container lookup per service per poll (not two).
+        self.assertEqual(container_lookups, ['nextcloud-cron', 'nextcloud'] * 4)
+
+    def test_nextcloud_drain_fails_closed_when_web_container_stops_mid_drain(self):
+        drain = RUNNER['_drain_nextcloud_writers']
+        step = {'name': 'nextcloud', 'services': ['nextcloud-cron', 'nextcloud'],
+                'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db'}]}
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+        adapter.nextcloud_cron_busy.return_value = False
+        with mock.patch.dict(drain.__globals__, {'testing': lambda: True}), \
+                self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_not_running'):
+            drain(adapter, step, lambda s: None if s == 'nextcloud' else s)
+        adapter.mariadb_idle.assert_not_called()
+
+        # Adapter probe error during cron drain must fail closed as WorkflowError at the boundary.
+        adapter.nextcloud_cron_busy.side_effect = CAPTURE['CaptureError']('nextcloud_drain_check')
+        with mock.patch.dict(drain.__globals__, {'testing': lambda: True}), \
+                self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_drain_check'):
+            drain(adapter, step, lambda s: s)
+        adapter.mariadb_idle.assert_not_called()
+
+    def test_nextcloud_web_maintenance_waits_for_apache_opcache_and_times_out_safely(self):
+        wait_web = RUNNER['_wait_nextcloud_web_maintenance']
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+        adapter.nextcloud_web_status.side_effect = CAPTURE['nextcloud_web_status']
+        responses = iter([
+            subprocess.CompletedProcess([], 1, '', ''),
+            subprocess.CompletedProcess([], 0, json.dumps({'installed': True, 'maintenance': False, 'needsDbUpgrade': False}), ''),
+            subprocess.CompletedProcess([], 0, json.dumps({'installed': False, 'maintenance': True, 'needsDbUpgrade': False}), ''),
+            subprocess.CompletedProcess([], 0, json.dumps({'installed': True, 'maintenance': True, 'needsDbUpgrade': True}), ''),
+            subprocess.CompletedProcess([], 0, json.dumps({'installed': True, 'maintenance': True, 'needsDbUpgrade': False}), ''),
+        ])
+        def fake_probe(argv, **_kwargs):
+            if 'http://127.0.0.1/status.php' in ' '.join(argv):
+                self.assertEqual(argv[:5], ['/usr/bin/docker', 'exec', '--user', 'www-data', 'nextcloud'])
+                self.assertIn('CURLINFO_HTTP_CODE', argv[-1])
+                return next(responses)
+            raise AssertionError(f'unexpected command: {argv}')
+        with mock.patch.dict(wait_web.__globals__, {'testing': lambda: True}), \
+                mock.patch.dict(CAPTURE['nextcloud_web_status'].__globals__, {'_run_probe': fake_probe}), \
+                mock.patch('time.sleep') as slept:
+            wait_web(adapter, lambda s: s, 'nextcloud')
+        self.assertEqual(slept.call_count, 4)
+        # Stopping or removing the web container fails immediately as nextcloud_not_running.
+        for missing_lookup in (
+            lambda _s: None,
+            lambda _s: (_ for _ in ()).throw(RUNNER['WorkflowError']('service_inventory_output')),
+        ):
+            with mock.patch.dict(wait_web.__globals__, {'testing': lambda: True}), \
+                    mock.patch('time.sleep') as slept_down, \
+                    self.assertRaisesRegex(RUNNER['WorkflowError'], '^nextcloud_not_running$'):
+                wait_web(adapter, missing_lookup, 'nextcloud')
+            slept_down.assert_not_called()
+        # Timeout while Apache OPcache still serves maintenance=false fails closed.
+        clock = iter([0, 1, 4])
+        def stale_probe(argv, **_kwargs):
+            if 'http://127.0.0.1/status.php' in ' '.join(argv):
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            raise AssertionError(f'unexpected command: {argv}')
+        with mock.patch.dict(wait_web.__globals__, {'testing': lambda: True}), \
+                mock.patch.dict(CAPTURE['nextcloud_web_status'].__globals__, {'_run_probe': stale_probe}), \
+                mock.patch('time.monotonic', side_effect=lambda: next(clock, 100)), mock.patch('time.sleep'), \
+                self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_maintenance_web_verify'):
+            wait_web(adapter, lambda s: s, 'nextcloud')
+
+    def test_prepare_refuses_unready_nextcloud_before_creating_stage(self):
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        declared = self._declared_from_policy(policy)
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'], capture_plan=CAPTURE['capture_plan'],
+                            zfs_spec=CAPTURE['zfs_spec'])
+        adapter.zfs_inventory.return_value = []
+        with mock.patch.dict(LOCAL._prepare.__globals__, {
+            'declared_services': lambda _: declared, 'running_service_container': lambda _, s: s,
+            'nextcloud_status': lambda *_, **__: {'installed': True, 'maintenance': True, 'needsDbUpgrade': False},
+        }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_maintenance_already_active'):
+            LOCAL(policy)._prepare(adapter, Path('/unused/stage'))
+        adapter.fresh_stage.assert_not_called()
+        adapter.capacity_check.assert_not_called()
+
+    def test_restart_propagates_interrupted_signal_and_rejects_unknown_maintenance_name(self):
+        policy = {'stop_groups': {'applications': [], 'databases': []},
+                  'capture': {'maintenance': [{'name': 'nextcloud'}]}}
+        with mock.patch.dict(LOCAL._restart.__globals__, {
+            'service_running': lambda *_: True, 'service_container': lambda _, s: s,
+            'run': mock.Mock(side_effect=RUNNER['WorkflowError']('interrupted')),
+            'durable_unlink': mock.Mock(), 'testing': lambda: True,
+        }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'interrupted'):
+            LOCAL(policy)._restart({'running_services': [], 'stop_order': [],
+                                    'maintenance_services': ['nextcloud']})
+        with self.assertRaisesRegex(RUNNER['WorkflowError'], 'journal_schema'):
+            LOCAL(policy)._restart({'running_services': [], 'stop_order': [],
+                                    'maintenance_services': ['other']})
+        with self.assertRaisesRegex(RUNNER['WorkflowError'], 'journal_schema'):
+            LOCAL(policy)._restart({'running_services': [], 'stop_order': [],
+                                    'maintenance_services': ['nextcloud', 'nextcloud']})
+
+    def test_invalid_zfs_online_maintenance_and_online_overlap_scopes_refuse(self):
+        base = {
+            'stop_groups': {'applications': [], 'databases': []},
+            'capture': {
+                'stage': '/stage', 'cold': [], 'live_files': [], 'online_json': [],
+                'cli_auth': '/unused/auth', 'jellyfin': '/unused/jellyfin',
+                'zfs': {'dataset_guid': '123', 'expiry_seconds': 72 * 3600, 'broker_ipv4': '100.113.54.34',
+                        'online_paths': {'frigate': '/mnt/storage/media/frigate/exports',
+                                         'uchiyomi': '/mnt/storage/media/uchiyomi/downloads'}},
+                'state_snapshot': {'online_paths': {'sabnzbd': '/srv/home-lab-state/sabnzbd-data'}},
+                'maintenance': [{'name': 'nextcloud', 'native': 'nextcloud',
+                                 'services': ['nextcloud-cron', 'nextcloud'],
+                                 'paths': ['/srv/home-lab-state/nextcloud-config', '/mnt/storage/media/nextcloud/data'],
+                                 'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db', 'name': 'nextcloud.sql'}]}],
+                'online': [{'name': 'bookorbit', 'native': 'postgres',
+                            'services': ['bookorbit', 'shelfmark'],
+                            'paths': ['/srv/home-lab-state/bookorbit-media'],
+                            'databases': [{'engine': 'postgres', 'container': 'bookorbit-db', 'name': 'bookorbit.dump'}]}],
+            },
+        }
+        declared = {'frigate', 'uchiyomi', 'sabnzbd', 'nextcloud', 'nextcloud-cron', 'bookorbit', 'shelfmark'}
+        CAPTURE['capture_plan'](base, declared)
+        bad_cases = [
+            ('zfs_snapshot_online_services', lambda p: p['capture']['zfs']['online_paths'].update({'undeclared': '/mnt/storage/media/x'})),
+            ('zfs_snapshot_online_services', lambda p: p['capture']['zfs']['online_paths'].update({'nextcloud': '/mnt/storage/media/x'})),
+            ('state_snapshot_online_services', lambda p: p['capture']['state_snapshot']['online_paths'].update({'nextcloud': '/srv/home-lab-state/x'})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'native': 'unknown'})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'name': 'nextcloud-alt'})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'services': ['nextcloud-cron']})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'services': ['nextcloud']})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'services': ['nextcloud', 'sabnzbd']})),
+            ('state_snapshot_scope', lambda p: p['capture'].update({'state_snapshot': True})),
+            ('snapshot_policy', lambda p: p['capture'].update({'zfs': ['not-a-dict']})),
+            ('maintenance_capture_scope', lambda p: p['capture'].update({'maintenance': 'not-a-list'})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'databases': []})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].pop('databases')),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'databases': [{'engine': 'postgres', 'container': 'nextcloud-db', 'name': 'nextcloud.sql'}]})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'databases': [{'engine': 'mariadb', 'container': '', 'name': 'nextcloud.sql'}]})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db', 'name': '../escape.sql'}]})),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({'paths': '/srv/home-lab-state/not-a-list'})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'services': ['nextcloud']})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'services': None})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].pop('services')),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'name': ''})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'paths': '/srv/home-lab-state/not-a-list'})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'databases': ['not-a-dict']})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'databases': [{'engine': 'postgres', 'container': '', 'name': 'bookorbit.dump'}]})),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({'databases': [{'engine': 'postgres', 'container': 'bookorbit-db', 'name': '../escape.dump'}]})),
+            ('unknown_native_capture', lambda p: p['capture']['online'][0].update({'native': 'postgres-snapshot'})),
+            ('capture_database_scope', lambda p: p['capture']['maintenance'][0].update({
+                'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db', 'name': 'bookorbit.dump'}],
+            })),
+            ('state_snapshot_online_services', lambda p: p['capture']['state_snapshot'].update({'online_paths': ['not-a-dict']})),
+            ('online_capture_scope', lambda p: p['capture'].update({'online': 'not-a-list'})),
+            ('online_capture_scope', lambda p: p['capture']['online'].append('not-a-dict')),
+            ('online_capture_scope', lambda p: p['capture']['online'].append({'paths': ['/srv/home-lab-state/nameless']})),
+            ('online_capture_scope', lambda p: p['capture']['online'].append({'name': 'bad-paths', 'paths': '/srv/home-lab-state/str'})),
+            ('online_capture_scope', lambda p: p['capture']['online'].append({
+                'name': 'stray-db', 'paths': ['/srv/home-lab-state/stray'],
+                'databases': [{'engine': 'postgres', 'container': 'bookorbit-db', 'name': 'stray.dump'}],
+            })),
+            ('capture_stop_scope', lambda p: p['capture'].update({'cold': 'not-a-list'})),
+            ('capture_stop_scope', lambda p: (
+                p['stop_groups']['applications'].append('sabnzbd'),
+                p['capture']['state_snapshot']['online_paths'].pop('sabnzbd'),
+                p['capture']['cold'].append({
+                    'name': 'bad-cold', 'services': ['sabnzbd'], 'paths': ['/srv/home-lab-state/sabnzbd-data'],
+                    'databases': [{'engine': 'postgres', 'container': '--bad-flag', 'name': 'cold.dump'}],
+                }),
+            )),
+            ('capture_stop_scope', lambda p: (
+                p['stop_groups']['applications'].append('sabnzbd'),
+                p['capture']['state_snapshot']['online_paths'].pop('sabnzbd'),
+                p['capture']['cold'].append({
+                    'name': 'bad-cold', 'services': ['sabnzbd'], 'paths': ['/srv/home-lab-state/sabnzbd-data'],
+                    'databases': [{'engine': 'mariadb', 'container': 'cold-db', 'name': '../escape.sql'}],
+                }),
+            )),
+            ('online_mosquitto_scope', lambda p: p['capture']['online'].append({
+                'name': 'mqtt', 'native': 'mosquitto', 'service': ['unhashable'],
+                'paths': ['/srv/home-lab-state/mosquitto-data'],
+            })),
+            ('maintenance_capture_scope', lambda p: p['capture']['maintenance'][0].update({
+                'databases': [{'engine': 'mariadb', 'container': '--bad-flag', 'name': 'nextcloud.sql'}],
+            })),
+            ('online_postgres_scope', lambda p: p['capture']['online'][0].update({
+                'databases': [{'engine': 'postgres', 'container': '--bad-flag', 'name': 'bookorbit.dump'}],
+            })),
+            ('online_capture_scope', lambda p: p['capture']['online'].append({
+                'name': 'bookorbit', 'paths': ['/srv/home-lab-state/bookorbit-extra'],
+            })),
+            ('capture_name_scope', lambda p: p['capture']['online'].append({
+                'name': 'nextcloud', 'paths': ['/srv/home-lab-state/nextcloud-extra'],
+            })),
+            ('capture_name_scope', lambda p: p['capture']['online'].append({
+                'name': 'sabnzbd', 'paths': ['/srv/home-lab-state/sabnzbd-extra'],
+            })),
+            ('capture_name_scope', lambda p: p['capture']['online'].append({
+                'name': 'frigate', 'paths': ['/srv/home-lab-state/frigate-extra'],
+            })),
+            ('capture_name_scope', lambda p: p['capture']['online'].append({
+                'name': 'online', 'paths': ['/srv/home-lab-state/online-extra'],
+            })),
+        ]
+        for error, mutate in bad_cases:
+            with self.subTest(error=error):
+                candidate = json.loads(json.dumps(base))
+                mutate(candidate)
+                with self.assertRaisesRegex(CAPTURE['CaptureError'], error):
+                    CAPTURE['capture_plan'](candidate, declared)
+        for bad_online in (None, [], {'frigate': 123}, {'frigate': '/srv/home-lab-state/outside'},
+                           {'frigate': '/mnt/storage/media/frigate/exports', 'other': '/mnt/storage/media/frigate/exports'}):
+            with self.subTest(bad_online=bad_online):
+                candidate = json.loads(json.dumps(base))
+                candidate['capture']['zfs']['online_paths'] = bad_online
+                with self.assertRaisesRegex(CAPTURE['CaptureError'], 'snapshot_policy'):
+                    CAPTURE['zfs_spec'](candidate)
+                with self.assertRaisesRegex(CAPTURE['CaptureError'], 'snapshot_policy'):
+                    CAPTURE['capture_sources'](candidate['capture'])
+        for error, mutate in (
+            ('snapshot_policy', lambda s: s.update({'zfs': ['not-a-dict']})),
+            ('snapshot_policy', lambda s: s.update({'zfs': {}})),
+            ('capture_stop_scope', lambda s: s.update({'cold': 'bad'})),
+            ('maintenance_capture_scope', lambda s: s.update({'maintenance': [{'paths': []}]})),
+            ('state_snapshot_scope', lambda s: s.update({'state_snapshot': True})),
+            ('state_snapshot_scope', lambda s: s.update({'state_snapshot': {}})),
+            ('state_snapshot_online_services', lambda s: s['state_snapshot'].update({'online_paths': ['not-a-dict']})),
+            ('state_snapshot_online_services', lambda s: s['state_snapshot'].update({'online_paths': {'sabnzbd': 123}})),
+            ('state_snapshot_scope', lambda s: s['state_snapshot'].update({'online_paths': {'sabnzbd': '/tmp/outside'}})),
+        ):
+            with self.subTest(direct_sources=error):
+                settings = json.loads(json.dumps(base['capture']))
+                mutate(settings)
+                with self.assertRaisesRegex(CAPTURE['CaptureError'], error):
+                    CAPTURE['capture_sources'](settings)
+
+    def test_prepare_maintenance_requires_primary_nextcloud_running_and_data_marker(self):
+        cold = LOCAL._pause_writers
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        plan = CAPTURE['capture_plan'](policy, self._declared_from_policy(policy))
+        # Even if nextcloud-cron is running, fresh capture refuses when primary nextcloud is absent or down.
+        for behavior in (lambda _, s: s if s == 'nextcloud-cron' else None,
+                         lambda _, s: (_ for _ in ()).throw(RUNNER['WorkflowError']('service_inventory_output')) if s == 'nextcloud' else s):
+            with self.subTest(behavior=behavior):
+                journal = mock.Mock()
+                with mock.patch.dict(cold.__globals__, {
+                    'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': journal,
+                    'running_service_container': behavior,
+                }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_not_running'):
+                    cold(LOCAL(policy), mock.Mock(), plan, Path('/unused'), 'b' * 32)
+                journal.assert_not_called()
+        # Daemon/inventory command errors propagate instead of being masked as nextcloud_not_running.
+        for reason in ('service_inventory', 'command_execution'):
+            with self.subTest(propagated_reason=reason):
+                journal = mock.Mock()
+                with mock.patch.dict(cold.__globals__, {
+                    'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': journal,
+                    'running_service_container': lambda _, _s, r=reason: (_ for _ in ()).throw(RUNNER['WorkflowError'](r)),
+                }), self.assertRaisesRegex(RUNNER['WorkflowError'], f'^{reason}$'):
+                    cold(LOCAL(policy), mock.Mock(), plan, Path('/unused'), 'b' * 32)
+                journal.assert_not_called()
+        # Primary nextcloud running without data marker refuses with nextcloud_not_ready.
+        journal = mock.Mock()
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': journal,
+            'service_container': lambda _, s: s, 'running_service_container': lambda _, s: s,
+            'nextcloud_data_marker': lambda: False,
+            'run': lambda argv, **_: subprocess.CompletedProcess(argv, 0, json.dumps({
+                'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+            }), ''),
+        }), self.assertRaisesRegex(RUNNER['WorkflowError'], 'nextcloud_not_ready'):
+            cold(LOCAL(policy), mock.Mock(), plan, Path('/unused'), 'b' * 32)
+        journal.assert_not_called()
+
+    def test_restart_exits_nextcloud_maintenance_even_when_stopped_service_fails(self):
+        restart = LOCAL._restart
+        policy = {
+            'stop_groups': {'applications': ['app'], 'databases': []},
+            'capture': {'maintenance': [{'name': 'nextcloud'}]},
+        }
+        maintenance_active = True
+        compose = mock.Mock(return_value=subprocess.CompletedProcess([], 1, '', ''))
+        unlink = mock.Mock()
+        def fake_run(argv, **_kwargs):
+            nonlocal maintenance_active
+            if '/var/www/html/occ' in argv and '--off' in argv:
+                maintenance_active = False
+                return OK
+            if '/var/www/html/occ' in argv and 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': maintenance_active, 'needsDbUpgrade': False,
+                }), '')
+            raise AssertionError(f'unexpected command: {argv}')
+        with mock.patch.dict(restart.__globals__, {
+            'compose': compose, 'durable_unlink': unlink, 'testing': lambda: True,
+            'service_container': lambda _, s: s,
+            'running_service_container': lambda _, s: s if s == 'nextcloud' else None,
+            'nextcloud_data_marker': lambda: True, 'run': fake_run,
+        }), mock.patch('time.sleep'):
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], 'service_restart'):
+                restart(LOCAL(policy), {
+                    'running_services': ['app'], 'stop_order': ['app'],
+                    'maintenance_services': ['nextcloud'],
+                })
+        self.assertFalse(maintenance_active)
+        unlink.assert_not_called()
+
+    def test_nextcloud_maintenance_exit_code_3_and_cron_fallback_when_primary_occ_fails(self):
+        maint = RUNNER['nextcloud_maintenance']
+        with mock.patch.dict(maint.__globals__, {
+            'service_container': lambda _, s: s,
+            'run': lambda argv, **_: subprocess.CompletedProcess(argv, 3, '', ''),
+        }):
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], '^nextcloud_maintenance_on$'):
+                maint({}, True)
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], '^nextcloud_maintenance_off$'):
+                maint({}, False)
+
+        exit_fn = RUNNER['_exit_nextcloud_maintenance']
+        calls = []
+        def wedged_primary(argv, **_kwargs):
+            calls.append(argv)
+            if argv[4] == 'nextcloud':
+                return subprocess.CompletedProcess(argv, 1, '', '')
+            if 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            return OK
+        # Live exit (allow_fallback=False) must NOT fall back to nextcloud-cron when primary occ fails.
+        no_extra_lookup = mock.Mock(side_effect=AssertionError('redundant service_container lookup'))
+        with mock.patch.dict(exit_fn.__globals__, {
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'run': wedged_primary,
+        }):
+            self.assertEqual(exit_fn({}), RUNNER['MaintenanceExit'](False, False))
+        self.assertEqual([c[4] for c in calls], ['nextcloud'])
+
+        # Recovery exit (allow_fallback=True) falls back to nextcloud-cron when primary occ fails,
+        # and still enforces the host data marker before reporting ready.
+        calls.clear()
+        with mock.patch.dict(exit_fn.__globals__, {
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'nextcloud_data_marker': lambda: True, 'run': wedged_primary,
+        }):
+            self.assertEqual(exit_fn({}, allow_fallback=True), RUNNER['MaintenanceExit'](True, True))
+        self.assertEqual([c[4] for c in calls], ['nextcloud', 'nextcloud-cron', 'nextcloud-cron'])
+
+        calls.clear()
+        with mock.patch.dict(exit_fn.__globals__, {
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'nextcloud_data_marker': lambda: False, 'run': wedged_primary,
+        }):
+            self.assertEqual(exit_fn({}, allow_fallback=True), RUNNER['MaintenanceExit'](True, False))
+        self.assertEqual([c[4] for c in calls], ['nextcloud', 'nextcloud-cron', 'nextcloud-cron'])
+
+        # When primary occ --off succeeds but data marker is missing, mark disabled without ready or cron bypass.
+        calls.clear()
+        def ok_primary(argv, **_kwargs):
+            calls.append(argv)
+            if 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            return OK
+        with mock.patch.dict(exit_fn.__globals__, {
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'nextcloud_data_marker': lambda: False, 'run': ok_primary,
+        }):
+            self.assertEqual(exit_fn({}, allow_fallback=True), RUNNER['MaintenanceExit'](True, False))
+        self.assertTrue(all(c[4] == 'nextcloud' for c in calls))
+
+        # When primary occ --off succeeds but primary occ status fails, recovery falls back to cron.
+        calls.clear()
+        def failing_primary_status(argv, **_kwargs):
+            calls.append(argv)
+            if argv[4] == 'nextcloud' and 'status' in argv:
+                return subprocess.CompletedProcess(argv, 1, '', '')
+            if 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            return OK
+        with mock.patch.dict(exit_fn.__globals__, {
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'nextcloud_data_marker': lambda: True, 'run': failing_primary_status,
+        }):
+            self.assertEqual(exit_fn({}, allow_fallback=True), RUNNER['MaintenanceExit'](True, True))
+        self.assertEqual([c[4] for c in calls], ['nextcloud', 'nextcloud', 'nextcloud-cron', 'nextcloud-cron'])
+
+        # Boot recover() passes allow_fallback=True, while live _restart() does not.
+        policy = {'stop_groups': {'applications': [], 'databases': []},
+                  'capture': {'maintenance': [{'name': 'nextcloud'}]}}
+        journal = {'version': 1, 'running_services': [], 'stop_order': [],
+                   'maintenance_services': ['nextcloud'], 'owner': None}
+        unlink_live = mock.Mock()
+        with mock.patch.dict(LOCAL._restart.__globals__, {
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'nextcloud_data_marker': lambda: True, 'run': wedged_primary,
+            'durable_unlink': unlink_live, 'testing': lambda: True,
+        }), mock.patch('time.monotonic', side_effect=[0, 4]), mock.patch('time.sleep'):
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], 'service_health'):
+                LOCAL(policy)._restart(journal)
+        unlink_live.assert_not_called()
+
+        unlink_recover = mock.Mock()
+        with mock.patch.dict(LOCAL.recover.__globals__, {
+            'journal_path': lambda _: Path('/unused'), 'read_json': lambda *_: journal,
+            'running_service_container': lambda _, s: s, 'service_container': no_extra_lookup,
+            'nextcloud_data_marker': lambda: True, 'run': wedged_primary,
+            'durable_unlink': unlink_recover, 'testing': lambda: True,
+        }), mock.patch('time.sleep'):
+            LOCAL(policy).recover()
+        unlink_recover.assert_called_once()
+
+    def test_nextcloud_data_marker_oserror_retries_instead_of_aborting_restart(self):
+        marker = RUNNER['nextcloud_data_marker']
+        with mock.patch.object(Path, 'is_file', side_effect=OSError('ESTALE')):
+            self.assertFalse(marker())
+        # Inside _restart(), a transient NFS OSError on the marker retries until recovery succeeds.
+        policy = {'stop_groups': {'applications': [], 'databases': []},
+                  'capture': {'maintenance': [{'name': 'nextcloud'}]}}
+        marker_states = iter([OSError('ESTALE'), True])
+        def flaky_is_file(_self):
+            outcome = next(marker_states)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+        occ_off_calls = 0
+        def ok_occ(argv, **_kwargs):
+            nonlocal occ_off_calls
+            if '--off' in argv:
+                occ_off_calls += 1
+            if 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            return OK
+        unlink = mock.Mock()
+        with mock.patch.dict(LOCAL._restart.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused'),
+            'running_service_container': lambda _, s: s, 'service_container': lambda _, s: s,
+            'run': ok_occ, 'durable_unlink': unlink, 'testing': lambda: True,
+        }), mock.patch.object(Path, 'is_file', flaky_is_file), \
+                mock.patch.object(Path, 'is_symlink', return_value=False), mock.patch('time.sleep') as slept:
+            LOCAL(policy)._restart({'running_services': [], 'stop_order': [],
+                                    'maintenance_services': ['nextcloud']})
+        self.assertEqual(slept.call_count, 1)
+        # Once occ --off succeeded, subsequent readiness retries must not re-run occ --off.
+        self.assertEqual(occ_off_calls, 1)
+        unlink.assert_called_once()
+
+    def test_running_container_lookup_caches_id_and_reresolves_after_recreation(self):
+        lookup_fn = RUNNER['_running_container_lookup']
+        resolved_ids = iter(['a' * 64, 'b' * 64])
+        resolve_calls = []
+        inspect_calls = []
+        def fake_service_container(_policy, service):
+            resolve_calls.append(service)
+            return next(resolved_ids)
+        inspect_results = iter([
+            subprocess.CompletedProcess([], 0, 'true\n', ''),   # initial resolve -> a
+            subprocess.CompletedProcess([], 0, 'true\n', ''),   # cached hit -> a
+            subprocess.CompletedProcess([], 1, '', 'gone'),     # cached miss -> a disappeared
+            subprocess.CompletedProcess([], 0, 'true\n', ''),   # re-resolve -> b
+            subprocess.CompletedProcess([], 0, 'false\n', ''),  # cached hit -> b stopped
+            subprocess.CompletedProcess([], 0, 'false\n', ''),  # re-resolve -> still stopped
+        ])
+        def fake_run(argv, **_kwargs):
+            inspect_calls.append(argv[-1])
+            return next(inspect_results)
+        with mock.patch.dict(lookup_fn.__globals__, {
+            'service_container': fake_service_container, 'run': fake_run,
+        }):
+            lookup = lookup_fn({})
+            self.assertEqual(lookup('nextcloud'), 'a' * 64)
+            self.assertEqual(lookup('nextcloud'), 'a' * 64)
+            self.assertEqual(len(resolve_calls), 1)
+            self.assertEqual(lookup('nextcloud'), 'b' * 64)
+            self.assertEqual(len(resolve_calls), 2)
+            # Re-resolving when stopped returns None.
+            resolved_ids = iter(['b' * 64])
+            self.assertIsNone(lookup('nextcloud'))
+            self.assertEqual(len(resolve_calls), 3)
+
+    def test_stage_fresh_records_zfs_only_online_capture_timestamps(self):
+        stage_fresh = LOCAL._stage_fresh
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory).resolve() / 'capture'
+            stage.mkdir(mode=0o700)
+            policy = {'stop_groups': {'applications': [], 'databases': []},
+                      'capture': {'radio_max_age_seconds': 60}}
+            plan = types.SimpleNamespace(
+                sources=types.SimpleNamespace(zfs=['/mnt/storage/media/frigate/exports'], state=[]),
+                cold_names=[], maintenance_names=[], state_names=[], zfs_names=['frigate'],
+                databases=[],
+            )
+            zfs_created = 1700000000
+            zfs_receipt = {'created': zfs_created, 'guid': '123', 'dataset_guid': '456'}
+            adapter = mock.Mock()
+            def write_zfs(_adapter, _plan, s, token):
+                owner = hashlib.sha256(token.encode()).hexdigest()
+                RUNNER['atomic_json'](s / 'zfs-source.json', {
+                    'version': 1, 'capture': token, 'owner': owner, 'production_owner': None,
+                    'running_services': [], 'record': {**zfs_receipt, 'capture': token, 'owner': owner},
+                })
+            capture = LOCAL(policy)
+            with mock.patch.object(capture, '_capture_online', return_value=[]), \
+                    mock.patch.object(capture, '_pause_writers', side_effect=write_zfs), \
+                    mock.patch.dict(stage_fresh.__globals__, {'artifact_hash': lambda _: 'b' * 64}):
+                manifest, zfs, state = capture._stage_fresh(adapter, stage, plan, 'a' * 64, mock.Mock())
+            self.assertIsNotNone(zfs)
+            self.assertIsNone(state)
+            entry = next(row for row in manifest['captures'] if row['name'] == 'frigate')
+            expected_ts = datetime.fromtimestamp(zfs_created, timezone.utc).isoformat()
+            self.assertEqual(entry['started_at'], expected_ts)
+            self.assertEqual(entry['finished_at'], expected_ts)
+
+    def test_nextcloud_data_marker_rejects_symlink_without_following_it(self):
+        marker = RUNNER['nextcloud_data_marker']
+        is_file = mock.Mock(side_effect=AssertionError('is_file must not follow symlink'))
+        with mock.patch.object(Path, 'is_symlink', return_value=True), \
+                mock.patch.object(Path, 'is_file', is_file):
+            self.assertFalse(marker())
+        is_file.assert_not_called()
+
+    def test_pre_entry_nextcloud_loss_surfaces_directly_without_stalling_restart(self):
+        # Live _restart must leave headroom under daily-local's TimeoutStopSec=5min.
+        self.assertLess(RUNNER['RESTART_HEALTH_DEADLINE_SECONDS'], 300)
+        cold = LOCAL._pause_writers
+        policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
+        plan = CAPTURE['capture_plan'](policy, self._declared_from_policy(policy))
+        adapter = mock.Mock(CaptureError=CAPTURE['CaptureError'])
+        unlink = mock.Mock()
+        # Nextcloud is running during _prepare_maintenance, then stops before occ --on runs.
+        running_calls = iter(['nextcloud', None])
+        def fake_run(argv, **_kwargs):
+            if '/var/www/html/occ' in argv and 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            raise AssertionError(f'unexpected command before entry: {argv}')
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused'), 'atomic_json': mock.Mock(),
+            'durable_unlink': unlink, 'running_service_container': lambda *_: next(running_calls),
+            'nextcloud_data_marker': lambda: True, 'run': fake_run, 'testing': lambda: True,
+        }), mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], '^nextcloud_not_running$'):
+                cold(LOCAL(policy), adapter, plan, Path('/unused'), 'b' * 32)
+        slept.assert_not_called()
+        unlink.assert_called_once()
+        adapter.zfs_call.assert_not_called()
+
+    def test_restart_shares_single_deadline_and_clamps_subprocess_timeouts(self):
+        restart = LOCAL._restart
+        policy = {
+            'stop_groups': {'applications': ['gluetun'], 'databases': []},
+            'capture': {'maintenance': [{'name': 'nextcloud'}]},
+        }
+        # Initial maintenance exit runs before _start_stopped_services, so a
+        # stalled gluetun wait cannot exhaust the deadline before occ --off runs.
+        events = []
+        compose = mock.Mock(side_effect=lambda *_args, **_kwargs: (events.append('start_gluetun'), OK)[1])
+        exits = mock.Mock(side_effect=lambda *_args, **_kwargs: (
+            events.append('exit_maintenance'), RUNNER['MaintenanceExit'](False, False),
+        )[1])
+        handler = RUNNER['MAINTENANCE_HANDLERS']['nextcloud']._replace(exit=exits)
+        clock = iter([0, 1, 4, 4])
+        with mock.patch.dict(restart.__globals__, {
+            'compose': compose, 'service_healthy': lambda *_: False, 'testing': lambda: True,
+            'MAINTENANCE_HANDLERS': {'nextcloud': handler},
+        }), mock.patch('time.monotonic', side_effect=lambda: next(clock, 10)), mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], 'service_health'):
+                restart(LOCAL(policy), {
+                    'running_services': ['gluetun'], 'stop_order': ['gluetun'],
+                    'maintenance_services': ['nextcloud'],
+                })
+        self.assertEqual(events, ['exit_maintenance', 'start_gluetun'])
+        self.assertEqual(exits.call_count, 1)
+        self.assertEqual(slept.call_count, 1)
+
+        # _command_deadline clamps run()'s timeout to remaining budget and fails closed once expired.
+        timeouts = []
+        def fake_subprocess_run(*_args, **kwargs):
+            timeouts.append(kwargs['timeout'])
+            return OK
+        with mock.patch('subprocess.run', side_effect=fake_subprocess_run), \
+                mock.patch('time.monotonic', side_effect=[100.0, 108.0]):
+            with RUNNER['_command_deadline'](105.0):
+                RUNNER['run'](['/bin/true'], timeout=300)
+                with self.assertRaisesRegex(RUNNER['WorkflowError'], 'command_execution'):
+                    RUNNER['run'](['/bin/true'], timeout=300)
+        self.assertEqual(timeouts, [5.0])
+
+    def test_pre_entry_failure_with_stopped_services_narrows_persisted_journal(self):
+        cold = LOCAL._pause_writers
+        policy = {
+            'runner': {'exclude_file_path': '/unused/excludes', 'journal_path': '/unused/journal.json'},
+            'stop_groups': {'applications': ['app'], 'databases': []},
+            'capture': {
+                'cold': [{'name': 'app', 'services': ['app'], 'paths': ['/srv/home-lab-state/app']}],
+                'maintenance': [{'name': 'nextcloud', 'native': 'nextcloud',
+                                 'services': ['nextcloud-cron', 'nextcloud'],
+                                 'paths': ['/srv/home-lab-state/nextcloud-config'],
+                                 'databases': [{'engine': 'mariadb', 'container': 'nextcloud-db', 'name': 'nextcloud.sql'}]}],
+            },
+        }
+        plan = types.SimpleNamespace(
+            sources=types.SimpleNamespace(zfs=(), state=()),
+            pause_services=['app'],
+            maintenance=policy['capture']['maintenance'],
+            precopy=[], paused_copy=[], cold_dumps=[], maintenance_dumps=[],
+        )
+        written = []
+        def record_journal(_path, value, _mode=0o600):
+            written.append(json.loads(json.dumps(value)))
+        running_nc = iter(['nextcloud', None])
+        def fake_run(argv, **_kwargs):
+            if '/var/www/html/occ' in argv and 'status' in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    'installed': True, 'maintenance': False, 'needsDbUpgrade': False,
+                }), '')
+            raise AssertionError(f'unexpected command: {argv}')
+        def fake_compose(_policy, args):
+            return OK if args[0] == 'stop' else subprocess.CompletedProcess([], 1, '', '')
+        stopped_flags = iter([True, False])
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused/journal.json'),
+            'atomic_json': record_journal, 'compose': fake_compose,
+            'service_running': lambda _p, _s: next(stopped_flags),
+            'running_service_container': lambda *_: next(running_nc),
+            'nextcloud_data_marker': lambda: True, 'run': fake_run, 'testing': lambda: True,
+        }):
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], 'service_restart'):
+                cold(LOCAL(policy), mock.Mock(CaptureError=CAPTURE['CaptureError']), plan, Path('/unused'), 'b' * 32)
+        self.assertEqual(len(written), 2)
+        self.assertEqual(written[0]['maintenance_services'], ['nextcloud'])
+        self.assertEqual(written[1]['maintenance_services'], [])
+
+        # An OSError while narrowing the journal in finally must not skip _restart().
+        writes = 0
+        def fail_narrow_with_oserror(_path, value, _mode=0o600):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError('ENOSPC')
+        restarted = []
+        def track_compose(_policy, args):
+            if args[0] == 'start':
+                restarted.append(args[1])
+            return OK
+        running_nc_oserr = iter(['nextcloud', None])
+        stopped_flags_oserr = iter([True, False])
+        unlink = mock.Mock()
+        with mock.patch.dict(cold.__globals__, {
+            'rooted': Path, 'journal_path': lambda _: Path('/unused/journal.json'),
+            'atomic_json': fail_narrow_with_oserror, 'durable_unlink': unlink,
+            'compose': track_compose, 'service_healthy': lambda *_: True,
+            'service_running': lambda _p, _s: next(stopped_flags_oserr),
+            'running_service_container': lambda *_: next(running_nc_oserr),
+            'nextcloud_data_marker': lambda: True, 'run': fake_run, 'testing': lambda: True,
+        }):
+            with self.assertRaisesRegex(RUNNER['WorkflowError'], '^nextcloud_not_running$'):
+                cold(LOCAL(policy), mock.Mock(CaptureError=CAPTURE['CaptureError']), plan, Path('/unused'), 'b' * 32)
+        self.assertEqual(restarted, ['app'])
+        unlink.assert_called_once()
 
 if __name__ == '__main__':
     unittest.main()

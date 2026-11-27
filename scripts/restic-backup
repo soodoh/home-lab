@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import fcntl
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from functools import cache
 import hashlib
 import json
@@ -22,13 +22,33 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 SUBCOMMANDS = {"preflight", "daily-local", "daily-nfs", "daily-proton", "diagnose-proton", "maintenance", "status", "recover", "expire-snapshots"}
 # Leave headroom for the replica unit's authoritative five-minute stop budget.
 COPY_STOP_GRACE_SECONDS = 240
+# Leave headroom under home-lab-restic-daily-local.service's TimeoutStopSec=5min.
+RESTART_HEALTH_DEADLINE_SECONDS = 240
+RECOVER_HEALTH_DEADLINE_SECONDS = 300
+NEXTCLOUD_DATA_ROOT = '/mnt/storage/media/nextcloud/data'
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
 SNAPSHOT_EVIDENCE_SHA256 = 'adda400082d8dee921feb1221b7de4e013e83610f1aab43d0578453081fc4dda'
+# Single-threaded process deadline applied only to runner subprocesses via run()
+# (currently _restart); adapter probes manage their own timeouts.
+_COMMAND_DEADLINE: float | None = None
+
+
+@contextmanager
+def _command_deadline(deadline: float | None):
+    """Clamp runner run() subprocess timeouts to one shared monotonic deadline."""
+    global _COMMAND_DEADLINE
+    previous = _COMMAND_DEADLINE
+    if deadline is not None:
+        _COMMAND_DEADLINE = deadline if previous is None else min(previous, deadline)
+    try:
+        yield
+    finally:
+        _COMMAND_DEADLINE = previous
 
 
 class WorkflowError(RuntimeError):
@@ -94,11 +114,16 @@ def load_policy() -> tuple[dict[str, Any], str]:
 
 
 def run(
-    arguments: list[str], *, environment: dict[str, str] | None = None, timeout: int = 7200,
+    arguments: list[str], *, environment: dict[str, str] | None = None, timeout: int | float = 7200,
     graceful_interrupt: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     if not arguments or any(not isinstance(argument, str) or not argument for argument in arguments):
         raise WorkflowError("command_shape")
+    if _COMMAND_DEADLINE is not None:
+        remaining = _COMMAND_DEADLINE - time.monotonic()
+        if remaining <= 0:
+            raise WorkflowError("command_execution")
+        timeout = min(timeout, remaining)
     merged = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C", "TZ": "UTC"}
     if environment:
         merged.update(environment)
@@ -340,39 +365,297 @@ def service_container(policy: dict[str, Any], service: str) -> str:
     return containers[0]
 
 
-def service_running(policy: dict[str, Any], service: str) -> bool:
-    result = run(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", service_container(policy, service)], timeout=30)
+def running_service_container(policy: dict[str, Any], service: str) -> str | None:
+    container = service_container(policy, service)
+    result = run(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", container], timeout=30)
     require_success(result, "service_inventory")
     if result.stdout.strip() not in {"true", "false"}:
         raise WorkflowError("service_inventory_output")
-    return result.stdout.strip() == "true"
+    return container if result.stdout.strip() == "true" else None
+
+
+def service_running(policy: dict[str, Any], service: str) -> bool:
+    return running_service_container(policy, service) is not None
 
 
 def service_healthy(policy: dict[str, Any], service: str) -> bool:
     try:
         container = service_container(policy, service)
-    except WorkflowError:
+        result = run([
+            "/usr/bin/docker", "inspect", "--format",
+            "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", container,
+        ], timeout=30)
+    except WorkflowError as error:
+        if str(error) == 'interrupted':
+            raise
         return False
-    result = run([
-        "/usr/bin/docker", "inspect", "--format",
-        "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", container,
-    ], timeout=30)
     return result.returncode == 0 and result.stdout.strip() in {"healthy", "running"}
+
+
+def nextcloud_data_marker() -> bool:
+    data = rooted(NEXTCLOUD_DATA_ROOT)
+    try:
+        return any(not (candidate := data / name).is_symlink() and candidate.is_file()
+                   for name in ('.ncdata', '.ocdata'))
+    except OSError:
+        return False
+
+
+def nextcloud_status(policy, service='nextcloud', *, container: str | None = None):
+    if container is None:
+        container = service_container(policy, service)
+    result = run(['/usr/bin/docker', 'exec', '--user', 'www-data', container,
+                  'php', '/var/www/html/occ', 'status', '--output=json'], timeout=30)
+    if result.returncode != 0:
+        raise WorkflowError('nextcloud_status')
+    try:
+        value = json.loads(result.stdout)
+    except ValueError as error:
+        raise WorkflowError('nextcloud_status') from error
+    if not isinstance(value, dict):
+        raise WorkflowError('nextcloud_status')
+    return value
+
+
+def _nextcloud_status_matches(status: dict[str, Any] | None, *, maintenance: bool) -> bool:
+    return bool(
+        status
+        and status.get('installed') is True
+        and status.get('maintenance') is maintenance
+        and status.get('needsDbUpgrade') is False
+    )
+
+
+def _nextcloud_status_ready(status: dict[str, Any] | None) -> bool:
+    return _nextcloud_status_matches(status, maintenance=False) and nextcloud_data_marker()
 
 
 def nextcloud_healthy(policy):
     try:
-        container = service_container(policy, 'nextcloud')
-        result = run(['/usr/bin/docker', 'exec', '--user', 'www-data', container,
-                      'php', '/var/www/html/occ', 'status', '--output=json'], timeout=30)
-        value = json.loads(result.stdout)
-        data = rooted('/mnt/storage/media/nextcloud/data')
-        marker = any((data / name).is_file() and not (data / name).is_symlink()
-                     for name in ('.ncdata', '.ocdata'))
-        return (result.returncode == 0 and value.get('installed') is True and marker and
-                value.get('maintenance') is False and value.get('needsDbUpgrade') is False)
-    except (WorkflowError, ValueError, AttributeError):
+        return _nextcloud_status_ready(nextcloud_status(policy))
+    except WorkflowError as error:
+        if str(error) == 'interrupted':
+            raise
         return False
+
+
+class MaintenanceExit(NamedTuple):
+    disabled: bool
+    ready: bool
+
+
+def _nextcloud_with_fallback(
+    policy, action: Callable[[str, str], Any], *, default: Any = False, allow_fallback: bool = False,
+) -> Any:
+    services = ('nextcloud', 'nextcloud-cron') if allow_fallback else ('nextcloud',)
+    for service in services:
+        try:
+            container = running_service_container(policy, service)
+            if container is None:
+                continue
+            return action(service, container)
+        except WorkflowError as error:
+            if str(error) == 'interrupted':
+                raise
+    return default
+
+
+def _exit_nextcloud_maintenance(policy, *, allow_fallback: bool = False) -> MaintenanceExit:
+    def exit_on(service: str, container: str) -> MaintenanceExit:
+        status = nextcloud_maintenance(policy, False, service, container=container)
+        return MaintenanceExit(True, _nextcloud_status_ready(status))
+    return _nextcloud_with_fallback(policy, exit_on, default=MaintenanceExit(False, False), allow_fallback=allow_fallback)
+
+
+def _nextcloud_maintenance_verified(policy, *, allow_fallback: bool = False) -> bool:
+    def check_on(service: str, container: str) -> bool:
+        return _nextcloud_status_ready(nextcloud_status(policy, service, container=container))
+    return _nextcloud_with_fallback(policy, check_on, allow_fallback=allow_fallback)
+
+
+def nextcloud_maintenance(policy, enabled: bool, service: str = 'nextcloud', *, container: str | None = None) -> dict[str, Any]:
+    if container is None:
+        container = service_container(policy, service)
+    flag = '--on' if enabled else '--off'
+    result = run(['/usr/bin/docker', 'exec', '--user', 'www-data', container,
+                  'php', '/var/www/html/occ', 'maintenance:mode', flag], timeout=60)
+    if result.returncode != 0:
+        raise WorkflowError('nextcloud_maintenance_' + ('on' if enabled else 'off'))
+    status = nextcloud_status(policy, service, container=container)
+    if status.get('maintenance') is not enabled:
+        raise WorkflowError('nextcloud_maintenance_verify')
+    return status
+
+
+def _nextcloud_running_container(lookup: Callable[[str], str | None], service: str = 'nextcloud') -> str:
+    """Resolve the required running Nextcloud container, failing closed as nextcloud_not_running."""
+    try:
+        container = lookup(service)
+    except WorkflowError as error:
+        if str(error) != 'service_inventory_output':
+            raise
+        container = None
+    if container is None:
+        # Fail closed: Nextcloud containers use restart: always, so a
+        # transient absence cannot be treated as a quiescent state;
+        # nextcloud-cron fallback is reserved for recovery exit only.
+        raise WorkflowError('nextcloud_not_running')
+    return container
+
+
+def _prepare_nextcloud_maintenance(policy, _step) -> str:
+    container = _nextcloud_running_container(lambda s: running_service_container(policy, s), 'nextcloud')
+    status = nextcloud_status(policy, 'nextcloud', container=container)
+    if status.get('installed') is not True or status.get('needsDbUpgrade') is not False:
+        raise WorkflowError('nextcloud_not_ready')
+    if status.get('maintenance') is not False:
+        raise WorkflowError('nextcloud_maintenance_already_active')
+    if not nextcloud_data_marker():
+        raise WorkflowError('nextcloud_not_ready')
+    return 'nextcloud'
+
+
+def _running_container_lookup(policy: dict[str, Any]) -> Callable[[str], str | None]:
+    """Resolve and cache running container IDs for maintenance probes."""
+    cached: dict[str, str] = {}
+
+    def lookup(service: str) -> str | None:
+        container = cached.get(service)
+        if container is not None:
+            result = run(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", container], timeout=30)
+            if result.returncode == 0 and result.stdout.strip() == "true":
+                return container
+            cached.pop(service, None)
+        container = running_service_container(policy, service)
+        if container is not None:
+            cached[service] = container
+        return container
+
+    return lookup
+
+
+def _call_adapter_probe(adapter, probe: Callable[..., Any], *args: Any) -> Any:
+    """Translate adapter CaptureError at the maintenance probe boundary."""
+    try:
+        return probe(*args)
+    except adapter.CaptureError as error:
+        raise WorkflowError(str(error)) from None
+
+
+def _wait_nextcloud_web_maintenance(adapter, lookup: Callable[[str], str | None], target: str) -> None:
+    """Wait until Apache's mod_php OPcache observes maintenance mode on status.php.
+
+    CLI `occ maintenance:mode --on` writes config.php but cannot invalidate
+    Apache's shared OPcache (`opcache.revalidate_freq=60` in the official image).
+    """
+    deadline = time.monotonic() + (3 if testing() else 90)
+    while True:
+        container = _nextcloud_running_container(lookup, target)
+        try:
+            status = _call_adapter_probe(adapter, adapter.nextcloud_web_status, container)
+        except WorkflowError as error:
+            if str(error) != 'nextcloud_web_status':
+                raise
+            status = {}
+        if _nextcloud_status_matches(status, maintenance=True):
+            return
+        if time.monotonic() >= deadline:
+            raise WorkflowError('nextcloud_maintenance_web_verify')
+        time.sleep(0.1 if testing() else 2)
+
+
+def _drain_nextcloud_writers(adapter, step: dict[str, Any], lookup: Callable[[str], str | None]) -> None:
+    """Wait for already-running cron jobs, open write handles and DB transactions.
+
+    Requires two consecutive quiet samples to catch in-flight requests between
+    file writes and database queries.
+    """
+    deadline = time.monotonic() + (3 if testing() else 120)
+    services = set(step.get('services', ()))
+    databases = [dump for dump in step.get('databases', ()) if dump.get('engine') == 'mariadb']
+    quiet_samples = 0
+    while True:
+        drained = True
+        if 'nextcloud-cron' in services:
+            cron_container = lookup('nextcloud-cron')
+            if cron_container is not None and _call_adapter_probe(adapter, adapter.nextcloud_cron_busy, cron_container):
+                drained = False
+        if drained and 'nextcloud' in services:
+            web_container = _nextcloud_running_container(lookup, 'nextcloud')
+            if _call_adapter_probe(adapter, adapter.nextcloud_write_fds_busy, web_container):
+                drained = False
+        if drained:
+            for dump in databases:
+                if not _call_adapter_probe(adapter, adapter.mariadb_idle, dump['container']):
+                    drained = False
+                    break
+        if drained:
+            quiet_samples += 1
+            if quiet_samples >= 2:
+                return
+        else:
+            quiet_samples = 0
+        if time.monotonic() >= deadline:
+            raise WorkflowError('nextcloud_writer_drain_timeout')
+        time.sleep(0.1 if testing() else 0.5)
+
+
+def _enter_nextcloud_maintenance(
+    policy, adapter, step, target: str, on_begin: Callable[[], None] | None = None,
+) -> None:
+    lookup = _running_container_lookup(policy)
+    container = _nextcloud_running_container(lookup, target)
+    if on_begin is not None:
+        on_begin()
+    nextcloud_maintenance(policy, True, target, container=container)
+    _wait_nextcloud_web_maintenance(adapter, lookup, target)
+    _drain_nextcloud_writers(adapter, step, lookup)
+
+
+def _verify_nextcloud_maintenance_active(policy, adapter, target: str) -> None:
+    container = _nextcloud_running_container(lambda s: running_service_container(policy, s), target)
+    status = nextcloud_status(policy, target, container=container)
+    if not _nextcloud_status_matches(status, maintenance=True):
+        raise WorkflowError('nextcloud_maintenance_lost')
+    web_status = _call_adapter_probe(adapter, adapter.nextcloud_web_status, container)
+    if not _nextcloud_status_matches(web_status, maintenance=True):
+        raise WorkflowError('nextcloud_maintenance_lost')
+
+
+class MaintenanceHandler(NamedTuple):
+    prepare: Callable[[dict[str, Any], dict[str, Any]], str]
+    enter: Callable[[dict[str, Any], Any, dict[str, Any], str, Callable[[], None] | None], None]
+    verify_active: Callable[[dict[str, Any], Any, str], None]
+    exit: Callable[..., MaintenanceExit]
+    verified: Callable[..., bool]
+    healthy: Callable[[dict[str, Any]], bool]
+
+
+MAINTENANCE_HANDLERS = {
+    'nextcloud': MaintenanceHandler(
+        prepare=_prepare_nextcloud_maintenance,
+        enter=_enter_nextcloud_maintenance,
+        verify_active=_verify_nextcloud_maintenance_active,
+        exit=_exit_nextcloud_maintenance,
+        verified=_nextcloud_maintenance_verified,
+        healthy=nextcloud_healthy,
+    ),
+}
+
+
+def _policy_maintenance_names(policy: dict[str, Any]) -> list[str]:
+    capture = policy.get('capture')
+    if capture is None:
+        return []
+    if not isinstance(capture, dict):
+        raise WorkflowError('maintenance_capture_scope')
+    steps = capture.get('maintenance', [])
+    if not isinstance(steps, list) or any(
+        not isinstance(step, dict) or not isinstance(step.get('name'), str) or not step['name']
+        for step in steps
+    ):
+        raise WorkflowError('maintenance_capture_scope')
+    return [step['name'] for step in steps]
 
 
 def journal_path(policy: dict[str, Any]) -> Path:
@@ -497,47 +780,116 @@ class LocalCapture:
             if value.get('owner') != policy.get('_owner'):
                 raise WorkflowError('journal_owner')
             allowed = set(policy['stop_groups']['applications'] + policy['stop_groups']['databases'])
+            allowed_maintenance = set(_policy_maintenance_names(policy))
             running = value['running_services']
             order = value.get('stop_order', list(allowed))
-            if (not isinstance(order, list) or any(not isinstance(s, str) or s not in allowed for s in running + order)
+            maintenance = value.get('maintenance_services', [])
+            if (not isinstance(order, list) or not isinstance(maintenance, list)
+                    or any(not isinstance(s, str) or s not in allowed for s in running + order)
+                    or any(not isinstance(s, str) or s not in allowed_maintenance or s not in MAINTENANCE_HANDLERS
+                           for s in maintenance)
                     or len(set(running)) != len(running) or len(set(order)) != len(order)
+                    or len(set(maintenance)) != len(maintenance)
                     or not set(running) <= set(order)):
                 raise WorkflowError('journal_schema')
-            self._restart(value)
+            self._restart(value, allow_fallback=True, deadline_seconds=RECOVER_HEALTH_DEADLINE_SECONDS)
 
-    def _restart(self, journal: dict[str, Any]) -> None:
+    def _start_stopped_services(
+        self, running: set[str], stop_order: list[str], *,
+        deadline: float | None = None, deadline_seconds: int = RESTART_HEALTH_DEADLINE_SECONDS,
+    ) -> WorkflowError | None:
         policy = self.policy
-        running = set(journal.get("running_services", []))
-        stop_order = journal.get("stop_order", [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]])
-        failed = False
+        restart_error: WorkflowError | None = None
         for service in reversed(stop_order):
             if service in running:
                 try:
                     require_success(compose(policy, ["start", service]), "service_restart")
-                except WorkflowError:
-                    if service == 'gluetun':
+                except WorkflowError as error:
+                    if str(error) == 'interrupted':
                         raise
+                    if service == 'gluetun':
+                        restart_error = error
+                        break
                     # A failed application must not strand the rest of the pause set.
-                    failed = True
+                    restart_error = restart_error or WorkflowError('service_restart')
                     continue
                 if service == "gluetun":
                     # Its network-namespace clients require a healthy VPN before start.
-                    deadline = time.monotonic() + (3 if testing() else 300)
-                    while time.monotonic() < deadline:
+                    wait_deadline = (
+                        deadline if deadline is not None
+                        else time.monotonic() + (3 if testing() else deadline_seconds)
+                    )
+                    while (remaining := wait_deadline - time.monotonic()) > 0:
                         if service_healthy(policy, service):
                             break
-                        time.sleep(0.1 if testing() else 5)
+                        time.sleep(min(0.1 if testing() else 5, remaining))
                     else:
-                        raise WorkflowError("service_health")
-        if failed:
-            raise WorkflowError('service_restart')
-        deadline = time.monotonic() + (3 if testing() else 300)
-        while time.monotonic() < deadline:
-            if (all(service_healthy(policy, service) for service in running) and
-                    ('nextcloud' not in running or nextcloud_healthy(policy))):
-                durable_unlink(journal_path(policy))
-                return
-            time.sleep(0.1 if testing() else 5)
+                        restart_error = WorkflowError("service_health")
+                        break
+        return restart_error
+
+    def _restart(
+        self, journal: dict[str, Any], *, allow_fallback: bool = False,
+        deadline_seconds: int = RESTART_HEALTH_DEADLINE_SECONDS,
+    ) -> None:
+        policy = self.policy
+        running = set(journal.get("running_services", []))
+        stop_order = journal.get("stop_order", [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]])
+        maintenance = list(journal.get("maintenance_services", []))
+        if len(set(maintenance)) != len(maintenance) or any(service not in MAINTENANCE_HANDLERS for service in maintenance):
+            raise WorkflowError('journal_schema')
+        deadline = time.monotonic() + (3 if testing() else deadline_seconds)
+        with _command_deadline(deadline):
+            disabled: set[str] = set()
+            verified: set[str] = set()
+            # Track services whose exit() already ran this tick so a
+            # (disabled=True, ready=False) or failed attempt sleeps before
+            # re-probing. Run the initial maintenance exit before starting
+            # stopped services so a stalled VPN restart cannot starve it.
+            attempted_exit: set[str] = set()
+            for service in maintenance:
+                attempted_exit.add(service)
+                outcome = MAINTENANCE_HANDLERS[service].exit(policy, allow_fallback=allow_fallback)
+                if outcome.disabled:
+                    disabled.add(service)
+                if outcome.ready:
+                    verified.add(service)
+            restart_error = self._start_stopped_services(running, stop_order, deadline=deadline)
+            if restart_error is not None and len(disabled) == len(maintenance):
+                raise restart_error
+            while True:
+                for service in maintenance:
+                    if service in disabled or service in attempted_exit:
+                        continue
+                    attempted_exit.add(service)
+                    outcome = MAINTENANCE_HANDLERS[service].exit(policy, allow_fallback=allow_fallback)
+                    if outcome.disabled:
+                        disabled.add(service)
+                    if outcome.ready:
+                        verified.add(service)
+                if len(disabled) == len(maintenance):
+                    if restart_error is not None:
+                        raise restart_error
+                    if all(service_healthy(policy, service) for service in running):
+                        maintenance_ok = all(
+                            service in verified or (
+                                service not in attempted_exit
+                                and MAINTENANCE_HANDLERS[service].verified(policy, allow_fallback=allow_fallback)
+                            )
+                            for service in maintenance
+                        )
+                        nextcloud_ok = 'nextcloud' not in running or nextcloud_healthy(policy)
+                        if maintenance_ok and nextcloud_ok:
+                            durable_unlink(journal_path(policy))
+                            return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.1 if testing() else 5, remaining))
+                attempted_exit.clear()
+                verified.clear()
+        if restart_error is not None:
+            raise restart_error
         raise WorkflowError("service_health")
 
     def _read_manifest(self, stage):
@@ -580,8 +932,11 @@ class LocalCapture:
     def _zfs_intent(self, adapter, stage):
         policy = self.policy
         value = read_json(stage / 'zfs-source.json', {})
+        required = {'version', 'capture', 'owner', 'production_owner', 'running_services', 'record'}
+        allowed_maintenance = set(_policy_maintenance_names(policy))
+        maintenance = value.get('maintenance_services', []) if isinstance(value, dict) else []
         if (not isinstance(value, dict) or
-                set(value) != {'version', 'capture', 'owner', 'production_owner', 'running_services', 'record'} or
+                not required <= set(value) or set(value) - required > {'maintenance_services'} or
                 value['version'] != 1 or not isinstance(value['capture'], str) or
                 re.fullmatch('[0-9a-f]{32}', value['capture']) is None or
                 value['owner'] != hashlib.sha256(value['capture'].encode()).hexdigest() or
@@ -589,7 +944,11 @@ class LocalCapture:
                 not isinstance(value['running_services'], list) or
                 any(not isinstance(service, str) for service in value['running_services']) or
                 len(value['running_services']) != len(set(value['running_services'])) or
-                not set(value['running_services']) <= set(policy['stop_groups']['applications'])):
+                not set(value['running_services']) <= set(policy['stop_groups']['applications']) or
+                not isinstance(maintenance, list) or
+                any(not isinstance(service, str) for service in maintenance) or
+                len(maintenance) != len(set(maintenance)) or
+                not set(maintenance) <= allowed_maintenance):
             raise WorkflowError('snapshot_state')
         if value['record'] is not None:
             adapter.zfs_record(adapter.zfs_spec(policy), value['record'],
@@ -726,6 +1085,7 @@ class LocalCapture:
                 raise WorkflowError('previous_snapshot_requires_inspection')
         if plan.sources.state:
             adapter.state_snapshot_preflight(policy, stage)
+        self._prepare_maintenance(plan)
         adapter.capacity_check(plan, stage, settings['reserve_bytes'], policy['runner']['exclude_file_path'])
         adapter.fresh_stage(stage, settings['reserve_bytes'])
         return plan
@@ -738,7 +1098,8 @@ class LocalCapture:
         began = datetime.now(timezone.utc).isoformat()
         self._pause_writers(adapter, plan, stage, token)
         finished = datetime.now(timezone.utc).isoformat()
-        captures.extend({'name': name, 'started_at': began, 'finished_at': finished} for name in plan.cold_names)
+        shared_names = [*plan.cold_names, *plan.maintenance_names]
+        captures.extend({'name': name, 'started_at': began, 'finished_at': finished} for name in shared_names)
         zfs = self._zfs_intent(adapter, stage) if plan.sources.zfs else None
         if zfs is not None:
             if zfs['record'] is None:
@@ -754,13 +1115,28 @@ class LocalCapture:
         manifest = {'version': 2, 'capture': token, 'captured_at': captured_at, 'artifact': artifact_hash(policy),
                     'owner': policy.get('_owner'), 'policy': policy_hash, 'links': {}, 'captures': captures,
                     'databases': plan.databases}
+        zfs_created = None
         if zfs is not None:
             manifest['zfs_source'] = zfs['record']
             manifest['zfs_paths'] = plan.sources.zfs
+            zfs_created = zfs['record']['created']
+            zfs_only = [name for name in plan.zfs_names if name not in plan.state_names]
+            if zfs_only:
+                zfs_captured = datetime.fromtimestamp(zfs_created, timezone.utc).isoformat()
+                captures.extend({'name': name, 'started_at': zfs_captured, 'finished_at': zfs_captured}
+                                for name in zfs_only)
         if state is not None:
             manifest['state_source'] = state
-            captured = datetime.fromtimestamp(state['created'], timezone.utc).isoformat()
-            captures.extend({'name': name, 'started_at': captured, 'finished_at': captured} for name in plan.state_names)
+            state_created = state['created']
+            captured = datetime.fromtimestamp(state_created, timezone.utc).isoformat()
+            zfs_names = set(plan.zfs_names)
+            for name in plan.state_names:
+                if zfs_created is not None and name in zfs_names:
+                    started_at = datetime.fromtimestamp(min(zfs_created, state_created), timezone.utc).isoformat()
+                    finished_at = datetime.fromtimestamp(max(zfs_created, state_created), timezone.utc).isoformat()
+                else:
+                    started_at, finished_at = captured, captured
+                captures.append({'name': name, 'started_at': started_at, 'finished_at': finished_at})
         # A ready manifest is a crash-recovery promise: flush staged data first.
         adapter.command(['/usr/bin/sync', '--file-system', str(stage)])
         atomic_json(stage / 'manifest.json', manifest, 0o600)
@@ -777,9 +1153,11 @@ class LocalCapture:
             began = datetime.now(timezone.utc).isoformat()
             if step.get('native') == 'postgres':
                 spec = step['databases'][0]
+                verified_roots: dict[str, dict] = {}
                 adapter.retry(lambda: adapter.online_postgres(
                     step['paths'], stage / 'files', excludes,
-                    spec=spec, target=stage / 'databases' / spec['name']))
+                    spec=spec, target=stage / 'databases' / spec['name'],
+                    verified=verified_roots))
             elif step.get('native') == 'mosquitto':
                 container = service_container(policy, step['service'])
                 running = service_running(policy, step['service'])
@@ -813,6 +1191,55 @@ class LocalCapture:
                          'finished_at': datetime.now(timezone.utc).isoformat()})
         return captures
 
+    def _prepare_maintenance(self, plan) -> tuple[list[str], dict[str, str]]:
+        active: list[str] = []
+        targets: dict[str, str] = {}
+        for step in plan.maintenance:
+            handler = MAINTENANCE_HANDLERS.get(step['name'])
+            if handler is None:
+                raise WorkflowError('maintenance_capture_scope')
+            targets[step['name']] = handler.prepare(self.policy, step)
+            active.append(step['name'])
+        return active, targets
+
+    def _enter_maintenance(
+        self, adapter, plan, targets: dict[str, str], entered: set[str] | None = None,
+    ) -> None:
+        if not targets:
+            return
+        started = time.monotonic()
+        for step in plan.maintenance:
+            name = step['name']
+            on_begin = (lambda name=name: entered.add(name)) if entered is not None else None
+            MAINTENANCE_HANDLERS[name].enter(self.policy, adapter, step, targets[name], on_begin)
+        report_phase('maintenance_enter', started)
+
+    def _verify_maintenance_active(self, adapter, plan, targets: dict[str, str]) -> None:
+        for step in plan.maintenance:
+            MAINTENANCE_HANDLERS[step['name']].verify_active(self.policy, adapter, targets[step['name']])
+
+    def _take_shared_snapshots(self, adapter, plan, stage, state: dict[str, Any]) -> None:
+        policy = self.policy
+        started = time.monotonic()
+        adapter.command(['/usr/bin/sync', '--file-system', '/mnt/storage'])
+        spec = adapter.zfs_spec(policy)
+        # Persist intent before the side effect. Lost acknowledgement retains
+        # it for inspection; never recapture from mutable live data.
+        atomic_json(stage / 'zfs-source.json', state)
+        state['record'] = adapter.zfs_record(spec, adapter.zfs_call(spec, {
+            'action': 'create', 'capture': state['capture'], 'owner': state['owner'],
+        }), capture=state['capture'], owner=state['owner'])
+        atomic_json(stage / 'zfs-source.json', state)
+        report_phase('zfs_snapshot', started)
+        if plan.sources.state:
+            started = time.monotonic()
+            adapter.command(['/usr/bin/sync', '--file-system', '/srv/home-lab-state'])
+            response = adapter.zfs_call(spec, {'action': 'state-create', 'capture': state['capture'],
+                                              'owner': state['owner']})
+            receipt = adapter.state_snapshot_record(policy, response, state['capture'], state['owner'])
+            atomic_json(stage / 'state-source.json', receipt)
+            report_phase('state_snapshot', started)
+
     def _pause_writers(self, adapter, plan, stage, token):
         policy = self.policy
         services = plan.pause_services
@@ -825,55 +1252,60 @@ class LocalCapture:
             baseline = adapter.retry(lambda: adapter.precopy(plan.precopy, stage / 'files', excludes))
             report_phase('precopy_local', started)
         running = [s for s in services if service_running(policy, s)]
+        active_maintenance, maintenance_targets = self._prepare_maintenance(plan)
         if plan.sources.zfs:
             if (stage / 'zfs-source.json').exists():
                 raise WorkflowError('snapshot_scope')
             state = {'version': 1, 'capture': token, 'owner': hashlib.sha256(token.encode()).hexdigest(),
                      'production_owner': policy.get('_owner'), 'running_services': running, 'record': None}
+            if active_maintenance:
+                state['maintenance_services'] = active_maintenance
         journal = {'version': 1, 'running_services': running, 'stop_order': services,
                    'started_at': int(time.time()), 'owner': policy.get('_owner')}
+        if active_maintenance:
+            journal['maintenance_services'] = active_maintenance
         atomic_json(journal_path(policy), journal, 0o600)
+        entered_maintenance: set[str] = set()
         interrupted = time.monotonic()
         try:
             if running:
                 require_success(compose(policy, ['stop', '--timeout', '120', *running]), 'service_stop')
             if any(service_running(policy, s) for s in services):
                 raise WorkflowError('writer_not_stopped')
-            report_phase('shutdown', interrupted)
-            started = time.monotonic()
-            if plan.precopy:
-                adapter.retry(lambda: adapter.finish_copy(plan.precopy, stage / 'files', excludes, baseline=baseline))
-            if plan.paused_copy:
-                adapter.retry(lambda: adapter.copy_paths(plan.paused_copy, stage / 'files', excludes))
-            report_phase('final_copy_local', started)
-            started = time.monotonic()
-            for dump in plan.cold_dumps:
-                adapter.retry(lambda: adapter.database_dump(dump, stage / 'databases' / dump['name']))
-            report_phase('sql_exports', started)
-            if plan.sources.zfs:
+            if running:
+                report_phase('shutdown', interrupted)
+            self._enter_maintenance(adapter, plan, maintenance_targets, entered_maintenance)
+            if plan.precopy or plan.paused_copy:
                 started = time.monotonic()
-                adapter.command(['/usr/bin/sync', '--file-system', '/mnt/storage'])
-                spec = adapter.zfs_spec(policy)
-                # Persist intent before the side effect. Lost acknowledgement retains
-                # it for inspection; never recapture from mutable live data.
-                atomic_json(stage / 'zfs-source.json', state)
-                state['record'] = adapter.zfs_record(spec, adapter.zfs_call(spec, {
-                    'action': 'create', 'capture': state['capture'], 'owner': state['owner'],
-                }), capture=state['capture'], owner=state['owner'])
-                atomic_json(stage / 'zfs-source.json', state)
-                report_phase('zfs_snapshot', started)
-                if plan.sources.state:
-                    started = time.monotonic()
-                    adapter.command(['/usr/bin/sync', '--file-system', '/srv/home-lab-state'])
-                    response = adapter.zfs_call(spec, {'action': 'state-create', 'capture': state['capture'],
-                                                      'owner': state['owner']})
-                    receipt = adapter.state_snapshot_record(policy, response, state['capture'], state['owner'])
-                    atomic_json(stage / 'state-source.json', receipt)
-                    report_phase('state_snapshot', started)
+                if plan.precopy:
+                    adapter.retry(lambda: adapter.finish_copy(plan.precopy, stage / 'files', excludes, baseline=baseline))
+                if plan.paused_copy:
+                    adapter.retry(lambda: adapter.copy_paths(plan.paused_copy, stage / 'files', excludes))
+                report_phase('final_copy_local', started)
+            dumps = (*plan.cold_dumps, *plan.maintenance_dumps)
+            if dumps:
+                started = time.monotonic()
+                for dump in dumps:
+                    adapter.retry(lambda dump=dump: adapter.database_dump(dump, stage / 'databases' / dump['name']))
+                report_phase('sql_exports', started)
+            if plan.sources.zfs:
+                self._verify_maintenance_active(adapter, plan, maintenance_targets)
+                self._take_shared_snapshots(adapter, plan, stage, state)
+            self._verify_maintenance_active(adapter, plan, maintenance_targets)
         finally:
             started = time.monotonic()
-            self._restart(journal)
-            report_phase('restart', started)
+            remaining_maintenance = [s for s in active_maintenance if s in entered_maintenance]
+            restart_journal = dict(journal)
+            if active_maintenance:
+                restart_journal['maintenance_services'] = remaining_maintenance
+            if running and remaining_maintenance != active_maintenance:
+                try:
+                    atomic_json(journal_path(policy), restart_journal, 0o600)
+                except (WorkflowError, OSError) as error:
+                    if isinstance(error, WorkflowError) and str(error) == 'interrupted':
+                        raise
+            self._restart(restart_journal)
+            report_phase('maintenance_exit' if remaining_maintenance and not running else 'restart', started)
             report_phase('interruption_shared', interrupted)
 
     def _upload(self, adapter, stage, manifest, sources, zfs, state, attachments):
@@ -975,10 +1407,16 @@ class LocalCapture:
             backup = self._completed(rows, token, manifest)
             if not backup and time.time() - record['created'] < spec['expiry_seconds']:
                 continue
-            # Without local intent, require every known paused writer healthy.
+            # Without local intent, require every known paused/maintenance writer healthy.
+            # Snapshot deletion intentionally requires the primary nextcloud web service
+            # to pass nextcloud_healthy(), even if boot recovery exited maintenance via cron.
             running = zfs['running_services'] if zfs else policy['stop_groups']['applications']
+            maintenance = (zfs.get('maintenance_services', []) if zfs
+                           else _policy_maintenance_names(policy))
             if (any(not service_healthy(policy, service) for service in running) or
-                    ('nextcloud' in running and not nextcloud_healthy(policy))):
+                    ('nextcloud' in running and not nextcloud_healthy(policy)) or
+                    any(service not in MAINTENANCE_HANDLERS or not MAINTENANCE_HANDLERS[service].healthy(policy)
+                        for service in maintenance)):
                 raise WorkflowError('snapshot_recovery_not_verified')
             if zfs and zfs['record'] is not None and zfs['record'] != record:
                 raise WorkflowError('snapshot_replaced')

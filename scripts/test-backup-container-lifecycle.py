@@ -5,10 +5,12 @@ Opt in with BACKUP_CONTAINER_TESTS=true. Uses only uniquely named, labelled
 containers; no production mounts, host ports, credentials, or shared networks.
 """
 from contextlib import contextmanager
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -82,6 +84,38 @@ class Containers(unittest.TestCase):
         # Resolve the real Compose anchor/entrypoint rather than a fixture image.
         service = yaml.safe_load((ROOT / 'services/nextcloud.yml').read_text())['services']['nextcloud-cron']
         self.graceful_restart(service, {}, ['busybox', 'pidof', 'busybox'], entrypoint=service['entrypoint'])
+
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0, 'requires Linux root host /proc visibility')
+    def test_nextcloud_write_fd_probe_detects_www_data_writer_without_container_sys_ptrace(self):
+        spec = importlib.util.spec_from_file_location('capture_files', ROOT / 'scripts/restic-capture-files.py')
+        capture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(capture)
+        service = yaml.safe_load((ROOT / 'services/nextcloud.yml').read_text())['services']['nextcloud']
+        with self.container(service, entrypoint=['sleep', '120']) as name:
+            docker('start', name)
+            self.ready(name, ['true'])
+            docker('exec', name, 'mkdir', '-p', '/var/www/html/data')
+            docker('exec', name, 'chown', 'www-data:www-data', '/var/www/html/data')
+            self.assertFalse(capture.nextcloud_write_fds_busy(name))
+            writer = subprocess.Popen(
+                ['docker', 'exec', '--user', 'www-data', name, 'php', '-r',
+                 '$f = fopen("/var/www/html/data/drain-probe.part", "wb");'
+                 ' if (!$f) exit(1); fwrite($f, "x"); fflush($f); echo "READY\\n"; flush(); sleep(60);'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                self.assertEqual(writer.stdout.readline().strip(), 'READY')
+                self.assertTrue(capture.nextcloud_write_fds_busy(name))
+            finally:
+                writer.terminate()
+                try:
+                    writer.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    writer.kill()
+                    writer.wait(timeout=5)
+                writer.stdout.close()
+                writer.stderr.close()
+            self.assertFalse(capture.nextcloud_write_fds_busy(name))
 
     def test_openfit_exits_gracefully_and_reopens_its_database(self):
         service = yaml.safe_load((ROOT / 'services/openfit.yml').read_text())['services']['openfit']

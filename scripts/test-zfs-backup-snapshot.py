@@ -508,8 +508,12 @@ class SnapshotCapture(unittest.TestCase):
             remote.return_value = {'paths': [BROKER['NEXTCLOUD']]}
             with self.assertRaisesRegex(ValueError, 'snapshot_broker_scope'):
                 scope(policy)
-        settings = policy['capture']
-        next(step for step in settings['cold'] if '/mnt/storage/media/uchiyomi/downloads' in step['paths'])['paths'].remove('/mnt/storage/media/uchiyomi/downloads')
+        settings = copy.deepcopy(policy['capture'])
+        settings['zfs']['online_paths'].pop('uchiyomi')
+        with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
+            CAPTURE['capture_sources'](settings)
+        settings = copy.deepcopy(policy['capture'])
+        next(step for step in settings['maintenance'] if '/mnt/storage/media/nextcloud/data' in step['paths'])['paths'].remove('/mnt/storage/media/nextcloud/data')
         with self.assertRaisesRegex(ValueError, 'snapshot_policy_scope'):
             CAPTURE['capture_sources'](settings)
 
@@ -575,6 +579,22 @@ class SnapshotCapture(unittest.TestCase):
                 with self.assertRaises(RuntimeError): self.capture.expire()
                 self.assertFalse(self.adapter.zfs_call.called)
                 self.assertTrue(self.stage.exists())
+
+    def test_expire_requires_nextcloud_healthy_under_maintenance_mode_with_empty_stop_groups(self):
+        self.record['created'] = int(time.time()) - 72 * 3600 - 5
+        self.policy['stop_groups'] = {'applications': [], 'databases': []}
+        self.policy['capture']['maintenance'] = [{'name': 'nextcloud'}]
+        for with_local_intent in (True, False):
+            with self.subTest(with_local_intent=with_local_intent):
+                if with_local_intent:
+                    self.state(running_services=[], maintenance_services=['nextcloud'])
+                else:
+                    shutil.rmtree(self.stage, ignore_errors=True)
+                self.running = set()
+                self.adapter.zfs_call.reset_mock()
+                with self.assertRaisesRegex(RuntimeError, 'snapshot_recovery_not_verified'):
+                    self.capture.expire()
+                self.assertFalse(self.adapter.zfs_call.called)
 
     def test_completed_capture_can_release_snapshot_without_waiting_for_expiry(self):
         self.record['created'] = int(time.time())

@@ -6,8 +6,16 @@ const yaml = require('js-yaml');
 const compose = yaml.load(fs.readFileSync('services/apps.yml', 'utf8')).services;
 const policy = JSON.parse(fs.readFileSync('services/data/restic/policy.json', 'utf8'));
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.applications;
-const paths = [...policy.capture.cold, ...policy.capture.online].flatMap(group => group.paths)
-  .concat(policy.capture.online_stores);
+const paths = [
+  ...policy.capture.cold,
+  ...(policy.capture.maintenance || []),
+  ...policy.capture.online,
+].flatMap(group => group.paths)
+  .concat(
+    Object.values(policy.capture.state_snapshot.online_paths || {}),
+    Object.values(policy.capture.zfs.online_paths || {}),
+    policy.capture.online_stores,
+  );
 const encrypted = yaml.load(fs.readFileSync('secrets/production.sops.yaml', 'utf8'));
 
 test('Mindwtr runs a pinned, token-authenticated cloud without publishing a host port', () => {

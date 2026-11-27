@@ -466,10 +466,11 @@ Define the shared catalog root at `/libraries/books`. Do not scan the
 parent `/libraries` as a library. PostgreSQL has its own private network and local
 data directory.
 Do not load production library data until a complete capture and private
-`bookorbit` restore have been qualified. The capture stops the BookOrbit writer while it
-finalizes app/media files and exports PostgreSQL. Shelfmark shares the Dock
-and stops in the same capture group. The database directory is an estimate input, not a
-physical restore source.
+`bookorbit` restore have been qualified. BookOrbit stays online: its native
+PostgreSQL dump runs during a verified stable interval for `bookorbit-data`
+(including Shelfmark's shared `book-dock`) and `bookorbit-media`, while
+Shelfmark's own state is captured online from the local state snapshot. The
+database directory is an estimate input, not a physical restore source.
 
 BookOrbit’s first-use setup is host-only with no published port. Public ingress
 at `books.diloreto.com` denies password sign-in, manual account creation,
@@ -1077,11 +1078,22 @@ selection, and the manifest use that plan; native source checks still apply.
 Ready retries use the bound policy and saved evidence, not current Compose
 membership.
 
-Authentik stays online. Its native PostgreSQL dump runs during a verified
-stable interval for the copied media, custom templates and certificate trees.
-Concurrent database-only writes are allowed; observed companion-file changes
-retry the pair together before any stopped captures. Books and Nextcloud still
-stop their application writers around the MariaDB dumps and both snapshots.
+Authentik and BookOrbit stay online. Each native PostgreSQL dump runs
+during a verified stable interval for its copied companion files (media, custom
+templates and certificates for Authentik; `bookorbit-data` and
+`bookorbit-media` for BookOrbit, including Shelfmark's shared `book-dock`
+bind mount inside `bookorbit-data`). Concurrent database-only writes are
+allowed; observed companion-file changes retry the pair together before the
+shared snapshot window. Nextcloud and `nextcloud-cron` stay running under native
+Nextcloud maintenance mode (`occ maintenance:mode --on`, verified on Apache's
+`status.php`, then drained of active cron, host-inspected write file handles
+and MariaDB sessions across two quiet samples) across the MariaDB dump and both
+snapshots, with maintenance mode re-verified active before exit.
+Because Apache stays up, an in-flight request that began before OPcache
+revalidated maintenance mode and spends longer than the quiet-sample interval
+on CPU or network I/O between writes is not blocked at the worker level; after
+`occ maintenance:mode --off`, Apache may also continue serving maintenance
+responses for up to its OPcache revalidation interval (60 seconds).
 Vaultwarden and OpenFit stay online: native SQLite backups capture committed WAL
 data without copying live journals. A single native backup step
 avoids repeated restarts on read-only WAL heap-indexes. A write-free interval
@@ -1102,29 +1114,29 @@ Gluetun and FlareSolverr remain running. Gluetun's JSON/cookie store and DDNS's 
 reads. Curl generation comments may precede the cookie jar's Netscape header.
 Mindwtr's JSON documents and opaque attachments use a verified stable tree;
 its native `.locks` SQLite shards are runtime coordination, not recovery data,
-and are excluded from both copying and stability checks. qBittorrent stays online;
-the local snapshot preserves its last persisted torrent, queue and resume state,
-not in-memory progress that a graceful shutdown would flush. Download payloads
-are outside this backup. SABnzbd still stops: its local queue index references
-per-job state in the excluded incomplete-download tree. Recyclarr's selected
+and are excluded from both copying and stability checks. qBittorrent and SABnzbd stay online; the local snapshot preserves their last
+persisted queue and state, not in-memory progress that a graceful shutdown would
+flush. Download payloads are outside this backup. Recyclarr's selected
 settings file is read under the existing production/capture exclusion.
 Omada stays online. Its existing data root is read from the immutable local
 snapshot, keeping MongoDB's WiredTiger files and journal together with Omada's
 keystore. The excluded device firmware cache and pre-upgrade tar are unchanged.
 This captures persisted state as after an abrupt shutdown; it does not flush
 in-memory changes or contact devices.
-Sonarr, Radarr, Prowlarr, Seerr, Karaoke Eternal, Home Assistant and Z-Wave JS UI
-stay online. Their existing state trees are read only from the local snapshot,
-not copied from live mounts. This is crash-consistent capture: it preserves
-SQLite databases, committed WAL and companion files together, not a transaction
-with storage outside these trees. The frozen Z-Wave JSON and JSONL state is
+Sonarr, Radarr, Prowlarr, Seerr, Karaoke Eternal, Home Assistant, Z-Wave JS UI,
+Shelfmark, Frigate, Uchiyomi and Uchiyomi X stay online. Their existing state trees are
+read only from the local snapshot (with Frigate exports and public Uchiyomi
+downloads read from the ZFS snapshot), not copied from live mounts. This is
+crash-consistent capture: it preserves embedded databases (SQLite/WAL and
+Suwayomi H2) and companion files together, not a transaction with storage
+outside these trees. The frozen Z-Wave JSON and JSONL state is
 checked for torn writes before completion. ZHA and Z-Wave native backup
 freshness checks still apply; Restic does not signal or reset either radio.
 
-After the online captures, the runner records one restart journal and stops the
-reviewed pause set together. It completes native SQL exports, flushes NFS and
-local state, and takes one snapshot per storage backend before restarting the
-writers. Restic reads those snapshots and the selected live games directories
+After the online captures, the runner records one interruption journal, enters
+and drains Nextcloud maintenance mode (and stops any reviewed pause set, which
+is currently empty), completes the MariaDB export, flushes NFS and local state,
+and takes one snapshot per storage backend before exiting maintenance mode. Restic reads those snapshots and the selected live games directories
 through private read-only mounts at their archive paths, without copying those
 files into staging. Native exports, online companion files and capture metadata
 still use the private workspace. Interrupted captures retain their receipts for

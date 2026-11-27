@@ -64,7 +64,7 @@ installing the scheduled path; mock ZFS tests alone do not qualify it.
 
 The application-state ext4 filesystem is inside a dedicated Proxmox LVM-thin
 volume. The runner uses the fixed-origin storage broker and projects only
-reviewed cold paths at their existing archive paths. Native ext4 journal replay
+reviewed state paths at their existing archive paths. Native ext4 journal replay
 writes to a bounded disposable overlay, not to the exported read-only volume.
 The disposable Linux fixture `scripts/test-restic-state-snapshot <reviewed-restic-binary>`
 requires `HOME_LAB_STATE_SNAPSHOT_TEST_DISPOSABLE=true`, native LVM-thin and NBD
@@ -72,15 +72,21 @@ support, and an unused `/dev/nbd15`. It verifies cancellation, selected file and
 SQLite WAL restores from the original and two replicas after removing the source.
 The fixture never runs against a managed host or contacts actual replicas.
 
-Before rolling out the scheduled runner, qualify the allowed and denied peers
+Before rolling out the scheduled runner, verify that no staged capture,
+interruption journal (`interruption.json`, confirmed via `restic-backup status`
+reporting `interruption=false`), or pending ZFS snapshot (`zfs-source.json`)
+remains from a pre-upgrade `cold` policy, and qualify the allowed and denied peers
 for real control/data listeners and NFS exports, exact receipt and partition
 readback, interrupted cleanup, and a complete capture and restore from the live
-local, NFS and Proton repositories. Measure per-service downtime and total capture
-time during that run. Keep existing exports and scope. Keep Nextcloud web/cron
-and Shelfmark/BookOrbit writers paused across the SQL exports and both snapshots;
-resume them before Restic reads. Remove other pauses or native exports only
-after restoring the live-captured app with its pinned image and verifying its
-files, database and startup. Wolf's separate games disk uses an explicit live
+local, NFS and Proton repositories. Measure the Nextcloud maintenance window and total capture
+time during that run. Keep existing exports and scope. Qualify Nextcloud's
+maintenance-mode entry, writer drain, exit and crash-recovery path, BookOrbit's
+verified online dump and staged companion copy (confirming `/mnt/games` staging
+headroom and that `bookorbit-data` — including Shelfmark's shared
+`book-dock` subdirectory — remains quiescent without special files or live
+SQLite/volatile churn across the copy and dump window), and live-captured
+restores of Shelfmark, SABnzbd, Frigate, Uchiyomi and Uchiyomi X with their pinned images
+(verifying files, embedded databases and startup). Wolf's separate games disk uses an explicit live
 capture of local emulator data and ROMs, without capturing Steam/Proton state.
 Before using that policy, qualify the live selection and restores against the
 installed emulator layout.

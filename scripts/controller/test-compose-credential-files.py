@@ -134,17 +134,20 @@ class ComposeDelivery(unittest.TestCase):
     def test_uchiyomi_uses_its_own_backed_up_state_and_keeps_vpn_egress(self):
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
         books = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']['books']
-        step = next(s for s in policy['capture']['cold'] if s['name'] == 'uchiyomi')
-        self.assertEqual(set(step['services']), {'uchiyomi', 'uchiyomi-engine'})
-        self.assertTrue(set(step['services']) <= set(books['services']) & set(policy['stop_groups']['applications']))
-        self.assertTrue(set(step['paths']) <= set(books['paths']))
-        for name in step['services']:
+        state_online = policy['capture']['state_snapshot']['online_paths']
+        zfs_online = policy['capture']['zfs']['online_paths']
+        uchiyomi_services = {'uchiyomi', 'uchiyomi-engine'}
+        uchiyomi_paths = [state_online['uchiyomi'], state_online['uchiyomi-engine'], zfs_online['uchiyomi']]
+        self.assertTrue(uchiyomi_services <= set(books['services']))
+        self.assertTrue(uchiyomi_services.isdisjoint(policy['stop_groups']['applications']))
+        self.assertTrue(set(uchiyomi_paths) <= set(books['paths']))
+        for name in uchiyomi_services:
             service = self.model['services'][name]
             self.assertEqual(service['network_mode'], 'service:gluetun-comics')
             self.assertNotIn('ports', service)
             for volume in service['volumes']:
                 if volume['type'] == 'bind':
-                    self.assertTrue(any(Path(volume['source']).is_relative_to(path) for path in step['paths']))
+                    self.assertTrue(any(Path(volume['source']).is_relative_to(path) for path in uchiyomi_paths))
         service = self.model['services']['uchiyomi']
         mounts = {volume['target']: volume for volume in service['volumes']}
         self.assertEqual(mounts['/library-dl']['source'], '/mnt/storage/media/uchiyomi/downloads')
@@ -193,11 +196,10 @@ class ComposeDelivery(unittest.TestCase):
             sources = {entry['source'] for entry in service.get('secrets', [])}
             self.assertEqual('uchiyomi_x_oidc' in sources, name == 'uchiyomi-x')
         policy = json.loads((ROOT / 'services/data/restic/policy.json').read_text())
-        step = next(step for step in policy['capture']['cold'] if 'uchiyomi-x' in step['services'])
+        state_online = policy['capture']['state_snapshot']['online_paths']
         groups = json.loads((ROOT / 'recovery/groups.json').read_text())['groups']
-        self.assertEqual(set(step['services']), set(x_names[:2]))
-        self.assertTrue(set(step['services']) <= set(policy['stop_groups']['applications']))
-        self.assertEqual(step['paths'], groups['comics-x']['paths'])
+        self.assertTrue(set(x_names[:2]).isdisjoint(policy['stop_groups']['applications']))
+        self.assertEqual([state_online['uchiyomi-x']], groups['comics-x']['paths'])
         self.assertEqual(set(groups['comics-x']['services']), set(x_names))
         self.assertTrue(set(groups['comics-x']['paths']).isdisjoint(groups['books']['paths']))
 

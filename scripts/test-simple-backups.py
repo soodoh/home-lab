@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import runpy
 import shutil
+import signal
 import sqlite3
 import socketserver
 import subprocess
@@ -296,6 +297,363 @@ class Files(unittest.TestCase):
         self.assertEqual((restored / 'link').readlink(), Path('media'))
         self.assertFalse((restored / 'removed').exists())
         self.assertEqual(target.read_bytes(), b'fixture-dump')
+
+    def test_online_postgres_honors_policy_excludes_and_toggles_retry_checksum(self):
+        source, stage = self.root / 'source', self.root / 'stage'
+        cache = source / 'cache'
+        cache.mkdir(parents=True)
+        stage.mkdir()
+        keep = source / 'book.epub'
+        keep.write_bytes(b'book-data')
+        (cache / 'tmp.log').write_bytes(b'v1')
+        excludes = self.root / 'excludes'
+        excludes.write_text(f'# comment\n{cache}/**\n')
+        spec = {'engine': 'postgres', 'container': 'bookorbit-db'}
+        target = self.root / 'bookorbit.dump'
+
+        def mutate_excluded(_spec, _target):
+            (cache / 'tmp.log').write_bytes(b'v2-mutated')
+            (cache / 'new.log').write_bytes(b'created')
+
+        with mock.patch.object(CAPTURE, 'copy_paths') as copy_fresh, \
+                mock.patch.object(CAPTURE, 'database_dump', side_effect=mutate_excluded):
+            CAPTURE.online_postgres([str(source)], stage, excludes, spec=spec, target=target)
+        self.assertFalse(copy_fresh.call_args.kwargs['checksum'])
+
+        # When staged paths already exist (retry), online_postgres enables --checksum.
+        staged_source = stage / str(source).lstrip('/')
+        staged_source.mkdir(parents=True)
+        with mock.patch.object(CAPTURE, 'copy_paths') as copy_retry, \
+                mock.patch.object(CAPTURE, 'database_dump', side_effect=mutate_excluded):
+            CAPTURE.online_postgres([str(source)], stage, excludes, spec=spec, target=target)
+        self.assertTrue(copy_retry.call_args.kwargs['checksum'])
+
+        # A dangling symlink in staging also triggers --checksum reconciliation.
+        shutil.rmtree(staged_source)
+        staged_source.symlink_to(self.root / 'missing-target')
+        with mock.patch.object(CAPTURE, 'copy_paths') as copy_symlink_retry, \
+                mock.patch.object(CAPTURE, 'database_dump', side_effect=mutate_excluded):
+            CAPTURE.online_postgres([str(source)], stage, excludes, spec=spec, target=target)
+        self.assertTrue(copy_symlink_retry.call_args.kwargs['checksum'])
+        staged_source.unlink()
+
+        def mutate_included(_spec, _target):
+            keep.write_bytes(b'changed')
+
+        with mock.patch.object(CAPTURE, 'copy_paths'), \
+                mock.patch.object(CAPTURE, 'database_dump', side_effect=mutate_included), \
+                self.assertRaisesRegex(CAPTURE.CaptureError, 'online_source_changed'):
+            CAPTURE.online_postgres([str(source)], stage, excludes, spec=spec, target=target)
+
+    def test_online_postgres_skips_unchanged_verified_roots_on_retry(self):
+        data, media, stage = self.root / 'bookorbit-data', self.root / 'bookorbit-media', self.root / 'stage'
+        data.mkdir(); media.mkdir(); stage.mkdir()
+        (data / 'state.json').write_text('{"v": 1}')
+        (media / 'book.epub').write_bytes(b'large-book')
+        excludes = self.root / 'excludes'
+        excludes.write_text('')
+        spec = {'engine': 'postgres', 'container': 'bookorbit-db'}
+        target = self.root / 'bookorbit.dump'
+        verified = {}
+        copies = []
+
+        def fake_copy(paths, files, _excludes, **_kwargs):
+            copies.append((list(paths), _kwargs.get('checksum')))
+            for path in paths:
+                (files / str(Path(path)).lstrip('/')).mkdir(parents=True, exist_ok=True)
+
+        attempt = 0
+        def dump_mutating_only_data(_spec, _target):
+            nonlocal attempt
+            attempt += 1
+            if attempt == 1:
+                (data / 'state.json').write_text('{"v": 2}')
+
+        with mock.patch.object(CAPTURE, 'copy_paths', side_effect=fake_copy), \
+                mock.patch.object(CAPTURE, 'database_dump', side_effect=dump_mutating_only_data):
+            with self.assertRaisesRegex(CAPTURE.CaptureError, 'online_source_changed'):
+                CAPTURE.online_postgres([str(data), str(media)], stage, excludes,
+                                        spec=spec, target=target, verified=verified)
+            # Media was unchanged across attempt 1 and is recorded verified; data is not.
+            self.assertIn(str(media), verified)
+            self.assertNotIn(str(data), verified)
+            # Retry only re-syncs bookorbit-data with checksum=True, skipping unchanged bookorbit-media.
+            CAPTURE.online_postgres([str(data), str(media)], stage, excludes,
+                                    spec=spec, target=target, verified=verified)
+        self.assertEqual(copies, [
+            ([str(data)], False),
+            ([str(media)], False),
+            ([str(data)], True),
+        ])
+
+        # If bookorbit-media later changes before another retry, its verified entry is invalidated.
+        copies.clear()
+        (media / 'book.epub').write_bytes(b'revised-book')
+        with mock.patch.object(CAPTURE, 'copy_paths', side_effect=fake_copy), \
+                mock.patch.object(CAPTURE, 'database_dump'):
+            CAPTURE.online_postgres([str(data), str(media)], stage, excludes,
+                                    spec=spec, target=target, verified=verified)
+        self.assertEqual(copies, [([str(media)], True)])
+
+    def test_policy_exclude_validation_prefix_filtering_and_glob_matching(self):
+        source, stage = self.root / 'source', self.root / 'stage'
+        cache = source / 'cache'
+        cache.mkdir(parents=True)
+        stage.mkdir()
+
+        bad_excludes = self.root / 'bad-excludes'
+        for pattern in ('relative-pattern.log', '/tmp/[0-9].log', r'/tmp/a\ b', '/**', '**/**',
+                        '/tmp/dir/', '**/', '/tmp/dir//**', '/tmp/dir//leaf', '/tmp/dir/***', '/tmp/dir/**/**',
+                        '/tmp/**/**/leaf'):
+            with self.subTest(pattern=pattern):
+                bad_excludes.write_text(pattern + '\n')
+                with self.assertRaisesRegex(CAPTURE.CaptureError, 'snapshot_exclude_shape'):
+                    CAPTURE.file_inventory([str(source)], excludes_file=bad_excludes)
+                with self.assertRaisesRegex(CAPTURE.CaptureError, 'snapshot_exclude_shape'):
+                    CAPTURE.state_snapshot_exclusions(stage, bad_excludes)
+        self.assertEqual(CAPTURE._glob_to_regex('/tmp/**/**/leaf'), r'^/tmp/(?:.*/)?leaf')
+
+        # Unrelated anchored patterns are filtered out while **/ and matching anchored ones stay active.
+        excludes = self.root / 'excludes'
+        excludes.write_text(f'/unrelated/tree/**\n{cache}/**\n**/ignored.tmp\n')
+        loaded = CAPTURE.load_policy_excludes(excludes, paths=[source])
+        self.assertEqual(len(loaded), 2)
+
+        # **/ after a non-slash character must still require a slash before the next segment,
+        # and ** / dir/** must match filenames containing newlines.
+        glob_excludes = self.root / 'glob-excludes'
+        glob_excludes.write_text('/tmp/foo**/bar\n/tmp/tree/**\n')
+        glob_rules = CAPTURE.load_policy_excludes(glob_excludes)
+        self.assertIsNone(glob_rules[0].pattern.match('/tmp/foobar'))
+        self.assertIsNotNone(glob_rules[0].pattern.match('/tmp/foo/bar'))
+        self.assertIsNotNone(glob_rules[0].pattern.match('/tmp/foo1/nested/bar'))
+        self.assertIsNotNone(glob_rules[0].pattern.match('/tmp/foo\nline/bar'))
+        self.assertIsNotNone(glob_rules[1].child_pattern.match('/tmp/tree/sub\nfile.txt'))
+
+    def test_file_inventory_excludes_apply_to_online_tree_precopy_and_ancestors(self):
+        # dir/** still validates the directory itself (rejects symlinks/special files rsync would copy).
+        tree_src = self.root / 'tree-source'
+        tree_cache = tree_src / 'icon_cache'
+        tree_cache.mkdir(parents=True)
+        (tree_src / 'state.json').write_text('{"ok": true}')
+        (tree_cache / 'icon.png').write_bytes(b'v1')
+        tree_stage = self.root / 'tree-stage'
+        (tree_stage / str(tree_src).lstrip('/')).mkdir(parents=True)
+        (tree_stage / str(tree_src).lstrip('/') / 'state.json').write_text('{"ok": true}')
+        tree_excludes = self.root / 'tree-excludes'
+        tree_excludes.write_text(f'{tree_cache}/**\n')
+        def mutate_tree_cache(*_args, **_kwargs):
+            (tree_cache / 'icon.png').write_bytes(b'v2-changed')
+        with mock.patch.object(CAPTURE, 'copy_paths', side_effect=mutate_tree_cache):
+            CAPTURE.online_tree([str(tree_src)], tree_stage, tree_excludes,
+                                sqlite_paths=[], json_roots=[str(tree_src)])
+
+        shutil.rmtree(tree_cache)
+        tree_cache.symlink_to(tree_src / 'state.json')
+        with mock.patch.object(CAPTURE, 'copy_paths'), \
+                self.assertRaisesRegex(CAPTURE.CaptureError, 'online_source_symlink'):
+            CAPTURE.online_tree([str(tree_src)], tree_stage, tree_excludes,
+                                sqlite_paths=[], json_roots=[str(tree_src)])
+
+        # precopy and finish_copy also honor policy excludes.
+        pre_src = self.root / 'pre-source'
+        pre_excluded = pre_src / 'excluded'
+        pre_excluded.mkdir(parents=True)
+        os.mkfifo(pre_excluded / 'pipe')
+        (pre_src / 'keep.txt').write_text('ok')
+        pre_excludes = self.root / 'pre-excludes'
+        pre_excludes.write_text(f'{pre_excluded}/**\n')
+        with mock.patch.object(CAPTURE, 'copy_paths'):
+            baseline = CAPTURE.precopy([str(pre_src)], self.root / 'pre-stage', pre_excludes)
+            CAPTURE.finish_copy([str(pre_src)], self.root / 'pre-stage', pre_excludes, baseline=baseline)
+
+        # Non-subtree exclude rules also match ancestor directories above a source root.
+        nested_dir = self.root / '.local/share/Steam/userdata'
+        nested_dir.mkdir(parents=True)
+        (nested_dir / 'state.bin').write_bytes(b'ignored')
+        ancestor_excludes = self.root / 'ancestor-excludes'
+        ancestor_excludes.write_text('**/.local/share/Steam\n')
+        self.assertEqual(CAPTURE.file_inventory([str(nested_dir)], excludes_file=ancestor_excludes), {})
+
+    def test_mariadb_idle_parses_active_session_counts_and_bounds_timeout(self):
+        with mock.patch.object(CAPTURE, '_run_probe',
+                               return_value=subprocess.CompletedProcess([], 0, '0\n', '')) as probe:
+            self.assertTrue(CAPTURE.mariadb_idle('nextcloud-db'))
+            self.assertEqual(probe.call_args.args[0][:3], ['/usr/bin/docker', 'exec', 'nextcloud-db'])
+            self.assertIn('--connect-timeout=10', probe.call_args.args[0][-1])
+            self.assertIn('SET STATEMENT max_statement_time=15 FOR SELECT', probe.call_args.args[0][-1])
+            self.assertIn("COALESCE(USER, '') != 'system user'", probe.call_args.args[0][-1])
+            self.assertIn("COALESCE(COMMAND, '') NOT IN ('Sleep', 'Daemon')", probe.call_args.args[0][-1])
+            self.assertEqual(probe.call_args.kwargs.get('timeout'), 30)
+        with mock.patch.object(CAPTURE, '_run_probe',
+                               return_value=subprocess.CompletedProcess([], 0, '2\n', '')):
+            self.assertFalse(CAPTURE.mariadb_idle('nextcloud-db'))
+        for bad_result in (subprocess.CompletedProcess([], 0, 'not-a-count\n', ''),
+                           subprocess.CompletedProcess([], 0, '²\n', ''),
+                           subprocess.CompletedProcess([], 1, '', 'connection refused')):
+            with self.subTest(returncode=bad_result.returncode, stdout=bad_result.stdout), \
+                    mock.patch.object(CAPTURE, '_run_probe', return_value=bad_result), \
+                    self.assertRaisesRegex(CAPTURE.CaptureError, 'mariadb_drain_check'):
+                CAPTURE.mariadb_idle('nextcloud-db')
+
+    def test_retry_uses_progressive_backoff_for_online_source_changed_only(self):
+        with mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(CAPTURE.CaptureError, 'capture_phase_failed'):
+                CAPTURE.retry(lambda: (_ for _ in ()).throw(CAPTURE.CaptureError('online_source_changed')))
+        self.assertEqual([call.args[0] for call in slept.call_args_list], list(CAPTURE.ONLINE_SOURCE_RETRY_DELAYS))
+
+        with mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(CAPTURE.CaptureError, 'capture_phase_failed'):
+                CAPTURE.retry(lambda: (_ for _ in ()).throw(CAPTURE.CaptureError('online_source_changed')), attempts=1)
+        slept.assert_not_called()
+
+        with mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(CAPTURE.CaptureError, 'capture_phase_failed'):
+                CAPTURE.retry(lambda: (_ for _ in ()).throw(CAPTURE.CaptureError('capture_command')))
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [2, 2])
+
+        # Mixed live-churn followed by a transient command error keeps its own retry budget.
+        outcomes = iter([
+            CAPTURE.CaptureError('online_source_changed'),
+            CAPTURE.CaptureError('online_source_changed'),
+            CAPTURE.CaptureError('online_source_changed'),
+            CAPTURE.CaptureError('capture_command'),
+            'ok',
+        ])
+        def flaky():
+            item = next(outcomes)
+            if isinstance(item, Exception):
+                raise item
+            return item
+        with mock.patch('time.sleep') as slept:
+            self.assertEqual(CAPTURE.retry(flaky), 'ok')
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [2, 4, 8, 2])
+
+        # Caller-specified attempts larger than the backoff schedule are honored.
+        with mock.patch('time.sleep') as slept:
+            with self.assertRaisesRegex(CAPTURE.CaptureError, 'capture_phase_failed'):
+                CAPTURE.retry(lambda: (_ for _ in ()).throw(CAPTURE.CaptureError('online_source_changed')), attempts=8)
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [2, 4, 8, 12, 16, 16, 16])
+
+        # A child file vanishing mid-walk during file_inventory surfaces as online_source_changed.
+        vanish_root = self.root / 'vanish-root'
+        vanish_root.mkdir()
+        vanishing = vanish_root / 'ephemeral.tmp'
+        vanishing.write_text('temp')
+        real_lstat = Path.lstat
+        def lstat_vanished(path_obj):
+            if path_obj == vanishing:
+                raise FileNotFoundError(str(path_obj))
+            return real_lstat(path_obj)
+        with mock.patch.object(Path, 'lstat', lstat_vanished), \
+                self.assertRaisesRegex(CAPTURE.CaptureError, '^online_source_changed$'):
+            CAPTURE.file_inventory([str(vanish_root)])
+
+    def test_mariadb_client_prologue_cleans_up_and_exits_on_signal(self):
+        secret = self.root / 'db-password'
+        secret.write_text('p"a\\s\n')
+        continued = self.root / 'continued'
+        script = (
+            CAPTURE.MARIADB_CLIENT_PROLOGUE
+            + f'printf "%s\\n" "$f"; sleep 0.3; : > "{continued}"'
+        )
+        proc = subprocess.Popen(
+            ['/bin/sh', '-ec', script],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={'PATH': '/usr/bin:/bin', 'MARIADB_ROOT_PASSWORD_FILE': str(secret)},
+        )
+        try:
+            temp_path = Path(proc.stdout.readline().strip())
+            self.assertTrue(temp_path.exists())
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(timeout=10)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+            proc.stdout.close()
+            proc.stderr.close()
+        self.assertEqual(proc.returncode, 143)
+        self.assertFalse(temp_path.exists())
+        self.assertFalse(continued.exists())
+
+    def test_nextcloud_write_fds_busy_inspects_host_proc_and_fails_closed_on_permission_error(self):
+        proc_root = self.root / 'proc'
+        def setup_pid(pid, fds):
+            fd_dir = proc_root / str(pid) / 'fd'
+            info_dir = proc_root / str(pid) / 'fdinfo'
+            fd_dir.mkdir(parents=True, exist_ok=True)
+            info_dir.mkdir(parents=True, exist_ok=True)
+            for num, (target, flags) in fds.items():
+                link = fd_dir / str(num)
+                if link.exists() or link.is_symlink():
+                    link.unlink()
+                link.symlink_to(target)
+                (info_dir / str(num)).write_text(f'pos:\t0\nflags:\t{flags}\n')
+
+        top_ok = subprocess.CompletedProcess([], 0, 'PID\n101\n102\n', '')
+        # Read-only data FD, unrelated writable FD, and writable nextcloud.log -> idle.
+        setup_pid(101, {3: ('/var/www/html/data/user/file.bin', '0100000')})
+        setup_pid(102, {
+            4: ('/var/www/html/data/nextcloud.log', '0102001'),
+            5: ('/var/www/html/data/nextcloud.log.1 (deleted)', '0102001'),
+            6: ('/var/log/apache2/access.log', '0102001'),
+        })
+        with mock.patch.object(CAPTURE, '_run_probe', return_value=top_ok):
+            self.assertFalse(CAPTURE.nextcloud_write_fds_busy('nextcloud', proc_root=proc_root))
+
+        # Writable FD under /var/www/html/data or /tmp/php* (or malformed fdinfo flags) -> busy.
+        for target, flags in (
+            ('/var/www/html/data/user/upload.part', '0100001'),
+            ('/var/www/html/config/config.php', '0100002'),
+            ('/tmp/phpAbCdEf', '02100002'),
+            ('/var/tmp/oc_tmp_123', '0100001'),
+            ('/var/www/html/data/user/file.bin', '0100000xyz'),
+        ):
+            with self.subTest(target=target, flags=flags):
+                setup_pid(102, {7: (target, flags)})
+                with mock.patch.object(CAPTURE, '_run_probe', return_value=top_ok):
+                    self.assertTrue(CAPTURE.nextcloud_write_fds_busy('nextcloud', proc_root=proc_root))
+
+        # Vanished PID between docker top and /proc scan -> conservative busy (retry).
+        with mock.patch.object(CAPTURE, '_run_probe',
+                               return_value=subprocess.CompletedProcess([], 0, 'PID\n101\n99999\n', '')):
+            self.assertTrue(CAPTURE.nextcloud_write_fds_busy('nextcloud', proc_root=proc_root))
+
+        # PermissionError reading a worker's /proc/<pid>/fd fails closed instead of returning idle.
+        setup_pid(102, {4: ('/var/log/apache2/access.log', '0100000')})
+        real_iterdir = Path.iterdir
+        def deny_worker(path):
+            if path == proc_root / '102' / 'fd':
+                raise PermissionError('EACCES')
+            return real_iterdir(path)
+        with mock.patch.object(CAPTURE, '_run_probe', return_value=top_ok), \
+                mock.patch.object(Path, 'iterdir', deny_worker), \
+                self.assertRaisesRegex(CAPTURE.CaptureError, 'nextcloud_drain_check'):
+            CAPTURE.nextcloud_write_fds_busy('nextcloud', proc_root=proc_root)
+
+        # Invalid or failing docker top output fails closed.
+        for bad_top in (
+            subprocess.CompletedProcess([], 1, '', 'daemon error'),
+            subprocess.CompletedProcess([], 0, 'PID\n', ''),
+            subprocess.CompletedProcess([], 0, 'WRONG\n101\n', ''),
+            subprocess.CompletedProcess([], 0, 'PID\nnotapid\n', ''),
+            subprocess.CompletedProcess([], 0, 'PID\n²\n', ''),
+        ):
+            with self.subTest(bad_top=bad_top.stdout), \
+                    mock.patch.object(CAPTURE, '_run_probe', return_value=bad_top), \
+                    self.assertRaisesRegex(CAPTURE.CaptureError, 'nextcloud_drain_check'):
+                CAPTURE.nextcloud_write_fds_busy('nextcloud', proc_root=proc_root)
+
+    def test_nextcloud_cron_busy_interprets_exit_codes_and_fails_closed(self):
+        with mock.patch.object(CAPTURE, '_run_probe', return_value=subprocess.CompletedProcess([], 10, '', '')):
+            self.assertTrue(CAPTURE.nextcloud_cron_busy('nextcloud-cron'))
+        with mock.patch.object(CAPTURE, '_run_probe', return_value=subprocess.CompletedProcess([], 0, '', '')):
+            self.assertFalse(CAPTURE.nextcloud_cron_busy('nextcloud-cron'))
+        for code in (1, 2):
+            with mock.patch.object(CAPTURE, '_run_probe', return_value=subprocess.CompletedProcess([], code, '', 'err')), \
+                    self.assertRaisesRegex(CAPTURE.CaptureError, 'nextcloud_drain_check'):
+                CAPTURE.nextcloud_cron_busy('nextcloud-cron')
 
     @unittest.skipUnless(sys.platform == 'linux', 'requires native Linux rsync metadata support')
     def test_mosquitto_requires_a_fresh_atomic_native_flush_and_preserves_stopped_state(self):
