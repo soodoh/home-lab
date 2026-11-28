@@ -75,7 +75,7 @@ services:
       - bookorbit-arr
 
   bookorbit-db:
-    image: pgvector/pgvector:0.8.3-pg18@sha256:c8a919765f2ef63681329fa21021b830cd4d79d1165bdca730dd016014e4da84
+    image: pgvector/pgvector:0.8.7-pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
     container_name: bookorbit-db
     restart: unless-stopped
     logging: *default-logging
